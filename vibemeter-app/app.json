@@ -1,0 +1,73 @@
+{
+  "expo": {
+    "name": "VibeMeter",
+    "slug": "vibemeter",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.vibemeter.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "VibeMeter measures ambient sound levels to compute vibe scores. No audio is recorded or stored.",
+        "NSLocationWhenInUseUsageDescription": "VibeMeter uses your location to detect when you arrive at and leave venues.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "VibeMeter tracks your location in the background to measure how long you stay at a venue.",
+        "NSBluetoothAlwaysUsageDescription": "VibeMeter scans for nearby Bluetooth devices to estimate crowd density. No device identities are stored.",
+        "UIBackgroundModes": ["location", "audio", "bluetooth-central", "fetch", "processing"]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#000000"
+      },
+      "package": "com.vibemeter.app",
+      "permissions": [
+        "RECORD_AUDIO",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "BLUETOOTH",
+        "BLUETOOTH_ADMIN",
+        "BLUETOOTH_SCAN",
+        "BLUETOOTH_CONNECT"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 23
+          }
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "VibeMeter tracks your location in the background to measure how long you stay at a venue."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#00FF88"
+        }
+      ]
+    ],
+    "scheme": "vibemeter"
+  }
+}
