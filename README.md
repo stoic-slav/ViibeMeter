@@ -191,6 +191,59 @@ You can reach 50 labels in **2-3 weekends** with 3-4 active testers each doing o
 
 ---
 
+## The Fast Path: One Big Event
+
+One well-organized multi-DJ night with pre-recruited testers can hit the entire 150-sample target in a single evening — weeks of casual collection compressed into one night.
+
+### Why Multiple DJs Is Ideal
+
+Each DJ set is a built-in controlled experiment:
+
+- Different BPM range, different energy level, different crowd response per set
+- Set transitions = natural energy dips then rebuilds — exactly the dynamics to model
+- B2B sets or genre shifts give you 4-6 distinct labeled conditions in one night
+- If 3 different DJs produce measurably different sensor readings that match ratings, that's strong validation
+
+### Realistic Data Yield
+
+| Testers | Session length | Ratings per tester | Total labeled samples |
+|---------|---------------|-------------------|----------------------|
+| 10 | 5 hrs | ~10 | 100 |
+| 15 | 5 hrs | ~10 | 150 |
+| 20 | 5 hrs | ~10 | 200 |
+
+### The Key: Recruit Testers 48 Hours Before, Not at the Door
+
+Getting strangers to install an app at a loud venue while drinking has ~10% success rate. Pre-recruited testers have 80%+. They install at home, show up, open the app. That's the entire ask.
+
+- Post in local nightlife / music Facebook groups, Resident Advisor, Discord servers
+- Pitch: "Help us build an app that measures venue energy — come to [event], install the app, rate the vibe every 30 min, free entry / drink ticket"
+- Send a short voice note briefing the day before — less friction than written instructions
+- Target people who are going out anyway. You're not changing their plans, just adding an app.
+
+### Best Event Formats
+
+**1. Piggyback on an existing warehouse or club night (easiest)**
+Approach a promoter running a multi-DJ event. Pitch: *"We're running a tech experiment measuring crowd energy — we'll give you a full report showing exactly when your crowd peaked, which DJ set had the highest energy, how the night arc looked."* They get free analytics, you get a venue full of people and a reason to recruit testers. Promoters love this — makes them look innovative.
+
+**2. Host your own small event (most control)**
+Rent a small venue, 3-4 DJs, 50-100 people, recruit 15-20 as sensors. You control the schedule, DJ changeovers, and prompt timing. More effort to organize but maximum experimental control.
+
+**3. Music festival (highest volume, hardest to execute)**
+Multiple stages = multiple simultaneous BPM/energy readings. Testers moving between stages = cross-venue comparison within one event. Hard to partner with organizers but worth pursuing if you have the connections.
+
+### What to Give the Venue/Promoter Afterward
+
+A one-page report showing:
+- Energy arc across the night (dB + movement over time)
+- Which DJ set scored highest
+- When the crowd peaked vs. when people started leaving (BLE count decline)
+- Subjective ratings overlaid on sensor data
+
+This is genuinely valuable to them and costs nothing to produce from the analysis scripts. It's also a live demo of what the product can eventually do commercially.
+
+---
+
 ## Status
 
 Build succeeds. App runs on personal iPhones. Data collection pipeline and Supabase integration complete. Analysis scripts ready.
