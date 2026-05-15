@@ -120,6 +120,77 @@ Or use **Firebase App Distribution** (free) for a managed install link with vers
 
 ---
 
+## Data Collection Strategy
+
+### Start with DJ Bars / Nightclubs
+
+Best signal, highest value, clearest labels.
+
+- **BPM detection works best here** — electronic music is constant tempo (120-140 BPM), loud, dominant. Live bands and ambient crowd noise are much harder to extract BPM from.
+- **Energy arc is pronounced** — venues go from quiet (10pm) to packed (midnight) to declining (2am). That arc is exactly what you want to model.
+- **BLE density swings sharply** — you'll see the crowd filling up and emptying in the data.
+- **Commercial value is highest** — this is where the "what's the vibe right now" question is worth the most.
+
+Avoid starting with restaurants or casual bars — vibe variance is low and the audio environment is messy (multiple conversations, no dominant music source). Good as contrast later, not as primary signal.
+
+---
+
+### Session Length: Long Sessions Win
+
+Prioritize **2-3 hour sessions** over many short ones.
+
+The most valuable thing to capture is the **arc** — a venue filling up, peaking, and declining. A 20-minute session gives you a snapshot. A 3-hour session gives you a time series with real dynamics.
+
+The micro-prompt ratings every 20-30 minutes are the training labels. A 3-hour session = ~6-8 labeled data points that are temporally correlated and capture *change* — far more informative than 6 snapshots from 6 different venues on 6 different nights.
+
+Once you have 3-4 long sessions at the same venue type, start adding variety (different venues, different nights).
+
+---
+
+### Minimum Data for First Interesting Results
+
+| Target | What you need |
+|--------|--------------|
+| First correlation signal | ~50 labeled samples |
+| Publishable correlation | ~150-200 labeled samples |
+| Simple regression model | ~200+ samples, 5+ testers |
+
+A labeled sample = one micro-prompt rating with its associated sensor window.
+
+**Rough math:**
+- 3-hour session × rating every 25 min = ~7 labels per session
+- 50 labels = ~7-8 sessions
+- 150 labels = ~20-22 sessions
+
+You can reach 50 labels in **2-3 weekends** with 3-4 active testers each doing one session per weekend night.
+
+---
+
+### Testers: At Least 5, Ideally 8-10
+
+- Fewer than 5 testers = you're modeling individuals, not venues. One person's rating scale dominates.
+- 5-8 testers = enough to average out personal rating bias and phone placement differences.
+- **Critical:** testers at the **same venue at the same time** is the most powerful validation — if sensor readings match and three different people all rate it 8/10, that's real signal.
+
+**Biggest confounders to control:**
+- **Time of night** — almost all venues peak 11pm-1am regardless of actual vibe. Always log timestamps.
+- **Phone placement** — pocket vs. table vs. hand kills accelerometer comparability. Standardize: always in pocket.
+- **Tester state** — subjective ratings drift as people drink. Note session start time.
+
+---
+
+### Recommended Collection Plan
+
+**Weeks 1-2:** 2-3 testers, same DJ bar/club, Friday and Saturday nights, full 2-3 hour sessions. Establish baseline. Check if BPM and dB correlate with ratings at all.
+
+**Weeks 3-4:** Add 2-3 more testers. Try a second venue type (live music or busy cocktail bar). Start seeing cross-venue patterns.
+
+**Weeks 5-6:** Run first correlation analysis. If dB + BLE count alone predict ratings at r > 0.5, you have something real. If not, look at which signals are flat.
+
+**Decision point at ~100 samples:** Either the correlations are there and you build the model, or they're not and you've learned that cheaply. Either outcome is a win.
+
+---
+
 ## Status
 
 Build succeeds. App runs on personal iPhones. Data collection pipeline and Supabase integration complete. Analysis scripts ready.
