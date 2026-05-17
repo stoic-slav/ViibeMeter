@@ -1,353 +1,318 @@
 # ViibeMeter
 
-A sensor fusion experiment to validate whether passive phone sensor data can produce a reliable "vibe score" for social gatherings — without requiring any user input.
+Validate one hypothesis before building ViibeCheck:
 
-## What It Does
+> **Can phone sensor data produce a "vibe score" that reliably matches how people subjectively experience a social gathering?**
 
-ViibeMeter is an iOS app (React Native / Expo) that silently collects ambient sensor data at venues and correlates it against subjective ratings to answer one question:
+If yes — there's a novel primitive here worth building a product around. If no — you've saved months building the wrong thing. Every existing nightlife app (VibeCheck, Vibez, Vibeo, Vibes) relies on manual reviews and check-ins. None do passive sensor measurement. That's the gap.
 
-> Can phone sensor data objectively measure "vibe"?
-
-If yes — there's a novel primitive here worth building a product around. If no — you've saved months of building the wrong thing.
+---
 
 ## Signals Collected
+
+### Active
 
 | Signal | Source | What it proxies |
 |--------|--------|-----------------|
 | Ambient sound level (dB) | Microphone | Energy, crowd size, loudness |
-| Audio classification (music y/n) | Microphone + spectral analysis | Music vs noise |
-| BPM detection | AudD/Deezer metadata (→ ShazamKit planned) | Music tempo (when song recognized) |
-| Song recognition | Microphone + AudD API (→ ShazamKit planned) | Track identity for context |
-| Music genre | Apple Music metadata via AudD (→ ShazamKit planned) | Genre context for vibe segmentation |
+| Audio classification | Microphone + spectral analysis | Silent / talking / low music / high music / loud music |
+| Song recognition | Microphone + AudD API | Track identity for context |
+| Music genre | Apple Music metadata via AudD | Genre for vibe segmentation |
+| BPM | Deezer metadata via AudD | Music tempo (when song recognized) |
 | Crowd event detection | Microphone | Clapping, cheering, DJ drops |
 | Accelerometer magnitude | IMU | User movement / dancing |
 | Gyroscope activity | IMU | Body movement patterns |
-| Movement BPM | IMU + autocorrelation | Rhythmic movement frequency |
-| Rhythmicity score | IMU | How periodic/consistent movement is |
+| Movement BPM | IMU + autocorrelation | Rhythmic movement frequency (30–240 BPM) |
+| Rhythmicity score | IMU | How periodic/consistent the movement is (0–1) |
 | Step cadence | Pedometer | Walking vs dancing vs stationary |
-| BLE device count + trend | Bluetooth | Crowd density proxy |
 | Phase coherence | Audio + motion fusion | Whether body movement matches music BPM |
+| BLE device count + trend | Bluetooth | Crowd density proxy — filling / stable / thinning |
 | Dwell time | Session duration | How long user stays |
-| Micro-prompt rating | User input (every 5 min) | Ground truth / training label |
+| Micro-prompt rating | User input every 5 min | Ground truth — the training label |
 
-## Why This Matters
+### Planned improvements
 
-Every existing nightlife app (VibeCheck, Vibe, Vibeo, Vibez) relies on manual check-ins and user-generated reviews. Nobody does passive sensor measurement. The difference between "someone typed 'great vibe' at 11pm" and "ambient data shows this venue peaked at 11:15pm and is now declining" is the difference between a review and a measurement.
+**ShazamKit** (when Apple Developer account purchased — $99/yr, needed for TestFlight anyway):
+- Replace AudD with Apple's native recognition framework
+- Free, no rate limits, ~99%+ accuracy, 40M+ song catalog
+- Returns `title`, `artist`, `genres`, `isrc`, `appleMusicID`
+- Does not return BPM — keep Deezer lookup via ISRC after migration
+- Package: `expo-shazamkit` · Entitlement: `com.apple.developer.shazamkit`
 
-## Stack
+| | ShazamKit | AudD (current) |
+|---|---|---|
+| Cost | Free (included in dev account) | $5 / 1,000 requests |
+| Rate limits | None documented | Hard quota on trial |
+| Genre | Native `genres` field | Via Apple Music metadata |
+| BPM | Not included | Via Deezer metadata |
+| Speed | Native, no HTTP round-trip | ~300ms API call |
 
-- **App:** React Native + Expo (managed → bare workflow)
-- **Backend:** Supabase (PostgreSQL + real-time)
-- **Analysis:** Python scripts (`analysis/` folder)
-- **Platform:** iOS (iPhone)
+**Native PCM BPM module** (longer term):
+- AudD/ShazamKit BPM only works for recognized tracks — DJ blends and live music get nothing
+- Install `react-native-audio-record` to stream raw 16-bit PCM, run autocorrelation on-device
+- Gives real-time BPM for any music, recognized or not
+- Requires: `pod install` + `xcodebuild clean && xcodebuild build`
 
-## Project Structure
+> **Important:** Any `npm install` touching native packages requires `xcodebuild clean` before the next native rebuild. Incremental builds cache stale ExpoModulesCore objects and cause a `NativeJSLogger` crash on boot.
+
+---
+
+## Scoring System
+
+Each signal produces a 0–5 component score via piecewise linear curves defined in `src/config/constants.ts`. Composite = weighted sum:
+
+| Component | Weight | Input signals |
+|-----------|--------|--------------|
+| Energy | 30% | Audio dB |
+| Music | 25% | BPM + music detection |
+| Movement | 20% | Accelerometer magnitude |
+| Density | 15% | BLE device count |
+| Engagement | 10% | Location transitions |
+
+If a signal is unavailable its weight redistributes proportionally to present signals. A `confidence` field (0–1) tracks the fraction of signals used.
+
+---
+
+## Architecture
+
+### Stack
+
+- **App:** React Native + Expo (bare workflow after `expo prebuild`)
+- **Sensors:** `expo-sensors` (IMU, pedometer), `expo-av` (microphone), `react-native-ble-plx` (BLE)
+- **Backend:** Supabase (PostgreSQL)
+- **Analysis:** Python scripts in `/analysis/`
+
+### Data Flow
 
 ```
-vibemeter-app/     # React Native app
-  src/
-    sensors/       # Sensor collection modules
-    services/      # Supabase integration
-analysis/          # Python data analysis scripts
-PRD.md             # Full product requirements and hypothesis
-PLAN.md            # Implementation plan
-TESTER_GUIDE.md    # Guide for test participants
-PROGRESS.md        # Build progress and known issues
+Session start → SensorOrchestrator (staggered: audio 2s, motion 5s, BLE 8s, GPS 10s)
+  → 4 parallel collectors on timers
+  → every 60s: SensorWindow aggregated + scored by VibeScoreEngine
+  → written to SQLite (LocalBuffer, synced=0)
+  → every 5 min: SupabaseSync batches unsynced rows → Supabase, marks synced=1
+  → UI (meter.tsx) receives live updates via callback
+  → every 5 min: VibePrompt fires micro-rating notification
+  → Session end: SessionManager finalizes, final sync triggered
 ```
+
+### Per-user Data Storage
+
+Each device generates a random anonymous UUID on first launch (stored in iOS SecureStore). Every session and sensor window uploaded to Supabase is tagged with that `device_id`. No login, no name, no email — fully anonymous. Data queues locally when offline and uploads automatically when connectivity returns.
+
+### Key Singleton Services
+
+| Service | Purpose |
+|---------|---------|
+| `SensorOrchestrator` | Coordinates all sensors; exposes `setVibeUpdateCallback()` for UI |
+| `SessionManager` | Session lifecycle: start, end, dwell-time |
+| `LocalBuffer` | SQLite CRUD (sessions, windows, ratings — all with `synced` flag) |
+| `SupabaseSync` | Retry-aware batch upload (3 attempts, exponential backoff) |
+| `DeviceIdentity` | Persistent anonymous UUID via SecureStore |
+| `VibePrompt` | Notification scheduling + rating recording |
+
+---
+
+## Privacy
+
+- No audio ever recorded or stored — only computed metrics (dB level, BPM, classification)
+- No GPS coordinates stored server-side — only session-level venue name and dwell time
+- No Bluetooth device identities — only device count
+- All raw sensor data stays on-device; only aggregated 1-minute windows are uploaded
+- Users identified by anonymous device ID only
+
+---
 
 ## Building & Running
-
-### Prerequisites
-- Xcode 26+ with iOS 26 platform support
-- CocoaPods (`brew install cocoapods`)
-- Node.js + npm
-
-### Build
 
 ```bash
 cd vibemeter-app
 npm install
-npx expo prebuild
-cd ios && pod install && cd ..
-xcodebuild -workspace ios/VibeMeter.xcworkspace -scheme VibeMeter -configuration Debug \
+npx expo prebuild          # generates ios/ and android/ (required once)
+cd ios && pod install      # install native pods
+
+# Build for device
+xcodebuild -workspace ios/VibeMeter.xcworkspace -scheme VibeMeter \
+  -configuration Debug \
   -destination "id=YOUR_DEVICE_UDID" \
-  ENABLE_USER_SCRIPT_SANDBOXING=NO \
-  build
+  ENABLE_USER_SCRIPT_SANDBOXING=NO build
+
+# JS-only changes (fast deploy without full rebuild)
+bash ../deploy.sh
 ```
 
-### Known Issue: MDM-managed devices
-If your iPhone is company MDM-managed, you won't be able to trust the personal developer certificate. Use a personal (non-MDM) iPhone and trust the profile under Settings → General → VPN & Device Management.
+### Environment
 
-## How Tester Data Is Stored
+Create `vibemeter-app/.env`:
+```
+EXPO_PUBLIC_SUPABASE_URL=<project>.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
+EXPO_PUBLIC_AUDD_TOKEN=<token>
+```
 
-Each device generates a random anonymous UUID on first launch (stored in iOS SecureStore, persists across app restarts). Every session and sensor reading uploaded to Supabase is tagged with that `device_id`. There is no login, no name, no email — completely anonymous. You can query Supabase by `device_id` to see all data from a specific phone.
+### iOS Build Quirks
 
-Data is stored locally first (SQLite) and batch-uploaded to Supabase every 5 minutes. If the phone has no signal, data queues and uploads automatically when connectivity returns.
+These patches are already applied — do not revert:
+
+| File | Fix |
+|------|-----|
+| `ios/Podfile` | `ENABLE_USER_SCRIPT_SANDBOXING=NO` required |
+| `ios/Pods/fmt/base.h` | `FMT_USE_CONSTEVAL` disabled for Xcode 26 / Clang compatibility |
+| `ios/VibeMeter/VibeMeter.entitlements` | APS push removed (Personal Team signing) |
+| `react-native/scripts/react-native-xcode.sh` | `ip.txt` write made non-fatal |
+
+### Cloud Build (for TestFlight)
+
+```bash
+eas build --platform ios
+```
 
 ---
 
 ## Distributing to Testers
 
-Because this app uses custom native modules (BLE scanning, raw audio, IMU), it cannot run in **Expo Go** — Expo's instant-share app only works with pure JavaScript apps that have no native code. Once `expo prebuild` is run, the app must be compiled into a real binary and distributed like any other app.
+This app uses native modules (BLE, raw microphone, IMU) and cannot run in Expo Go. It must be distributed as a compiled binary.
 
-### Why `expo prebuild` matters
-`expo prebuild` generates native `ios/` and `android/` project folders with actual native code (Swift, C++, Java). This is required to access low-level sensors like Bluetooth, raw microphone audio, and the IMU at the fidelity this experiment needs. The tradeoff: you lose Expo Go's instant QR-code distribution and must distribute a compiled binary instead.
+### TestFlight + QR Code (recommended)
 
----
+Requires Apple Developer account ($99/yr — also needed for ShazamKit).
 
-### iOS — TestFlight + QR Code (recommended)
+1. Build with EAS: `eas build --platform ios`
+2. Submit to TestFlight via App Store Connect
+3. Create a Public Link under TestFlight → your app → Public Link
+4. Turn that URL into a QR code (any free generator)
 
-This is the lowest-friction path for distributing to strangers at scale.
+**Tester flow:** scan QR → Safari opens TestFlight link → install TestFlight (free, ~30s) → tap "Start Testing" → app installs. No account creation required from testers. Up to 10,000 testers, builds valid for 90 days.
 
-**Cost:** $99/year Apple Developer account (developer.apple.com)
+### Direct install via Xcode (free, no developer account)
 
-**Setup (one-time):**
+For 1–3 testers you can physically reach. Signs with your personal Apple ID (free tier). App re-signs itself every 7 days — requires reconnecting to reinstall.
+
+### Android
+
 ```bash
-npm install -g eas-cli
-eas build --platform ios        # cloud build, no Xcode needed
-# then submit the build to TestFlight via App Store Connect
-# then create a Public Link under TestFlight → your app → Public Link
+eas build --platform android --profile preview
 ```
-
-**Tester flow:**
-1. Tester scans QR code → Safari opens the TestFlight public link
-2. If TestFlight not installed: redirected to App Store to install it (free, ~30 seconds)
-3. TestFlight already installed: opens directly → one tap "Start Testing"
-4. App installs. Their data flows to Supabase automatically.
-
-No cables, no certificate prompts, no account creation required from testers.
-
-**Key details:**
-- Up to 10,000 testers on a public link
-- Each build is valid for 90 days (re-upload to refresh)
-- Apple does a lightweight review of TestFlight builds (usually <24 hours)
-- MDM-managed iPhones (corporate devices) can install TestFlight builds without restrictions
-
-**To generate a QR code:** paste the TestFlight public link into any free QR code generator (e.g. qr-code-generator.com). Print it, put it on a table, done.
-
-> For a research MVP targeting random people at clubs and events, a printed QR code + TestFlight is the complete distribution stack.
-
----
-
-### iOS — Direct install via Xcode (free, no developer account)
-
-For installing on 1-3 testers' phones directly:
-
-1. Connect their iPhone via USB
-2. Open Xcode → Devices and Simulators → select their device
-3. Sign with your personal Apple ID (free tier)
-4. Run `deploy.sh` from the repo root
-
-**Limitation:** Apple's free tier signing expires every 7 days. You'll need to re-install on each tester's phone weekly. Only practical if you're physically with the testers regularly.
-
----
-
-### Android — APK direct install (free, no account needed)
-
-Android doesn't require a developer account for sideloading:
-
-1. Build an APK:
-   ```bash
-   eas build --platform android --profile preview
-   ```
-2. Host the APK anywhere (Google Drive, Dropbox, direct link) or use **Firebase App Distribution** (free) for a managed link with version tracking
-3. Testers enable "Install from unknown sources" on their phone and tap the link
-
----
-
-### Distribution Summary
-
-| Method | Cost | Friction for tester | Scale |
-|--------|------|-------------------|-------|
-| TestFlight + QR code | $99/yr | Low (install TestFlight once) | 10,000 |
-| Direct via Xcode | Free | Zero (you install it) | 1–3 |
-| Android APK | Free | Low (enable unknown sources) | Unlimited |
-
-**Recommended path:** Pay the $99, build with EAS, generate a public TestFlight link, print as QR code. One QR code sticker at a venue covers all tester acquisition.
+Host the APK on Google Drive or use Firebase App Distribution (free). Testers enable "Install from unknown sources" and tap the link.
 
 ---
 
 ## Data Collection Strategy
 
-### Start with DJ Bars / Nightclubs
+### Where to collect
 
-Best signal, highest value, clearest labels.
+Start at **DJ bars and clubs** — best signal, clearest labels, most pronounced energy arc.
 
-- **BPM detection works best here** — electronic music is constant tempo (120-140 BPM), loud, dominant. Live bands and ambient crowd noise are much harder to extract BPM from.
-- **Energy arc is pronounced** — venues go from quiet (10pm) to packed (midnight) to declining (2am). That arc is exactly what you want to model.
-- **BLE density swings sharply** — you'll see the crowd filling up and emptying in the data.
-- **Commercial value is highest** — this is where the "what's the vibe right now" question is worth the most.
+- BPM detection works best with electronic music (constant 120–140 BPM)
+- Energy arc is pronounced: quiet at 10pm → packed at midnight → declining at 2am
+- BLE density swings sharply as crowd fills and empties
 
-Avoid starting with restaurants or casual bars — vibe variance is low and the audio environment is messy (multiple conversations, no dominant music source). Good as contrast later, not as primary signal.
+Avoid restaurants and casual bars first — vibe variance is low, audio environment is messy.
 
----
+### Session length
 
-### Session Length: Long Sessions Win
+Prioritize **2–3 hour sessions** over many short ones. The most valuable thing to capture is the arc — filling, peaking, declining. At 5-min prompt intervals, a 3-hour session generates ~36 labeled data points.
 
-Prioritize **2-3 hour sessions** over many short ones.
-
-The most valuable thing to capture is the **arc** — a venue filling up, peaking, and declining. A 20-minute session gives you a snapshot. A 3-hour session gives you a time series with real dynamics.
-
-The micro-prompt ratings every 5 minutes are the training labels. A 3-hour session = ~36 labeled data points that are temporally correlated and capture *change* — far more informative than snapshots from different venues on different nights.
-
-Once you have 3-4 long sessions at the same venue type, start adding variety (different venues, different nights).
-
----
-
-### Minimum Data for First Interesting Results
+### Minimum data targets
 
 | Target | What you need |
 |--------|--------------|
 | First correlation signal | ~50 labeled samples |
-| Publishable correlation | ~150-200 labeled samples |
+| Publishable correlation | ~150–200 labeled samples |
 | Simple regression model | ~200+ samples, 5+ testers |
 
-A labeled sample = one micro-prompt rating with its associated sensor window.
+At 5-min prompts, 2 testers doing one 3-hour session = ~72 labels. You can hit 150 in a single good weekend.
 
-**Rough math:**
-- 3-hour session × rating every 5 min = ~36 labels per session
-- 50 labels = ~2 sessions with 1 tester, or 1 session with 2 testers
-- 150 labels = ~4-5 sessions across 2-3 testers
+### The fast path — one big event
 
-You can reach 50 labels in **a single weekend night** with 2 active testers doing one 3-hour session.
+One multi-DJ night with 10–20 pre-recruited testers can hit the entire 150-sample target in one evening. Each DJ set is a controlled experiment: different BPM, different energy, different crowd response. Set transitions = natural energy dips and rebuilds — exactly the dynamics to model.
 
----
+**Recruit testers 48 hours before, not at the door.** Getting strangers to install an app at a loud venue has ~10% success rate. Pre-recruited testers have 80%+. Pitch: "Help us build an app that measures venue energy — install the app, rate the vibe every 5 min, free entry / drink ticket."
 
-### Testers: At Least 5, Ideally 8-10
-
-- Fewer than 5 testers = you're modeling individuals, not venues. One person's rating scale dominates.
-- 5-8 testers = enough to average out personal rating bias and phone placement differences.
-- **Critical:** testers at the **same venue at the same time** is the most powerful validation — if sensor readings match and three different people all rate it 8/10, that's real signal.
-
-**Biggest confounders to control:**
-- **Time of night** — almost all venues peak 11pm-1am regardless of actual vibe. Always log timestamps.
-- **Phone placement** — pocket vs. table vs. hand kills accelerometer comparability. Standardize: always in pocket.
-- **Tester state** — subjective ratings drift as people drink. Note session start time.
+**What to give the venue afterward:** a one-page report — energy arc across the night, which DJ set scored highest, when the crowd peaked vs. when people started leaving (BLE decline), subjective ratings overlaid on sensor data. Genuinely valuable to promoters and costs nothing to produce from the analysis scripts.
 
 ---
 
-### Recommended Collection Plan
+## Success Criteria
 
-**Weeks 1-2:** 2-3 testers, same DJ bar/club, Friday and Saturday nights, full 2-3 hour sessions. Establish baseline. Check if BPM and dB correlate with ratings at all.
+**Experiment succeeds if:**
+- Composite sensor score correlates with subjective ratings at **r ≥ 0.5** across sessions
+- At least 2–3 individual signals show meaningful independent correlation
+- BPM + dB together outperform dB alone
+- Users can look at the session summary and say "yeah, that timeline matches what happened"
+- Background collection works reliably on iOS (data doesn't drop when phone is pocketed)
 
-**Weeks 3-4:** Add 2-3 more testers. Try a second venue type (live music or busy cocktail bar). Start seeing cross-venue patterns.
+**Experiment fails if:**
+- Sensor data is too noisy to distinguish dead bar from peak party
+- No sensor combination correlates with subjective ratings
+- iOS background collection doesn't work reliably
 
-**Weeks 5-6:** Run first correlation analysis. If dB + BLE count alone predict ratings at r > 0.5, you have something real. If not, look at which signals are flat.
-
-**Decision point at ~100 samples:** Either the correlations are there and you build the model, or they're not and you've learned that cheaply. Either outcome is a win.
-
----
-
-## The Fast Path: One Big Event
-
-One well-organized multi-DJ night with pre-recruited testers can hit the entire 150-sample target in a single evening — weeks of casual collection compressed into one night.
-
-### Why Multiple DJs Is Ideal
-
-Each DJ set is a built-in controlled experiment:
-
-- Different BPM range, different energy level, different crowd response per set
-- Set transitions = natural energy dips then rebuilds — exactly the dynamics to model
-- B2B sets or genre shifts give you 4-6 distinct labeled conditions in one night
-- If 3 different DJs produce measurably different sensor readings that match ratings, that's strong validation
-
-### Realistic Data Yield
-
-| Testers | Session length | Ratings per tester | Total labeled samples |
-|---------|---------------|-------------------|----------------------|
-| 10 | 5 hrs | ~60 | 600 |
-| 15 | 5 hrs | ~60 | 900 |
-| 20 | 5 hrs | ~60 | 1200 |
-
-### The Key: Recruit Testers 48 Hours Before, Not at the Door
-
-Getting strangers to install an app at a loud venue while drinking has ~10% success rate. Pre-recruited testers have 80%+. They install at home, show up, open the app. That's the entire ask.
-
-- Post in local nightlife / music Facebook groups, Resident Advisor, Discord servers
-- Pitch: "Help us build an app that measures venue energy — come to [event], install the app, rate the vibe every 30 min, free entry / drink ticket"
-- Send a short voice note briefing the day before — less friction than written instructions
-- Target people who are going out anyway. You're not changing their plans, just adding an app.
-
-### Best Event Formats
-
-**1. Piggyback on an existing warehouse or club night (easiest)**
-Approach a promoter running a multi-DJ event. Pitch: *"We're running a tech experiment measuring crowd energy — we'll give you a full report showing exactly when your crowd peaked, which DJ set had the highest energy, how the night arc looked."* They get free analytics, you get a venue full of people and a reason to recruit testers. Promoters love this — makes them look innovative.
-
-**2. Host your own small event (most control)**
-Rent a small venue, 3-4 DJs, 50-100 people, recruit 15-20 as sensors. You control the schedule, DJ changeovers, and prompt timing. More effort to organize but maximum experimental control.
-
-**3. Music festival (highest volume, hardest to execute)**
-Multiple stages = multiple simultaneous BPM/energy readings. Testers moving between stages = cross-venue comparison within one event. Hard to partner with organizers but worth pursuing if you have the connections.
-
-### What to Give the Venue/Promoter Afterward
-
-A one-page report showing:
-- Energy arc across the night (dB + movement over time)
-- Which DJ set scored highest
-- When the crowd peaked vs. when people started leaving (BLE count decline)
-- Subjective ratings overlaid on sensor data
-
-This is genuinely valuable to them and costs nothing to produce from the analysis scripts. It's also a live demo of what the product can eventually do commercially.
+**Ambiguous result (still valuable):**
+- Some signals work (dB + BPM) but others don't (BLE)
+- Correlation holds in clubs but not bars
+- → Still tells you which signals to keep, which to drop, what minimum user density you need
 
 ---
 
-## Known Limitations & Planned Improvements
+## Known Risks
 
-### Song Recognition — Migrate to ShazamKit
+| Risk | Mitigation |
+|------|------------|
+| iOS kills background audio/sensor access | `expo-task-manager` background tasks; tested and working |
+| BLE scan unreliable in crowded venues | Use trend (delta) not absolute count; treat as one signal among many |
+| BPM detection unreliable for unrecognized tracks | Current: Deezer metadata. Step 2: ShazamKit. Step 3: native PCM autocorrelation |
+| AudD trial quota exhausted | Migrate to ShazamKit once Apple Developer account purchased — free, no limits |
+| Phone placement varies (pocket/hand/table) | Standardize: always in pocket; note in tester briefing |
+| Battery drain | Intermittent sampling; motion sampling stops after 5 min stationary; target <5%/hr |
+| Subjective ratings are lazy/random | 5 options max, one-tap, brief testers that honest ratings are the whole point |
 
-**Current state:** Song recognition uses the [AudD REST API](https://audd.io/). It works but has limitations: explicit request quotas on the trial tier, ~300ms network round-trip per recognition attempt, and requires a paid plan at scale ($5/1,000 requests).
+---
 
-**Planned upgrade: ShazamKit** — Apple's native song recognition framework (iOS 15+), included free with the Apple Developer account ($99/yr) already needed for TestFlight distribution.
+## Analysis
 
-| | ShazamKit | AudD (current) |
-|---|---|---|
-| Cost | **Free** (included in dev account) | $5 / 1,000 requests |
-| Accuracy | ~99%+ (it IS Shazam, 40M+ songs) | ~99.5% |
-| Speed | Native, no HTTP round-trip | ~300ms API call |
-| Genre | ✅ Native `genres` field | Via Apple Music metadata |
-| BPM/Tempo | ❌ Not included | Via Deezer metadata |
-| Rate limits | Not documented / appears unlimited | Hard quotas on trial |
-| Offline | ✅ Custom catalogs | ❌ Requires network |
+Python scripts in `/analysis/`:
 
-**Integration path:**
-```bash
-npm install expo-shazamkit
-cd vibemeter-app/ios && pod install
-# IMPORTANT: always xcodebuild clean before native rebuild
-xcodebuild clean -workspace VibeMeter.xcworkspace -scheme VibeMeter -configuration Debug
-xcodebuild -workspace VibeMeter.xcworkspace -scheme VibeMeter \
-  -configuration Debug -destination "generic/platform=iOS" \
-  ENABLE_USER_SCRIPT_SANDBOXING=NO build
+| Script | What it does |
+|--------|-------------|
+| `fetch_data.py` | Pulls sensor windows + ratings from Supabase |
+| `correlations.py` | Pearson/Spearman between each signal and user ratings |
+| `optimize_weights.py` | Gradient-descent weight optimization for scoring |
+| `monitoring_queries.sql` | Data quality checks |
+
+**Analysis checklist (run after collecting 50+ labeled samples):**
+- Per-signal correlation with subjective ratings
+- Which signals are stable vs noisy across devices
+- Does correlation hold across venue types?
+- Does BPM independently predict ratings beyond dB?
+- Does dwell time correlate with overall session rating?
+- Composite model: linear regression, then ridge if overfitting
+
+---
+
+## If the Signal Validates — Revenue Layers
+
+**Layer 1 — Consumer app (ViibeCheck):** Nightlife discovery where every venue has a live sensor-derived vibe score, not user opinions. Freemium. The app is the data collection mechanism.
+
+**Layer 2 — Venue analytics dashboard:** Sell aggregated, anonymized vibe data to bar/club owners and promoters. "Your venue peaks at 11:30pm Fridays, energy drops 40% after 1am." €50–200/month per venue. Partner with 5–10 Brussels venues for free analytics in exchange for promoting the app — solves density and monetization simultaneously.
+
+**Layer 3 — Vibe API:** License the score as a data layer to maps, ride-sharing, travel apps, real estate. Only viable after 50K+ users across 3+ cities. 2–3 years out minimum.
+
+---
+
+## Post-Validation Decision Tree
+
 ```
+Signal validates (r ≥ 0.5)
+  → Build ViibeCheck with validated sensor stack
+  → Seed 5-10 Brussels venues with free analytics for density
+  → Target: live beta in one Brussels neighbourhood within 3 months
 
-Also requires enabling the `com.apple.developer.shazamkit` entitlement in your App ID under Certificates, Identifiers & Profiles in App Store Connect.
+Signal partially validates
+  → Which venue types worked? Narrow scope accordingly
+  → What minimum user density is needed?
+  → Rebuild composite with only validated signals, run second validation
 
-**After migration:** Keep the Deezer BPM lookup as a secondary call using the ISRC or song name returned by ShazamKit. Drop AudD entirely.
-
----
-
-### BPM Detection — Native Audio Module Needed
-
-**Current state:** BPM is pulled from Deezer track metadata when a song is recognized — accurate but only works for identified tracks. Unrecognized tracks, DJ blends, and live music get no BPM.
-
-**Root cause:** Pure-JS BPM detection from the microphone metering envelope (10 samples/sec dB readings) is too coarse for reliable beat detection. Real beat tracking requires raw PCM audio at ≥8kHz.
-
-**Planned fix:** Install `react-native-audio-record` to stream raw 16-bit PCM chunks from the microphone in real time. Run autocorrelation or FFT-based onset detection on the PCM buffer in JS. Gives BPM for any music — recognized or not.
-
-```bash
-npm install react-native-audio-record
-cd vibemeter-app/ios && pod install
-xcodebuild clean -workspace VibeMeter.xcworkspace -scheme VibeMeter -configuration Debug
-xcodebuild -workspace VibeMeter.xcworkspace -scheme VibeMeter \
-  -configuration Debug -destination "generic/platform=iOS" \
-  ENABLE_USER_SCRIPT_SANDBOXING=NO build
+Signal fails
+  → Kill the sensor approach
+  → ViibeCheck becomes a crowdsourced opinion app (weak moat)
+  → Consider: manual vibe ratings with gamification, venue video feeds, or friend-location social layer
 ```
-Then replace `estimateBPMFromMeteringPattern()` in `src/sensors/AudioAnalyzer.ts` with PCM-based autocorrelation.
-
-> **Note:** Any `npm install` touching native packages requires `xcodebuild clean` before the next native rebuild. Incremental builds cache stale ExpoModulesCore objects and cause a `NativeJSLogger` crash on boot.
-
----
-
-## Status
-
-Build succeeds. App runs on personal iPhones. Data collection pipeline and Supabase integration complete. Analysis scripts ready.

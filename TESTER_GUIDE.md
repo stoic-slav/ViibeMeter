@@ -12,7 +12,7 @@ VibeMeter measures the "vibe" of a venue using your phone's sensors:
 - **Movement** (are you dancing, walking, or standing still?)
 - **Crowd density** (how many Bluetooth devices are nearby?)
 
-Every ~25 minutes it asks you: "How's the vibe?" on a 1–5 scale.
+Every ~5 minutes it asks you: "How's the vibe?" on a 1–5 scale.
 
 The experiment tests whether the sensor measurements match your honest ratings.
 
@@ -80,7 +80,7 @@ You can see exactly what the app collected in the Session Summary after each out
 
 **"I forgot to end my session"** — Open the app and end it. The dwell time will still be roughly correct.
 
-**"I missed the rating notification"** — Don't worry, you'll get another one in 25 minutes.
+**"I missed the rating notification"** — Don't worry, you'll get another one in 5 minutes.
 
 **"The app seems to drain my battery"** — Target is under 5% per hour. If it's more, let us know.
 
