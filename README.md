@@ -12,23 +12,23 @@ If yes — there's a novel primitive here worth building a product around. If no
 
 ### Active
 
-| Signal | Source | What it proxies |
-|--------|--------|-----------------|
-| Ambient sound level (dB) | Microphone | Energy, crowd size, loudness |
-| Audio classification | Microphone + spectral analysis | Silent / talking / low music / high music / loud music |
-| Song recognition | Microphone + AudD API | Track identity for context |
-| Music genre | Apple Music metadata via AudD | Genre for vibe segmentation |
-| BPM | Deezer metadata via AudD | Music tempo (when song recognized) |
-| Crowd event detection | Microphone | Clapping, cheering, DJ drops |
-| Accelerometer magnitude | IMU | User movement / dancing |
-| Gyroscope activity | IMU | Body movement patterns |
-| Movement BPM | IMU + autocorrelation | Rhythmic movement frequency (30–240 BPM) |
-| Rhythmicity score | IMU | How periodic/consistent the movement is (0–1) |
-| Step cadence | Pedometer | Walking vs dancing vs stationary |
-| Phase coherence | Audio + motion fusion | Whether body movement matches music BPM |
-| BLE device count + trend | Bluetooth | Crowd density proxy — filling / stable / thinning |
-| Dwell time | Session duration | How long user stays |
-| Micro-prompt rating | User input every 5 min | Ground truth — the training label |
+| Signal | Source | What it proxies | Vibe value |
+|--------|--------|-----------------|------------|
+| Ambient sound level (dB) | Microphone | Energy, crowd size, loudness | **High** — strongest single predictor; loud = energy |
+| Audio classification | Microphone + spectral analysis | Silent / talking / low music / high music / loud music | **High** — distinguishes dead venue from live one instantly |
+| Song recognition | Microphone + AudD API | Track identity for context | **Medium** — enables genre/BPM lookup; enriches context |
+| Music genre | Apple Music metadata via AudD | Genre for vibe segmentation | **Medium** — separates venue types (techno club vs jazz bar) |
+| BPM | Deezer metadata via AudD | Music tempo (when song recognized) | **High** — fast tempo strongly correlates with high energy |
+| Crowd event detection | Microphone | Clapping, cheering, DJ drops | **High** — peak-moment signal; captures crowd reactions |
+| Accelerometer magnitude | IMU | User movement / dancing | **High** — dancing = high vibe; stationary = low vibe |
+| Gyroscope activity | IMU | Body movement patterns | **Medium** — adds dimensionality to movement type |
+| Movement BPM | IMU + autocorrelation | Rhythmic movement frequency (30–240 BPM) | **Medium** — rhythmic sync with music suggests engagement |
+| Rhythmicity score | IMU | How periodic/consistent the movement is (0–1) | **Medium** — dancing is periodic; random jostling is not |
+| Step cadence | Pedometer | Walking vs dancing vs stationary | **Low** — redundant with accelerometer; useful as a tie-breaker |
+| Phase coherence | Audio + motion fusion | Whether body movement matches music BPM | **High** — user moving in sync with music = strong engagement signal |
+| BLE device count + trend | Bluetooth | Crowd density proxy — filling / stable / thinning | **Medium** — density matters but noisy in crowded venues |
+| Dwell time | Session duration | How long user stays | **Medium** — people stay longer at good venues; useful for session-level scoring |
+| Micro-prompt rating | User input every 5 min | Ground truth — the training label | **Critical** — the target variable everything else is trained against |
 
 ### Planned improvements
 
@@ -54,6 +54,24 @@ If yes — there's a novel primitive here worth building a product around. If no
 - Requires: `pod install` + `xcodebuild clean && xcodebuild build`
 
 > **Important:** Any `npm install` touching native packages requires `xcodebuild clean` before the next native rebuild. Incremental builds cache stale ExpoModulesCore objects and cause a `NativeJSLogger` crash on boot.
+
+### Planned signals (multi-device, server-side)
+
+| Signal | Source | What it proxies | Vibe value |
+|--------|--------|-----------------|------------|
+| Crowd rhythmic alignment | Movement BPM across co-located devices | Fraction of nearby users moving at the same BPM as the music | **Critical** — the most novel signal in the stack |
+
+**How it works:** Each device independently reports its movement BPM to Supabase. The analysis layer groups devices by venue and 1-minute window, then computes what fraction of them converge within ±5 BPM of each other (and of the recognized music BPM). A venue where 8 out of 10 devices are all moving at 128 BPM — the same as the DJ set — is objectively in a high-energy collective state. No single device can see this; it only emerges from multi-user data.
+
+**Why it matters:** Single-device phase coherence (already collected) tells you whether *you* are dancing in sync with the music. Crowd alignment tells you whether *everyone around you* is. The latter is a fundamentally stronger vibe signal — and one that no competitor measuring individual behavior can replicate without a crowd of simultaneous users. It also gets more reliable as tester count grows, which creates a direct incentive to recruit more users.
+
+**Implementation:** No app changes needed — movement BPM is already uploaded per window. Add a `crowd_alignment_score` column to the analysis output in `correlations.py`, computed as:
+```
+alignment = fraction of devices in window within ±5 BPM of median movement BPM
+coherence = 1 if median movement BPM within ±8 BPM of music BPM, else 0
+crowd_sync_score = alignment × coherence
+```
+Requires ≥3 simultaneous devices at the same venue to be meaningful.
 
 ---
 
