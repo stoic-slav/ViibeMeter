@@ -13,6 +13,11 @@ export class AudioAnalyzer {
   private isRecording = false;
   private lastRecognitionAt = 0;
   private lastRecognizedSong: string | null = null;
+  private lastRecognizedGenre: string | null = null;
+  private lastRecognizedBpm: number | null = null;
+  private pendingSong: string | null = null;      // candidate — must match twice before display
+  private pendingGenre: string | null = null;
+  private pendingBpm: number | null = null;
 
   /**
    * Capture a 5-second audio sample and return computed metrics.
@@ -107,7 +112,7 @@ export class AudioAnalyzer {
       const audioEvent = classifyAudioEvent(dbSamples, clapCount, avgDb, dbVariance, musicDetected);
 
       // Song recognition (opt-in, requires EXPO_PUBLIC_AUDD_TOKEN)
-      const recognizedSong = await this.attemptRecognition(fileUri, audioClassification, avgDb);
+      await this.attemptRecognition(fileUri, audioClassification, avgDb);
 
       return {
         avgDb,
@@ -115,13 +120,15 @@ export class AudioAnalyzer {
         dbVariance,
         musicDetected,
         estimatedBpm: bpmResult.bpm,
+        recognizedBpm: this.lastRecognizedBpm,
         bpmConfidence: bpmResult.confidence,
         audioClassification,
         bassPresence,
         midHighRatio,
         clapCount,
         audioEvent,
-        recognizedSong,
+        recognizedSong: this.lastRecognizedSong,
+        recognizedGenre: this.lastRecognizedGenre,
       };
     } catch (err) {
       console.warn(`${LOG_TAG} Error during analysis:`, err);
@@ -135,18 +142,18 @@ export class AudioAnalyzer {
     fileUri: string | null,
     classification: AudioClassification,
     avgDb: number,
-  ): Promise<string | null> {
-    if (!AUDD_TOKEN || !fileUri) return this.lastRecognizedSong;
-    // Only try when there's likely music and enough time has passed
-    if (classification === 'silent' || classification === 'talking') return this.lastRecognizedSong;
-    if (avgDb < SENSOR_CONFIG.AUDIO_DB_LOW_MUSIC) return this.lastRecognizedSong;
-    if (Date.now() - this.lastRecognitionAt < RECOGNITION_MIN_INTERVAL_MS) return this.lastRecognizedSong;
+  ): Promise<void> {
+    if (!AUDD_TOKEN || !fileUri) return;
+    if (classification === 'silent') return;
+    if (avgDb < SENSOR_CONFIG.AUDIO_DB_TALKING) return;
+    if (Date.now() - this.lastRecognitionAt < RECOGNITION_MIN_INTERVAL_MS) return;
 
     try {
       this.lastRecognitionAt = Date.now();
       const formData = new FormData();
       formData.append('file', { uri: fileUri, type: 'audio/m4a', name: 'sample.m4a' } as any);
       formData.append('api_token', AUDD_TOKEN);
+      formData.append('return', 'apple_music,deezer');
 
       const response = await fetch('https://api.audd.io/', {
         method: 'POST',
@@ -155,20 +162,40 @@ export class AudioAnalyzer {
       });
       const data = await response.json();
       if (data.status === 'success' && data.result) {
-        this.lastRecognizedSong = `${data.result.artist} – ${data.result.title}`;
+        const candidate = `${data.result.artist} – ${data.result.title}`;
+        // Genre from Apple Music genreNames (most reliable source)
+        const amAttrs = data.result.apple_music?.attributes;
+        const genres: string[] | undefined = amAttrs?.genreNames;
+        const genre = genres && genres.length > 0 ? genres[0] : null;
+        // BPM: prefer Apple Music tempo, fall back to Deezer bpm field
+        const amTempo: number | null = amAttrs?.tempo ? Math.round(amAttrs.tempo) : null;
+        const deezerBpm: number | null = data.result.deezer?.bpm ? Math.round(data.result.deezer.bpm) : null;
+        const bpm = amTempo ?? deezerBpm;
+        if (candidate === this.pendingSong) {
+          this.lastRecognizedSong = candidate;
+          this.lastRecognizedGenre = genre ?? this.lastRecognizedGenre;
+          this.lastRecognizedBpm = bpm ?? this.lastRecognizedBpm;
+        } else {
+          this.pendingSong = candidate;
+          this.pendingGenre = genre;
+          this.pendingBpm = bpm;
+        }
+      } else {
+        this.pendingSong = null;
+        this.pendingGenre = null;
+        this.pendingBpm = null;
       }
     } catch (err) {
       console.warn(`${LOG_TAG} Song recognition error:`, err);
     }
-    return this.lastRecognizedSong;
   }
 
   private buildFallbackMetrics(): AudioMetrics {
     return {
       avgDb: 0, maxDb: 0, dbVariance: 0, musicDetected: false,
-      estimatedBpm: null, bpmConfidence: 0, audioClassification: 'silent',
+      estimatedBpm: null, recognizedBpm: null, bpmConfidence: 0, audioClassification: 'silent',
       bassPresence: 0, midHighRatio: 0, clapCount: 0,
-      audioEvent: null, recognizedSong: null,
+      audioEvent: null, recognizedSong: null, recognizedGenre: null,
     };
   }
 }

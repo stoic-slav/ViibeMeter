@@ -13,7 +13,7 @@ TaskManager.defineTask(BACKGROUND_TASK, async () => {
   try {
     await sensorOrchestrator.runCollectionCycle();
     return BackgroundFetch.BackgroundFetchResult.NewData;
-  } catch {
+  } catch (err) {
     return BackgroundFetch.BackgroundFetchResult.Failed;
   }
 });

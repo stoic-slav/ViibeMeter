@@ -4,8 +4,8 @@
 
 export const SENSOR_CONFIG = {
   // Audio sampling
-  AUDIO_SAMPLE_DURATION_MS: 2000,
-  AUDIO_SAMPLE_INTERVAL_MS: 8000,       // sample every 8s (2s record + 8s gap)
+  AUDIO_SAMPLE_DURATION_MS: 5000,
+  AUDIO_SAMPLE_INTERVAL_MS: 10000,      // sample every 10s (5s record + 5s gap)
   AUDIO_SAMPLE_RATE: 44100,
   FFT_SIZE: 2048,
 

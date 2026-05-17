@@ -125,13 +125,15 @@ export interface AudioMetrics {
   maxDb: number;
   dbVariance: number;
   musicDetected: boolean;
-  estimatedBpm: number | null;
+  estimatedBpm: number | null;      // metering-based heuristic (low accuracy)
+  recognizedBpm: number | null;     // exact BPM from Apple Music metadata
   bpmConfidence: number;
   audioClassification: AudioClassification;
   bassPresence: number;
   midHighRatio: number;
   clapCount: number;
   recognizedSong: string | null;    // "Artist – Title" or null
+  recognizedGenre: string | null;   // genre from AudD/Spotify metadata, e.g. "Tech House"
   audioEvent: AudioEvent | null;    // crowd moment label
 }
 
@@ -184,5 +186,6 @@ export interface LiveDashboardData {
   movementBpm: number | null;
   rhythmicity: number;
   phaseCoherence: number;   // 0–1: how well movement rhythm matches audio BPM
+  recognizedGenre: string | null;
   trend15m: TrendDir;
 }

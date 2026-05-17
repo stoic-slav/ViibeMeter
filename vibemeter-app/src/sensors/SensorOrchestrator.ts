@@ -192,6 +192,7 @@ export class SensorOrchestrator {
       clapCount:           (this.currentWindow as any)._clapCount ?? 0,
       audioEvent:          (this.currentWindow as any)._audioEvent ?? null,
       recognizedSong:      (this.currentWindow as any)._recognizedSong ?? null,
+      recognizedGenre:     (this.currentWindow as any)._recognizedGenre ?? null,
       audioBpm,
       movementBpm:         lastMovBpm,
       rhythmicity,
@@ -253,18 +254,21 @@ export class SensorOrchestrator {
       this.currentWindow.maxDb = Math.max(this.currentWindow.maxDb ?? 0, metrics.maxDb);
       this.currentWindow.dbVariance = metrics.dbVariance;
       this.currentWindow.musicDetected = metrics.musicDetected;
-      this.currentWindow.estimatedBpm = metrics.estimatedBpm;
+      // Prefer exact metadata BPM over metering heuristic
+      const bestBpm = metrics.recognizedBpm ?? metrics.estimatedBpm;
+      this.currentWindow.estimatedBpm = bestBpm;
       this.currentWindow.audioClassification = metrics.audioClassification;
       this.currentWindow.bassPresence = metrics.bassPresence;
       this.currentWindow.midHighRatio = metrics.midHighRatio;
 
       this.pushReading(this.dbReadings, metrics.avgDb);
-      if (metrics.estimatedBpm) this.pushReading(this.bpmReadings, metrics.estimatedBpm);
+      if (bestBpm) this.pushReading(this.bpmReadings, bestBpm);
       (this.currentWindow as any)._clapCount = metrics.clapCount;
       (this.currentWindow as any)._audioEvent = metrics.audioEvent;
       (this.currentWindow as any)._recognizedSong = metrics.recognizedSong;
+      (this.currentWindow as any)._recognizedGenre = metrics.recognizedGenre;
 
-      console.log(`${LOG_TAG} Audio: ${metrics.avgDb.toFixed(1)}dB bpm=${metrics.estimatedBpm} claps=${metrics.clapCount} song=${metrics.recognizedSong}`);
+      console.log(`${LOG_TAG} Audio: ${metrics.avgDb.toFixed(1)}dB bpm=${bestBpm} (recog=${metrics.recognizedBpm}) claps=${metrics.clapCount} song=${metrics.recognizedSong} genre=${metrics.recognizedGenre}`);
       this.emitPreviewUpdate();
     } catch (err) {
       console.warn(`${LOG_TAG} Audio collection error:`, err);

@@ -171,6 +171,9 @@ function MusicPanel({ live }: { live: LiveDashboardData | null }) {
       <Text style={m.song} numberOfLines={1} ellipsizeMode="tail">
         {live?.recognizedSong ?? '—'}
       </Text>
+      {live?.recognizedGenre && (
+        <Text style={m.genre}>{live.recognizedGenre.toUpperCase()}</Text>
+      )}
 
       {/* dB + BPM row */}
       <View style={m.metricsRow}>
@@ -390,7 +393,10 @@ const m = StyleSheet.create({
     borderWidth: 1, borderColor: '#1A1A1A', marginBottom: 10,
   },
   song: {
-    color: '#FFF', fontSize: 17, fontWeight: '600', marginBottom: 12, marginTop: 4,
+    color: '#FFF', fontSize: 17, fontWeight: '600', marginBottom: 2, marginTop: 4,
+  },
+  genre: {
+    color: '#9B59B6', fontSize: 11, fontWeight: '600', letterSpacing: 1, marginBottom: 12,
   },
   metricsRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
   metricCol:  { flex: 1 },
