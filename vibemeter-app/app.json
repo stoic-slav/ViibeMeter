@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -20,7 +20,13 @@
         "NSLocationWhenInUseUsageDescription": "VibeMeter uses your location to detect when you arrive at and leave venues.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "VibeMeter tracks your location in the background to measure how long you stay at a venue.",
         "NSBluetoothAlwaysUsageDescription": "VibeMeter scans for nearby Bluetooth devices to estimate crowd density. No device identities are stored.",
-        "UIBackgroundModes": ["location", "audio", "bluetooth-central", "fetch", "processing"]
+        "UIBackgroundModes": [
+          "location",
+          "audio",
+          "bluetooth-central",
+          "fetch",
+          "processing"
+        ]
       }
     },
     "android": {
@@ -37,7 +43,9 @@
         "BLUETOOTH",
         "BLUETOOTH_ADMIN",
         "BLUETOOTH_SCAN",
-        "BLUETOOTH_CONNECT"
+        "BLUETOOTH_CONNECT",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ]
     },
     "web": {
@@ -49,7 +57,7 @@
         "expo-build-properties",
         {
           "android": {
-            "minSdkVersion": 23
+            "minSdkVersion": 24
           }
         }
       ],
@@ -66,8 +74,22 @@
           "icon": "./assets/icon.png",
           "color": "#00FF88"
         }
+      ],
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": true,
+          "neverForLocation": false
+        }
       ]
     ],
-    "scheme": "vibemeter"
+    "scheme": "vibemeter",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "fa405677-786e-4053-b25a-1ab94d1ef465"
+      }
+    },
+    "owner": "stoicslav"
   }
 }

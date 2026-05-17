@@ -17,11 +17,17 @@ If yes — there's a novel primitive here worth building a product around. If no
 | Ambient sound level (dB) | Microphone | Energy, crowd size, loudness |
 | Audio classification (music y/n) | Microphone + spectral analysis | Music vs noise |
 | BPM detection | Microphone + FFT | Music tempo and energy |
+| Song recognition | Microphone + AudD API | Track identity for context |
+| Crowd event detection | Microphone | Clapping, cheering, DJ drops |
 | Accelerometer magnitude | IMU | User movement / dancing |
 | Gyroscope activity | IMU | Body movement patterns |
+| Movement BPM | IMU + autocorrelation | Rhythmic movement frequency |
+| Rhythmicity score | IMU | How periodic/consistent movement is |
+| Step cadence | Pedometer | Walking vs dancing vs stationary |
 | BLE device count + trend | Bluetooth | Crowd density proxy |
+| Phase coherence | Audio + motion fusion | Whether body movement matches music BPM |
 | Dwell time | Session duration | How long user stays |
-| Micro-prompt rating | User input (every 20-30 min) | Ground truth / training label |
+| Micro-prompt rating | User input (every 5 min) | Ground truth / training label |
 
 ## Why This Matters
 
@@ -71,6 +77,14 @@ xcodebuild -workspace ios/VibeMeter.xcworkspace -scheme VibeMeter -configuration
 ### Known Issue: MDM-managed devices
 If your iPhone is company MDM-managed, you won't be able to trust the personal developer certificate. Use a personal (non-MDM) iPhone and trust the profile under Settings → General → VPN & Device Management.
 
+## How Tester Data Is Stored
+
+Each device generates a random anonymous UUID on first launch (stored in iOS SecureStore, persists across app restarts). Every session and sensor reading uploaded to Supabase is tagged with that `device_id`. There is no login, no name, no email — completely anonymous. You can query Supabase by `device_id` to see all data from a specific phone.
+
+Data is stored locally first (SQLite) and batch-uploaded to Supabase every 5 minutes. If the phone has no signal, data queues and uploads automatically when connectivity returns.
+
+---
+
 ## Distributing to Testers
 
 Because this app uses custom native modules (BLE scanning, raw audio, IMU), it cannot run in **Expo Go** — Expo's instant-share app only works with pure JavaScript apps that have no native code. Once `expo prebuild` is run, the app must be compiled into a real binary and distributed like any other app.
@@ -80,22 +94,54 @@ Because this app uses custom native modules (BLE scanning, raw audio, IMU), it c
 
 ---
 
-### iOS — TestFlight (recommended, up to 10,000 testers)
+### iOS — TestFlight + QR Code (recommended)
 
-1. Get an **Apple Developer account** ($99/year at developer.apple.com)
-2. Install EAS CLI and build in the cloud (no Xcode required on tester machines):
-   ```bash
-   npm install -g eas-cli
-   eas build --platform ios
-   ```
-3. Submit the build to TestFlight via App Store Connect
-4. Share the public TestFlight link — testers tap it, install the TestFlight app, and install ViibeMeter. No cables, no certificate trust prompts, no MDM issues.
+This is the lowest-friction path for distributing to strangers at scale.
 
-> **MDM note:** TestFlight bypasses the personal developer certificate issue entirely. MDM-managed iPhones can install TestFlight builds without any restrictions.
+**Cost:** $99/year Apple Developer account (developer.apple.com)
+
+**Setup (one-time):**
+```bash
+npm install -g eas-cli
+eas build --platform ios        # cloud build, no Xcode needed
+# then submit the build to TestFlight via App Store Connect
+# then create a Public Link under TestFlight → your app → Public Link
+```
+
+**Tester flow:**
+1. Tester scans QR code → Safari opens the TestFlight public link
+2. If TestFlight not installed: redirected to App Store to install it (free, ~30 seconds)
+3. TestFlight already installed: opens directly → one tap "Start Testing"
+4. App installs. Their data flows to Supabase automatically.
+
+No cables, no certificate prompts, no account creation required from testers.
+
+**Key details:**
+- Up to 10,000 testers on a public link
+- Each build is valid for 90 days (re-upload to refresh)
+- Apple does a lightweight review of TestFlight builds (usually <24 hours)
+- MDM-managed iPhones (corporate devices) can install TestFlight builds without restrictions
+
+**To generate a QR code:** paste the TestFlight public link into any free QR code generator (e.g. qr-code-generator.com). Print it, put it on a table, done.
+
+> For a research MVP targeting random people at clubs and events, a printed QR code + TestFlight is the complete distribution stack.
 
 ---
 
-### Android — APK direct install (easiest path)
+### iOS — Direct install via Xcode (free, no developer account)
+
+For installing on 1-3 testers' phones directly:
+
+1. Connect their iPhone via USB
+2. Open Xcode → Devices and Simulators → select their device
+3. Sign with your personal Apple ID (free tier)
+4. Run `deploy.sh` from the repo root
+
+**Limitation:** Apple's free tier signing expires every 7 days. You'll need to re-install on each tester's phone weekly. Only practical if you're physically with the testers regularly.
+
+---
+
+### Android — APK direct install (free, no account needed)
 
 Android doesn't require a developer account for sideloading:
 
@@ -103,20 +149,20 @@ Android doesn't require a developer account for sideloading:
    ```bash
    eas build --platform android --profile preview
    ```
-2. Host the APK anywhere (Google Drive, Dropbox, direct link)
-3. Testers enable "Install from unknown sources" on their phone and tap the link — done
-
-Or use **Firebase App Distribution** (free) for a managed install link with version tracking.
+2. Host the APK anywhere (Google Drive, Dropbox, direct link) or use **Firebase App Distribution** (free) for a managed link with version tracking
+3. Testers enable "Install from unknown sources" on their phone and tap the link
 
 ---
 
-### Summary
+### Distribution Summary
 
-| Platform | Method | Requires |
-|----------|--------|----------|
-| iOS | TestFlight | Apple Developer account ($99/yr) |
-| Android | APK link | Nothing — just enable unknown sources |
-| Both | EAS Build | Free Expo account |
+| Method | Cost | Friction for tester | Scale |
+|--------|------|-------------------|-------|
+| TestFlight + QR code | $99/yr | Low (install TestFlight once) | 10,000 |
+| Direct via Xcode | Free | Zero (you install it) | 1–3 |
+| Android APK | Free | Low (enable unknown sources) | Unlimited |
+
+**Recommended path:** Pay the $99, build with EAS, generate a public TestFlight link, print as QR code. One QR code sticker at a venue covers all tester acquisition.
 
 ---
 
@@ -141,7 +187,7 @@ Prioritize **2-3 hour sessions** over many short ones.
 
 The most valuable thing to capture is the **arc** — a venue filling up, peaking, and declining. A 20-minute session gives you a snapshot. A 3-hour session gives you a time series with real dynamics.
 
-The micro-prompt ratings every 20-30 minutes are the training labels. A 3-hour session = ~6-8 labeled data points that are temporally correlated and capture *change* — far more informative than 6 snapshots from 6 different venues on 6 different nights.
+The micro-prompt ratings every 5 minutes are the training labels. A 3-hour session = ~36 labeled data points that are temporally correlated and capture *change* — far more informative than snapshots from different venues on different nights.
 
 Once you have 3-4 long sessions at the same venue type, start adding variety (different venues, different nights).
 
@@ -158,11 +204,11 @@ Once you have 3-4 long sessions at the same venue type, start adding variety (di
 A labeled sample = one micro-prompt rating with its associated sensor window.
 
 **Rough math:**
-- 3-hour session × rating every 25 min = ~7 labels per session
-- 50 labels = ~7-8 sessions
-- 150 labels = ~20-22 sessions
+- 3-hour session × rating every 5 min = ~36 labels per session
+- 50 labels = ~2 sessions with 1 tester, or 1 session with 2 testers
+- 150 labels = ~4-5 sessions across 2-3 testers
 
-You can reach 50 labels in **2-3 weekends** with 3-4 active testers each doing one session per weekend night.
+You can reach 50 labels in **a single weekend night** with 2 active testers doing one 3-hour session.
 
 ---
 
@@ -208,9 +254,9 @@ Each DJ set is a built-in controlled experiment:
 
 | Testers | Session length | Ratings per tester | Total labeled samples |
 |---------|---------------|-------------------|----------------------|
-| 10 | 5 hrs | ~10 | 100 |
-| 15 | 5 hrs | ~10 | 150 |
-| 20 | 5 hrs | ~10 | 200 |
+| 10 | 5 hrs | ~60 | 600 |
+| 15 | 5 hrs | ~60 | 900 |
+| 20 | 5 hrs | ~60 | 1200 |
 
 ### The Key: Recruit Testers 48 Hours Before, Not at the Door
 

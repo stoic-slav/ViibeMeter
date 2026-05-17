@@ -4,24 +4,24 @@
 
 export const SENSOR_CONFIG = {
   // Audio sampling
-  AUDIO_SAMPLE_DURATION_MS: 5000,
-  AUDIO_SAMPLE_INTERVAL_MS: 120000,     // sample every 2 min
+  AUDIO_SAMPLE_DURATION_MS: 2000,
+  AUDIO_SAMPLE_INTERVAL_MS: 8000,       // sample every 8s (2s record + 8s gap)
   AUDIO_SAMPLE_RATE: 44100,
   FFT_SIZE: 2048,
 
   // Motion sampling
-  MOTION_SAMPLE_RATE_HZ: 10,
-  MOTION_SAMPLE_DURATION_MS: 5000,
-  MOTION_SAMPLE_INTERVAL_MS: 30000,     // every 30 sec
-  MOTION_STATIONARY_THRESHOLD: 0.3,
-  MOTION_WALKING_THRESHOLD: 1.0,
-  MOTION_SWAYING_THRESHOLD: 1.5,
-  MOTION_DANCING_THRESHOLD: 2.5,
-  MOTION_JUMPING_THRESHOLD: 5.0,
+  MOTION_SAMPLE_RATE_HZ: 50,          // higher rate needed for movement BPM FFT
+  MOTION_SAMPLE_DURATION_MS: 3000,
+  MOTION_SAMPLE_INTERVAL_MS: 10000,     // every 10 sec
+  MOTION_STATIONARY_THRESHOLD: 0.15,
+  MOTION_WALKING_THRESHOLD: 0.4,
+  MOTION_SWAYING_THRESHOLD: 0.8,
+  MOTION_DANCING_THRESHOLD: 1.5,
+  MOTION_JUMPING_THRESHOLD: 3.0,
 
   // BLE scanning
-  BLE_SCAN_DURATION_MS: 5000,
-  BLE_SCAN_INTERVAL_MS: 60000,          // every 60 sec
+  BLE_SCAN_DURATION_MS: 3000,
+  BLE_SCAN_INTERVAL_MS: 20000,          // every 20s (3s scan + 17s gap)
 
   // GPS / Location
   GPS_CHECK_INTERVAL_MS: 120000,        // check every 2 min
@@ -37,8 +37,8 @@ export const SENSOR_CONFIG = {
   UPLOAD_RETRY_DELAY_MS: 10000,
 
   // Vibe prompt
-  PROMPT_INTERVAL_MS: 1500000,          // every 25 min
-  PROMPT_MIN_SESSION_MS: 300000,        // don't prompt in first 5 min
+  PROMPT_INTERVAL_MS: 300000,           // every 5 min
+  PROMPT_MIN_SESSION_MS: 60000,         // don't prompt in first 1 min
   PROMPT_TIMEOUT_MS: 60000,
 
   // Vibe score weights (initial — will be tuned by analysis)

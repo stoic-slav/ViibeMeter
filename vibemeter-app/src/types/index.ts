@@ -61,6 +61,8 @@ export type MovementClassification =
 
 export type CrowdTrend = 'filling' | 'stable' | 'thinning' | 'unknown';
 
+export type AudioEvent = 'crowd_clapping' | 'cheering' | 'dj_drop';
+
 export type VenueType =
   | 'bar'
   | 'club'
@@ -128,6 +130,9 @@ export interface AudioMetrics {
   audioClassification: AudioClassification;
   bassPresence: number;
   midHighRatio: number;
+  clapCount: number;
+  recognizedSong: string | null;    // "Artist – Title" or null
+  audioEvent: AudioEvent | null;    // crowd moment label
 }
 
 export interface MotionMetrics {
@@ -137,6 +142,9 @@ export interface MotionMetrics {
   gyroActivityAvg: number;
   gyroActivityMax: number;
   movementClassification: MovementClassification;
+  stepCadence: number | null;    // steps per minute
+  movementBpm: number | null;    // dominant rhythmic frequency (30–240 BPM) from accel FFT
+  rhythmicity: number;           // 0–1: ratio of peak power to total — how periodic the movement is
 }
 
 export interface VibeScoreBreakdown {
@@ -147,4 +155,34 @@ export interface VibeScoreBreakdown {
   engagementScore: number;
   compositeVibeScore: number;
   confidence: number;
+}
+
+export interface SensorReading {
+  t: number; // ms timestamp
+  v: number;
+}
+
+export type TrendDir = 'up' | 'down' | 'flat';
+
+export interface LiveDashboardData {
+  dbReadings: SensorReading[];
+  magReadings: SensorReading[];
+  gyroReadings: SensorReading[];
+  bleReadings: SensorReading[];
+  bpmReadings: SensorReading[];
+  stepReadings: SensorReading[];
+  movementBpmReadings: SensorReading[];
+  audioClass: string | null;
+  movementClass: string | null;
+  bleCount: number | null;
+  bleTrend: CrowdTrend | null;
+  stepCadence: number | null;
+  clapCount: number;
+  audioEvent: AudioEvent | null;
+  recognizedSong: string | null;
+  audioBpm: number | null;
+  movementBpm: number | null;
+  rhythmicity: number;
+  phaseCoherence: number;   // 0–1: how well movement rhythm matches audio BPM
+  trend15m: TrendDir;
 }

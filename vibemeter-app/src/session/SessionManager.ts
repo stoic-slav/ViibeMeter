@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import * as Device from 'expo-device';
-import { v4 as uuidv4 } from 'uuid';
+import * as Crypto from 'expo-crypto';
 import { Session, VenueType } from '../types';
 import { saveSession, updateSessionEnd, getSessions } from '../storage/LocalBuffer';
 import { getDeviceId } from '../storage/DeviceIdentity';
@@ -30,7 +30,7 @@ export class SessionManager {
 
     const deviceId = await getDeviceId();
     const session: Session = {
-      id: uuidv4(),
+      id: Crypto.randomUUID(),
       deviceId,
       venueName,
       venueType,
@@ -49,7 +49,7 @@ export class SessionManager {
     console.log(`${LOG_TAG} Session started: ${session.id} at ${venueName ?? 'unnamed'}`);
 
     // Sync to Supabase (fire-and-forget, non-blocking)
-    syncSessions().catch(err => console.error(`${LOG_TAG} Sync error:`, err));
+    syncSessions().catch(err => console.warn(`${LOG_TAG} Sync error:`, err));
 
     return session;
   }
@@ -77,7 +77,7 @@ export class SessionManager {
     this.activeSession = null;
 
     // Sync the update
-    syncSessions().catch(err => console.error(`${LOG_TAG} Sync error:`, err));
+    syncSessions().catch(err => console.warn(`${LOG_TAG} Sync error:`, err));
 
     return ended;
   }

@@ -1,5 +1,5 @@
 import * as Notifications from 'expo-notifications';
-import { v4 as uuidv4 } from 'uuid';
+import * as Crypto from 'expo-crypto';
 import { SubjectiveRating } from '../types';
 import { SENSOR_CONFIG } from '../config/constants';
 import { saveRating, getNearestWindowId, markRatingsSynced } from '../storage/LocalBuffer';
@@ -130,7 +130,7 @@ export class VibePrompt {
     const nearestWindowId = await getNearestWindowId(this.sessionId, ratedAt);
 
     const subjectiveRating: SubjectiveRating = {
-      id: uuidv4(),
+      id: Crypto.randomUUID(),
       sessionId: this.sessionId,
       deviceId,
       rating,

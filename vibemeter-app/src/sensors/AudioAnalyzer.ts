@@ -1,14 +1,18 @@
 import { Audio } from 'expo-av';
-import { AudioMetrics, AudioSample } from '../types';
+import { AudioMetrics, AudioSample, AudioEvent, AudioClassification } from '../types';
 import { SENSOR_CONFIG } from '../config/constants';
 import { computeFFT, bandEnergy, totalEnergy, spectralFlatness } from '../processing/FFTProcessor';
 import { detectBPM } from '../processing/BPMDetector';
 import { detectMusic, classifyAudio, computeRMS, rmsToDb, dbFullScaleToAmbient } from '../processing/AudioClassifier';
 
 const LOG_TAG = '[AudioAnalyzer]';
+const AUDD_TOKEN = process.env.EXPO_PUBLIC_AUDD_TOKEN ?? '';
+const RECOGNITION_MIN_INTERVAL_MS = 5_000; // attempt once per 5s when music detected
 
 export class AudioAnalyzer {
   private isRecording = false;
+  private lastRecognitionAt = 0;
+  private lastRecognizedSong: string | null = null;
 
   /**
    * Capture a 5-second audio sample and return computed metrics.
@@ -21,7 +25,12 @@ export class AudioAnalyzer {
     }
 
     try {
-      await Audio.requestPermissionsAsync();
+      const { granted } = await Audio.requestPermissionsAsync();
+      if (!granted) {
+        console.warn(`${LOG_TAG} Microphone permission not granted`);
+        return this.buildFallbackMetrics();
+      }
+
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
@@ -67,11 +76,11 @@ export class AudioAnalyzer {
       // Wait for the sample duration
       await new Promise(r => setTimeout(r, SENSOR_CONFIG.AUDIO_SAMPLE_DURATION_MS));
 
+      const fileUri = recording.getURI() ?? null;
       await recording.stopAndUnloadAsync();
 
-      // CRITICAL: We do NOT process raw audio file — only metering values
-      // Attempting to read the file URI would store audio; we avoid it entirely.
-      // Instead we work with the dB metering data only.
+      // Clap / transient detection + crowd event classification
+      const clapCount = detectClaps(dbSamples);
 
       if (dbSamples.length === 0) {
         console.warn(`${LOG_TAG} No metering samples collected`);
@@ -95,6 +104,10 @@ export class AudioAnalyzer {
       const musicDetected = detectMusicFromMetering(avgDb, dbVariance, bpmResult.confidence);
 
       const audioClassification = classifyAudio(avgDb, musicDetected);
+      const audioEvent = classifyAudioEvent(dbSamples, clapCount, avgDb, dbVariance, musicDetected);
+
+      // Song recognition (opt-in, requires EXPO_PUBLIC_AUDD_TOKEN)
+      const recognizedSong = await this.attemptRecognition(fileUri, audioClassification, avgDb);
 
       return {
         avgDb,
@@ -106,26 +119,56 @@ export class AudioAnalyzer {
         audioClassification,
         bassPresence,
         midHighRatio,
+        clapCount,
+        audioEvent,
+        recognizedSong,
       };
     } catch (err) {
-      console.error(`${LOG_TAG} Error during analysis:`, err);
+      console.warn(`${LOG_TAG} Error during analysis:`, err);
       return null;
     } finally {
       this.isRecording = false;
     }
   }
 
+  private async attemptRecognition(
+    fileUri: string | null,
+    classification: AudioClassification,
+    avgDb: number,
+  ): Promise<string | null> {
+    if (!AUDD_TOKEN || !fileUri) return this.lastRecognizedSong;
+    // Only try when there's likely music and enough time has passed
+    if (classification === 'silent' || classification === 'talking') return this.lastRecognizedSong;
+    if (avgDb < SENSOR_CONFIG.AUDIO_DB_LOW_MUSIC) return this.lastRecognizedSong;
+    if (Date.now() - this.lastRecognitionAt < RECOGNITION_MIN_INTERVAL_MS) return this.lastRecognizedSong;
+
+    try {
+      this.lastRecognitionAt = Date.now();
+      const formData = new FormData();
+      formData.append('file', { uri: fileUri, type: 'audio/m4a', name: 'sample.m4a' } as any);
+      formData.append('api_token', AUDD_TOKEN);
+
+      const response = await fetch('https://api.audd.io/', {
+        method: 'POST',
+        body: formData,
+        headers: { Accept: 'application/json' },
+      });
+      const data = await response.json();
+      if (data.status === 'success' && data.result) {
+        this.lastRecognizedSong = `${data.result.artist} – ${data.result.title}`;
+      }
+    } catch (err) {
+      console.warn(`${LOG_TAG} Song recognition error:`, err);
+    }
+    return this.lastRecognizedSong;
+  }
+
   private buildFallbackMetrics(): AudioMetrics {
     return {
-      avgDb: 0,
-      maxDb: 0,
-      dbVariance: 0,
-      musicDetected: false,
-      estimatedBpm: null,
-      bpmConfidence: 0,
-      audioClassification: 'silent',
-      bassPresence: 0,
-      midHighRatio: 0,
+      avgDb: 0, maxDb: 0, dbVariance: 0, musicDetected: false,
+      estimatedBpm: null, bpmConfidence: 0, audioClassification: 'silent',
+      bassPresence: 0, midHighRatio: 0, clapCount: 0,
+      audioEvent: null, recognizedSong: null,
     };
   }
 }
@@ -206,4 +249,51 @@ function detectMusicFromMetering(avgDb: number, dbVariance: number, bpmConfidenc
   // High dB with notable variance and no clear rhythm → could be music or crowd
   // Be conservative: require both dB threshold and variance signal
   return avgDb > SENSOR_CONFIG.AUDIO_DB_LOW_MUSIC && dbVariance > 10;
+}
+
+// Classify the overall audio event for the current window.
+// Priority: dj_drop > crowd_clapping > cheering
+function classifyAudioEvent(
+  dbSamples: number[],
+  clapCount: number,
+  avgDb: number,
+  dbVariance: number,
+  musicDetected: boolean,
+): AudioEvent | null {
+  if (dbSamples.length < 4) return null;
+
+  const range = Math.max(...dbSamples) - Math.min(...dbSamples);
+
+  // DJ drop: massive dynamic range within the window — music suddenly surging from a quiet build-up
+  // Signature: range >35dB AND high variance AND music detected
+  if (range > 35 && dbVariance > 180 && musicDetected) return 'dj_drop';
+
+  // Crowd clapping: 2+ sharp transients in the window
+  if (clapCount >= 2) return 'crowd_clapping';
+
+  // Cheering: loud, chaotic, sustained — high dB, high variance, not structured as music
+  if (avgDb > 70 && dbVariance > 60 && !musicDetected) return 'cheering';
+
+  return null;
+}
+
+// Detect transient spikes (claps, snaps, crowd noise bursts) in metering data.
+// A clap = sudden dB spike >15dB above mean that peaks then drops within the next sample.
+function detectClaps(dbSamples: number[]): number {
+  if (dbSamples.length < 4) return 0;
+  const mean = dbSamples.reduce((s, v) => s + v, 0) / dbSamples.length;
+  let count = 0;
+  let i = 1;
+  while (i < dbSamples.length - 1) {
+    const spike = dbSamples[i] - mean;
+    const rising  = dbSamples[i] > dbSamples[i - 1] + 8;
+    const falling = dbSamples[i] > dbSamples[i + 1] + 5;
+    if (spike > 15 && rising && falling) {
+      count++;
+      i += 3; // skip past the transient
+    } else {
+      i++;
+    }
+  }
+  return count;
 }

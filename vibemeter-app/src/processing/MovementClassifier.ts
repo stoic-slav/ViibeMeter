@@ -2,33 +2,40 @@ import { MovementClassification } from '../types';
 import { SENSOR_CONFIG } from '../config/constants';
 
 /**
- * Classify movement state from accelerometer magnitude and variance.
+ * Classify movement state from accelerometer magnitude, variance, and gyro activity.
+ * Gyro (angular velocity) detects waving/rotating even when linear acceleration is low.
  */
 export function classifyMovement(
   magnitudeAvg: number,
   magnitudeVariance: number,
+  gyroAvg: number = 0,
 ): MovementClassification {
-  // High variance = erratic movement (dancing/jumping)
-  // Low variance + low magnitude = stationary
-  // Combine both to distinguish states
+  // Combine accel and gyro into a single activity signal
+  // Gyro in rad/s: gentle wave ≈ 1-2, vigorous ≈ 3-5+
+  const gyroBoost = gyroAvg * 0.3; // weight gyro contribution
+  const effectiveMag = magnitudeAvg + gyroBoost;
 
-  if (magnitudeAvg < SENSOR_CONFIG.MOTION_STATIONARY_THRESHOLD && magnitudeVariance < 0.05) {
+  if (effectiveMag < SENSOR_CONFIG.MOTION_STATIONARY_THRESHOLD && magnitudeVariance < 0.05) {
     return 'stationary';
   }
 
-  if (magnitudeAvg >= SENSOR_CONFIG.MOTION_JUMPING_THRESHOLD) {
+  if (effectiveMag >= SENSOR_CONFIG.MOTION_JUMPING_THRESHOLD) {
     return 'jumping';
   }
 
-  if (magnitudeAvg >= SENSOR_CONFIG.MOTION_DANCING_THRESHOLD || magnitudeVariance > 1.5) {
+  if (effectiveMag >= SENSOR_CONFIG.MOTION_DANCING_THRESHOLD || magnitudeVariance > 1.5) {
     return 'dancing';
   }
 
-  if (magnitudeAvg >= SENSOR_CONFIG.MOTION_SWAYING_THRESHOLD || magnitudeVariance > 0.5) {
+  if (effectiveMag >= SENSOR_CONFIG.MOTION_SWAYING_THRESHOLD || magnitudeVariance > 0.5) {
     return 'swaying';
   }
 
-  if (magnitudeAvg >= SENSOR_CONFIG.MOTION_WALKING_THRESHOLD) {
+  if (effectiveMag >= SENSOR_CONFIG.MOTION_WALKING_THRESHOLD) {
+    return 'walking';
+  }
+
+  if (effectiveMag >= SENSOR_CONFIG.MOTION_STATIONARY_THRESHOLD) {
     return 'walking';
   }
 
