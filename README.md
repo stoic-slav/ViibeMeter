@@ -16,8 +16,9 @@ If yes — there's a novel primitive here worth building a product around. If no
 |--------|--------|-----------------|
 | Ambient sound level (dB) | Microphone | Energy, crowd size, loudness |
 | Audio classification (music y/n) | Microphone + spectral analysis | Music vs noise |
-| BPM detection | AudD/Deezer metadata | Music tempo (when song recognized) |
-| Song recognition | Microphone + AudD API | Track identity for context |
+| BPM detection | AudD/Deezer metadata (→ ShazamKit planned) | Music tempo (when song recognized) |
+| Song recognition | Microphone + AudD API (→ ShazamKit planned) | Track identity for context |
+| Music genre | Apple Music metadata via AudD (→ ShazamKit planned) | Genre context for vibe segmentation |
 | Crowd event detection | Microphone | Clapping, cheering, DJ drops |
 | Accelerometer magnitude | IMU | User movement / dancing |
 | Gyroscope activity | IMU | Body movement patterns |
@@ -292,19 +293,50 @@ This is genuinely valuable to them and costs nothing to produce from the analysi
 
 ## Known Limitations & Planned Improvements
 
+### Song Recognition — Migrate to ShazamKit
+
+**Current state:** Song recognition uses the [AudD REST API](https://audd.io/). It works but has limitations: explicit request quotas on the trial tier, ~300ms network round-trip per recognition attempt, and requires a paid plan at scale ($5/1,000 requests).
+
+**Planned upgrade: ShazamKit** — Apple's native song recognition framework (iOS 15+), included free with the Apple Developer account ($99/yr) already needed for TestFlight distribution.
+
+| | ShazamKit | AudD (current) |
+|---|---|---|
+| Cost | **Free** (included in dev account) | $5 / 1,000 requests |
+| Accuracy | ~99%+ (it IS Shazam, 40M+ songs) | ~99.5% |
+| Speed | Native, no HTTP round-trip | ~300ms API call |
+| Genre | ✅ Native `genres` field | Via Apple Music metadata |
+| BPM/Tempo | ❌ Not included | Via Deezer metadata |
+| Rate limits | Not documented / appears unlimited | Hard quotas on trial |
+| Offline | ✅ Custom catalogs | ❌ Requires network |
+
+**Integration path:**
+```bash
+npm install expo-shazamkit
+cd vibemeter-app/ios && pod install
+# IMPORTANT: always xcodebuild clean before native rebuild
+xcodebuild clean -workspace VibeMeter.xcworkspace -scheme VibeMeter -configuration Debug
+xcodebuild -workspace VibeMeter.xcworkspace -scheme VibeMeter \
+  -configuration Debug -destination "generic/platform=iOS" \
+  ENABLE_USER_SCRIPT_SANDBOXING=NO build
+```
+
+Also requires enabling the `com.apple.developer.shazamkit` entitlement in your App ID under Certificates, Identifiers & Profiles in App Store Connect.
+
+**After migration:** Keep the Deezer BPM lookup as a secondary call using the ISRC or song name returned by ShazamKit. Drop AudD entirely.
+
+---
+
 ### BPM Detection — Native Audio Module Needed
 
-**Current state:** BPM is pulled from Deezer/Apple Music metadata via the AudD song recognition API. This is accurate (exact BPM from the track's metadata) but only works when a song is successfully identified — unrecognized tracks, DJ blends, and live music get no BPM.
+**Current state:** BPM is pulled from Deezer track metadata when a song is recognized — accurate but only works for identified tracks. Unrecognized tracks, DJ blends, and live music get no BPM.
 
 **Root cause:** Pure-JS BPM detection from the microphone metering envelope (10 samples/sec dB readings) is too coarse for reliable beat detection. Real beat tracking requires raw PCM audio at ≥8kHz.
 
-**Planned fix:** Install `react-native-audio-record` (or `@siteed/expo-audio-studio`) to stream raw 16-bit PCM chunks from the microphone in real time. Run autocorrelation or FFT-based onset detection on the PCM buffer in JS. This would give real-time BPM for any music — recognized or not — and is the correct long-term implementation.
+**Planned fix:** Install `react-native-audio-record` to stream raw 16-bit PCM chunks from the microphone in real time. Run autocorrelation or FFT-based onset detection on the PCM buffer in JS. Gives BPM for any music — recognized or not.
 
-**Implementation steps when ready:**
 ```bash
 npm install react-native-audio-record
 cd vibemeter-app/ios && pod install
-# IMPORTANT: always clean before native rebuild
 xcodebuild clean -workspace VibeMeter.xcworkspace -scheme VibeMeter -configuration Debug
 xcodebuild -workspace VibeMeter.xcworkspace -scheme VibeMeter \
   -configuration Debug -destination "generic/platform=iOS" \

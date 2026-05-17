@@ -665,9 +665,27 @@ Build `src/sensors/AudioAnalyzer.ts`:
 - **Never save audio to disk.** Process buffer → extract metrics → discard immediately
 - Return: `{ avgDb, maxDb, musicDetected, estimatedBpm, audioClassification, bassPresence, midHighRatio }`
 
-**Current BPM implementation note:** Pure-JS metering-based BPM (dB envelope peaks) is too coarse for reliable beat detection. Current fallback is AudD/Deezer metadata BPM when a song is recognized — accurate but only works for identified tracks.
+**Current song recognition:** AudD REST API (`EXPO_PUBLIC_AUDD_TOKEN`). Returns song title, artist, and optionally Apple Music genre + Deezer BPM via `return=apple_music,deezer`. Has explicit rate limits on the trial tier — will silently stop working when quota is exhausted.
 
-**Planned improvement — native BPM module:**
+**Planned Step 2 — Migrate to ShazamKit:**
+Replace AudD with Apple's native ShazamKit framework once the Apple Developer account ($99/yr) is purchased (needed anyway for TestFlight). ShazamKit is free, unlimited, and ~99%+ accurate.
+
+```bash
+npm install expo-shazamkit
+cd ios && pod install
+xcodebuild clean -workspace VibeMeter.xcworkspace -scheme VibeMeter -configuration Debug
+xcodebuild -workspace VibeMeter.xcworkspace -scheme VibeMeter \
+  -configuration Debug -destination "generic/platform=iOS" \
+  ENABLE_USER_SCRIPT_SANDBOXING=NO build
+```
+
+Enable the `com.apple.developer.shazamkit` entitlement in App ID via App Store Connect → Certificates, Identifiers & Profiles.
+
+ShazamKit returns: `title`, `artist`, `genres` (array), `isrc`, `appleMusicID`, `artworkURL`. Does NOT return BPM — keep Deezer BPM lookup as secondary call using ISRC. Drop AudD entirely after migration.
+
+**Current BPM implementation note:** Pure-JS metering-based BPM (dB envelope peaks) is too coarse for reliable beat detection. Current fallback is Deezer metadata BPM when a song is recognized — accurate but only works for identified tracks.
+
+**Planned Step 3 — Native PCM BPM module:**
 Install `react-native-audio-record` (or equivalent) to stream raw 16-bit PCM chunks from the microphone in real time. Run autocorrelation or FFT-based onset detection on the PCM buffer in JS to extract BPM independently of song recognition. This gives accurate BPM for any music including unrecognized or DJ-mixed tracks. Requires:
 1. `npm install react-native-audio-record`
 2. `cd ios && pod install`
