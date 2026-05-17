@@ -16,7 +16,7 @@ If yes — there's a novel primitive here worth building a product around. If no
 |--------|--------|-----------------|
 | Ambient sound level (dB) | Microphone | Energy, crowd size, loudness |
 | Audio classification (music y/n) | Microphone + spectral analysis | Music vs noise |
-| BPM detection | Microphone + FFT | Music tempo and energy |
+| BPM detection | AudD/Deezer metadata | Music tempo (when song recognized) |
 | Song recognition | Microphone + AudD API | Track identity for context |
 | Crowd event detection | Microphone | Clapping, cheering, DJ drops |
 | Accelerometer magnitude | IMU | User movement / dancing |
@@ -287,6 +287,32 @@ A one-page report showing:
 - Subjective ratings overlaid on sensor data
 
 This is genuinely valuable to them and costs nothing to produce from the analysis scripts. It's also a live demo of what the product can eventually do commercially.
+
+---
+
+## Known Limitations & Planned Improvements
+
+### BPM Detection — Native Audio Module Needed
+
+**Current state:** BPM is pulled from Deezer/Apple Music metadata via the AudD song recognition API. This is accurate (exact BPM from the track's metadata) but only works when a song is successfully identified — unrecognized tracks, DJ blends, and live music get no BPM.
+
+**Root cause:** Pure-JS BPM detection from the microphone metering envelope (10 samples/sec dB readings) is too coarse for reliable beat detection. Real beat tracking requires raw PCM audio at ≥8kHz.
+
+**Planned fix:** Install `react-native-audio-record` (or `@siteed/expo-audio-studio`) to stream raw 16-bit PCM chunks from the microphone in real time. Run autocorrelation or FFT-based onset detection on the PCM buffer in JS. This would give real-time BPM for any music — recognized or not — and is the correct long-term implementation.
+
+**Implementation steps when ready:**
+```bash
+npm install react-native-audio-record
+cd vibemeter-app/ios && pod install
+# IMPORTANT: always clean before native rebuild
+xcodebuild clean -workspace VibeMeter.xcworkspace -scheme VibeMeter -configuration Debug
+xcodebuild -workspace VibeMeter.xcworkspace -scheme VibeMeter \
+  -configuration Debug -destination "generic/platform=iOS" \
+  ENABLE_USER_SCRIPT_SANDBOXING=NO build
+```
+Then replace `estimateBPMFromMeteringPattern()` in `src/sensors/AudioAnalyzer.ts` with PCM-based autocorrelation.
+
+> **Note:** Any `npm install` touching native packages requires `xcodebuild clean` before the next native rebuild. Incremental builds cache stale ExpoModulesCore objects and cause a `NativeJSLogger` crash on boot.
 
 ---
 

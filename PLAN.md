@@ -665,6 +665,17 @@ Build `src/sensors/AudioAnalyzer.ts`:
 - **Never save audio to disk.** Process buffer → extract metrics → discard immediately
 - Return: `{ avgDb, maxDb, musicDetected, estimatedBpm, audioClassification, bassPresence, midHighRatio }`
 
+**Current BPM implementation note:** Pure-JS metering-based BPM (dB envelope peaks) is too coarse for reliable beat detection. Current fallback is AudD/Deezer metadata BPM when a song is recognized — accurate but only works for identified tracks.
+
+**Planned improvement — native BPM module:**
+Install `react-native-audio-record` (or equivalent) to stream raw 16-bit PCM chunks from the microphone in real time. Run autocorrelation or FFT-based onset detection on the PCM buffer in JS to extract BPM independently of song recognition. This gives accurate BPM for any music including unrecognized or DJ-mixed tracks. Requires:
+1. `npm install react-native-audio-record`
+2. `cd ios && pod install`
+3. Full `xcodebuild clean && xcodebuild build` (native rebuild required)
+4. Replace metering-based `estimateBPMFromMeteringPattern()` in `AudioAnalyzer.ts` with PCM-based autocorrelation
+
+**Important:** Any `npm install` that touches native packages requires `xcodebuild clean` before rebuilding — incremental builds cache stale ExpoModulesCore objects and cause `NativeJSLogger` crashes on boot.
+
 **Testing strategy (Claude Code can run these):**
 - Unit test with synthetic sine wave data at known frequencies to verify FFT
 - Unit test BPM detector with synthetic onset patterns at known BPMs (60, 90, 120, 128, 140)
