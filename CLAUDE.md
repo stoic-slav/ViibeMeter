@@ -76,19 +76,21 @@ All core services are singletons — do not re-instantiate them:
 
 Each signal produces a 0–5 component score via piecewise linear curves defined in `src/config/constants.ts`. Composite score = weighted sum:
 
-- Energy (audio dB) — 30%
-- Music (BPM detection) — 25%
-- Movement (accelerometer) — 20%
-- Density (BLE device count) — 15%
-- Engagement (location transitions) — 10%
+- Energy (audio dB) — 30%: dB curve (0.7×) + BPM bonus (0.3×) + music-detected bonus (+0.5)
+- Music (FFT spectral) — 25%: BPM score (0.5×) + sub-bass energy (1.5×) + spectral flux (0.8×) + HNR (0.7×)
+- Movement (accelerometer) — 20%: accel magnitude curve + gyro bonus
+- Density (BLE) — 15%: BLE count curve + filling/thinning trend (±0.5)
+- Engagement — 10%: screen-off ratio × 5.0
 
 If a signal is unavailable, its weight redistributes proportionally to present signals. A `confidence` field (0–1) tracks the fraction of signals used.
+
+FFT-derived spectral metrics (sub-bass energy, spectral centroid, spectral flux, crest factor, vocal presence, harmonic-to-noise ratio) are computed in `src/processing/FFTProcessor.ts` (Cooley-Tukey) and extracted from raw PCM in `AudioAnalyzer.ts` (iOS only; Android returns 0 fallbacks).
 
 ### Storage Schema
 
 Three SQLite tables in `LocalBuffer`:
 - `sessions` — one row per session (venue, start/end times, device ID)
-- `sensor_windows` — one row per 60s window (all component scores + composite)
+- `sensor_windows` — one row per 60s window (all component scores + composite + 6 FFT metric columns)
 - `ratings` — one row per user micro-rating (1–5 stars)
 
 All tables have a `synced INTEGER DEFAULT 0` column. Sync deletes old synced windows to conserve space.

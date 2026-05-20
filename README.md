@@ -24,8 +24,15 @@ If yes — there's a novel primitive here worth building a product around. If no
 | Gyroscope activity | IMU | Body movement patterns | **Medium** — adds dimensionality to movement type |
 | Movement BPM | IMU + autocorrelation | Rhythmic movement frequency (30–240 BPM) | **Medium** — rhythmic sync with music suggests engagement |
 | Rhythmicity score | IMU | How periodic/consistent the movement is (0–1) | **Medium** — dancing is periodic; random jostling is not |
+| Beat sync | Audio + motion fusion | `√(rhythmicity × phaseCoherence)` — body movement locked to music | **High** — user moving in sync with music = strongest single-device engagement signal |
+| Phase coherence | Audio + motion fusion | Whether body movement BPM matches music BPM or a harmonic | **High** — component of beat sync; 1.0 = perfect harmonic match |
 | Step cadence | Pedometer | Walking vs dancing vs stationary | **Low** — redundant with accelerometer; useful as a tie-breaker |
-| Phase coherence | Audio + motion fusion | Whether body movement matches music BPM | **High** — user moving in sync with music = strong engagement signal |
+| Sub-bass energy | Microphone + FFT | Fraction of audio energy in 20–80 Hz (kick/bass) | **High** — heavy bass = dance-floor system; strongest genre-independent energy marker |
+| Spectral flux | Microphone + FFT | How rapidly the frequency spectrum changes frame-to-frame | **Medium** — high = evolving mix (builds, drops, transitions); low = static loop or silence |
+| Harmonic-to-noise ratio | Microphone + FFT | How tonal vs noisy the audio is (0–1) | **Medium** — distinguishes live music from crowd chatter or hiss |
+| Vocal presence | Microphone + FFT | Fraction of energy in 300 Hz – 3 kHz speech/singing band | **Low** — separates vocal tracks from purely instrumental sets |
+| Spectral centroid | Microphone + FFT | Frequency "centre of mass" — warmth vs brightness | **Low** — context signal; low = bass-heavy, high = bright/harsh |
+| Crest factor | Microphone + FFT | Peak-to-RMS ratio in dB — transient punchiness | **Low** — high = punchy kick/snare; low = heavily compressed or flat sound |
 | BLE device count + trend | Bluetooth | Crowd density proxy — filling / stable / thinning | **Medium** — density matters but noisy in crowded venues |
 | Dwell time | Session duration | How long user stays | **Medium** — people stay longer at good venues; useful for session-level scoring |
 | Micro-prompt rating | User input every 5 min | Ground truth — the training label | **Critical** — the target variable everything else is trained against |
@@ -81,11 +88,11 @@ Each signal produces a 0–5 component score via piecewise linear curves defined
 
 | Component | Weight | Input signals |
 |-----------|--------|--------------|
-| Energy | 30% | Audio dB |
-| Music | 25% | BPM + music detection |
-| Movement | 20% | Accelerometer magnitude |
-| Density | 15% | BLE device count |
-| Engagement | 10% | Location transitions |
+| Energy | 30% | Audio dB (primary) + BPM bonus + music-detected bonus |
+| Music | 25% | BPM score (0.5×) + sub-bass energy (1.5×) + spectral flux (0.8×) + HNR (0.7×) |
+| Movement | 20% | Accelerometer magnitude + gyroscope bonus |
+| Density | 15% | BLE device count + filling/thinning trend bonus |
+| Engagement | 10% | Screen-off ratio (phone in pocket = having fun) |
 
 If a signal is unavailable its weight redistributes proportionally to present signals. A `confidence` field (0–1) tracks the fraction of signals used.
 

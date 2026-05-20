@@ -6,7 +6,7 @@ import {
 import { useRouter } from 'expo-router';
 import {
   SensorWindow, VibeScoreBreakdown, LiveDashboardData,
-  SensorReading, AudioEvent,
+  SensorReading, AudioEvent, TrendDir,
 } from '../src/types';
 import { sensorOrchestrator } from '../src/sensors/SensorOrchestrator';
 import { sessionManager } from '../src/session/SessionManager';
@@ -156,13 +156,12 @@ function Sparkline({ readings, color, height = 36 }: { readings: SensorReading[]
 }
 
 /* ── Circle Gauge ───────────────────────────────────────────── */
-function CircleGauge({ score, size = 160 }: { score: number; size?: number }) {
+function CircleGauge({ score, size = 160, trend }: { score: number; size?: number; trend?: TrendDir }) {
   const color = scoreColor(score);
   const stroke = size * 0.09;
   const half = size / 2;
   const progress = score / 5;
 
-  // Two-half-circle technique: right half fills 0→0.5, left half fills 0.5→1
   const rightDeg = Math.min(1, progress * 2) * 180;
   const leftDeg  = Math.max(0, (progress - 0.5) * 2) * 180;
 
@@ -182,17 +181,16 @@ function CircleGauge({ score, size = 160 }: { score: number; size?: number }) {
     );
   };
 
+  const trendArrow  = trend === 'up' ? '↑' : trend === 'down' ? '↓' : '→';
+  const trendLabel  = trend === 'up' ? 'RISING' : trend === 'down' ? 'FALLING' : 'STABLE';
+  const trendColor  = trend === 'up' ? A : trend === 'down' ? DNG : WRN;
+  const showTrend   = trend != null;
+
   return (
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-      {/* Track */}
-      <View style={{
-        position: 'absolute', width: size, height: size,
-        borderRadius: half, borderWidth: stroke, borderColor: S2,
-      }} />
-      {/* Fill */}
+      <View style={{ position: 'absolute', width: size, height: size, borderRadius: half, borderWidth: stroke, borderColor: S2 }} />
       {rightDeg > 0 && halfCircle('right', rightDeg, color)}
       {leftDeg > 0  && halfCircle('left',  leftDeg,  color)}
-      {/* Labels */}
       <View style={{ alignItems: 'center' }}>
         <Text style={{ fontFamily: MONO, fontSize: size * 0.22, fontWeight: '700', color, lineHeight: size * 0.24 }}>
           {score.toFixed(1)}
@@ -200,6 +198,12 @@ function CircleGauge({ score, size = 160 }: { score: number; size?: number }) {
         <Text style={{ fontFamily: MONO, fontSize: size * 0.065, color: TXD, letterSpacing: 2, marginTop: 2 }}>
           VIBE SCORE
         </Text>
+        {showTrend && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 7, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: trendColor + '18', borderWidth: 1, borderColor: trendColor + '40' }}>
+            <Text style={{ fontFamily: MONO, fontSize: 9, fontWeight: '700', color: trendColor }}>{trendArrow}</Text>
+            <Text style={{ fontFamily: MONO, fontSize: 8, fontWeight: '700', color: trendColor, letterSpacing: 1 }}>{trendLabel}</Text>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -351,38 +355,14 @@ function HarmonicBar({ mbpm, musicBpm }: { mbpm: number | null; musicBpm: number
   );
 }
 
-/* ── Collective Sync Card ───────────────────────────────────── */
-function CollectiveSyncCard({ csync, ble }: { csync: number; ble: number | null }) {
-  const pct    = Math.round(csync * 100);
-  const inSync = Math.round(csync * Math.min(ble || 0, 12));
-  const color  = pct >= 65 ? A : pct >= 40 ? WRN : DNG;
-  return (
-    <View style={{ borderRadius: 14, padding: 14, backgroundColor: color + '0e', borderWidth: 1, borderColor: color + '45', marginBottom: 4, shadowColor: color, shadowOpacity: 0.15, shadowRadius: 12, elevation: 4 }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-        <View>
-          <Text style={{ fontSize: 10, fontFamily: MONO, color, letterSpacing: 1.5, marginBottom: 6 }}>★ COLLECTIVE SYNC</Text>
-          <Text style={{ fontFamily: MONO, fontSize: 36, fontWeight: '700', color, lineHeight: 38 }}>{pct}%</Text>
-          <Text style={{ fontSize: 12, color: TXM, marginTop: 5 }}>of {ble ?? 0} devices moving together</Text>
-        </View>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, width: 72, paddingTop: 2 }}>
-          {Array.from({ length: 12 }, (_, i) => (
-            <View key={i} style={{ width: 11, height: 11, borderRadius: 6, backgroundColor: i < inSync ? color : S2, opacity: i < inSync ? 0.9 : 0.25 }} />
-          ))}
-        </View>
-      </View>
-      <FillBar value={csync} max={1} color={color} height={5} />
-      <Text style={{ fontSize: 10, fontFamily: MONO, color: color + '80', marginTop: 7 }}>
-        {(ble ?? 0) >= 3
-          ? `${Math.round(csync * (ble ?? 0))} of ${ble} devices in sync`
-          : '⚠ needs 3+ devices for accuracy'}
-      </Text>
-    </View>
-  );
-}
 
 /* ── Panels ─────────────────────────────────────────────────── */
-function VibePanel({ live, scores }: { live: LiveDashboardData | null; scores: VibeScoreBreakdown | null }) {
-  const csync = live ? Math.sqrt(Math.max(0, live.rhythmicity * live.phaseCoherence)) : 0;
+function VibePanel({ scores, vibeReadings, onInfo }: { scores: VibeScoreBreakdown | null; vibeReadings: SensorReading[]; onInfo: InfoFn }) {
+  const trend: TrendDir | undefined = vibeReadings.length >= 3
+    ? (vibeReadings[vibeReadings.length - 1].v - vibeReadings[vibeReadings.length - 3].v > 0.1 ? 'up'
+     : vibeReadings[vibeReadings.length - 1].v - vibeReadings[vibeReadings.length - 3].v < -0.1 ? 'down'
+     : 'flat')
+    : undefined;
   const comps = [
     { l: 'ENERGY', v: scores?.energyScore    ?? 0, w: '30%' },
     { l: 'MUSIC',  v: scores?.musicScore     ?? 0, w: '25%' },
@@ -394,9 +374,8 @@ function VibePanel({ live, scores }: { live: LiveDashboardData | null; scores: V
   const conf = scores?.confidence ?? 0;
   return (
     <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24, gap: 14 }}>
-      <CollectiveSyncCard csync={csync} ble={live?.bleCount ?? null} />
       <View style={{ alignItems: 'center', marginVertical: 4 }}>
-        <CircleGauge score={composite} size={160} />
+        <CircleGauge score={composite} size={160} trend={trend} />
         <Text style={{ fontSize: 12, color: TXM, marginTop: 8 }}>
           CONFIDENCE <Text style={{ color: TX }}>{conf > 0 ? `${Math.round(conf * 100)}%` : '—'}</Text>
         </Text>
@@ -803,6 +782,7 @@ export default function MeterScreen() {
   const [autoSubmitIn, setAutoSubmitIn] = useState<number | null>(null);
   const autoSubmitRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [vibeReadings, setVibeReadings] = useState<SensorReading[]>([]);
   const [infoModal, setInfoModal] = useState<{ label: string; info: string } | null>(null);
   const [stopping, setStopping] = useState(false);
 
@@ -814,6 +794,10 @@ export default function MeterScreen() {
         setLive(ld);
         setScores(sc);
         setVibeScore(sc.compositeVibeScore);
+        setVibeReadings(prev => {
+          const next = [...prev, { t: Date.now(), v: sc.compositeVibeScore }];
+          return next.length > 30 ? next.slice(-30) : next;
+        });
       },
     );
     vibePrompt.setPromptShownCallback(() => {
@@ -900,7 +884,7 @@ export default function MeterScreen() {
   };
 
   const PANELS: Record<Tab, React.ReactNode> = {
-    vibe:   <VibePanel   live={live} scores={scores} />,
+    vibe:   <VibePanel   scores={scores} vibeReadings={vibeReadings} onInfo={(l, i) => setInfoModal({ label: l, info: i })} />,
     music:  <MusicPanel  live={live} onInfo={(label, info) => setInfoModal({ label, info })} />,
     motion: <MotionPanel live={live} onInfo={(l, i) => setInfoModal({ label: l, info: i })} />,
     crowd:  <CrowdPanel  live={live} onInfo={(l, i) => setInfoModal({ label: l, info: i })} />,
