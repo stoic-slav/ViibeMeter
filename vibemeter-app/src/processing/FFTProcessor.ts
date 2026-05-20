@@ -141,3 +141,92 @@ export function spectralFlatness(magnitudes: number[]): number {
 
   return Math.min(1.0, geoMean / arithMean);
 }
+
+/**
+ * Spectral centroid: frequency "center of mass" weighted by magnitude.
+ * Returns Hz. High = bright/harsh, low = warm/bass-heavy.
+ */
+export function spectralCentroid(result: FFTResult): number {
+  let weightedSum = 0;
+  let totalMag = 0;
+  for (let i = 0; i < result.magnitudes.length; i++) {
+    weightedSum += result.frequencies[i] * result.magnitudes[i];
+    totalMag += result.magnitudes[i];
+  }
+  return totalMag > 0 ? weightedSum / totalMag : 0;
+}
+
+/**
+ * Sub-bass energy ratio: fraction of total energy in 20–80 Hz.
+ * Captures kick drum and bass synth — the primary dance-floor signals.
+ */
+export function subBassRatio(result: FFTResult): number {
+  const sub = bandEnergy(result, 20, 80);
+  const total = totalEnergy(result);
+  return total > 0 ? Math.min(1, sub / total) : 0;
+}
+
+/**
+ * Vocal presence: fraction of energy in the speech/vocal band (300–3 kHz).
+ * High = singing or talking; low = purely instrumental or sub-bass heavy.
+ */
+export function vocalPresence(result: FFTResult): number {
+  const vocal = bandEnergy(result, 300, 3000);
+  const total = totalEnergy(result);
+  return total > 0 ? Math.min(1, vocal / total) : 0;
+}
+
+/**
+ * Harmonic-to-noise ratio proxy: 1 - spectralFlatness.
+ * High = tonal/harmonic (music, singing). Low = noise (crowd, hiss).
+ */
+export function harmonicNoiseRatio(result: FFTResult): number {
+  return 1 - spectralFlatness(result.magnitudes);
+}
+
+/**
+ * Spectral flux: mean frame-to-frame positive energy change, normalized to [0,1].
+ * Computed across multiple FFT frames cut from the sample buffer.
+ * High = dynamic, evolving mix (drops, builds). Low = static loop or silence.
+ */
+export function computeSpectralFlux(samples: number[], sampleRate: number): number {
+  const HOP = 1024;
+  const FRAME = 2048;
+  if (samples.length < FRAME * 2) return 0;
+
+  let prevMags: number[] | null = null;
+  let fluxSum = 0;
+  let frameCount = 0;
+
+  for (let start = 0; start + FRAME <= samples.length; start += HOP) {
+    const frame = samples.slice(start, start + FRAME);
+    const { magnitudes } = computeFFT(frame, sampleRate);
+    if (prevMags) {
+      let flux = 0;
+      for (let i = 0; i < magnitudes.length; i++) {
+        const diff = magnitudes[i] - prevMags[i];
+        if (diff > 0) flux += diff;
+      }
+      fluxSum += flux;
+      frameCount++;
+    }
+    prevMags = magnitudes;
+  }
+
+  if (frameCount === 0) return 0;
+  // Normalize: typical flux at moderate music is ~0.5; cap at 1
+  return Math.min(1, (fluxSum / frameCount) * 80);
+}
+
+/**
+ * Crest factor: ratio of peak amplitude to RMS.
+ * High = punchy transients (DJ drops, kick-heavy). Low = compressed/flat.
+ * Returns value in dB (typically 3–20 dB for music).
+ */
+export function crestFactor(samples: number[]): number {
+  if (samples.length === 0) return 0;
+  const peak = samples.reduce((m, s) => Math.max(m, Math.abs(s)), 0);
+  const rms = Math.sqrt(samples.reduce((s, v) => s + v * v, 0) / samples.length);
+  if (rms < 1e-10) return 0;
+  return 20 * Math.log10(peak / rms); // dB
+}

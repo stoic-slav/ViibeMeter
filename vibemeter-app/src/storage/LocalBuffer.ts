@@ -44,6 +44,12 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
       audio_classification TEXT,
       bass_presence REAL,
       mid_high_ratio REAL,
+      sub_bass_energy REAL,
+      spectral_centroid REAL,
+      spectral_flux REAL,
+      crest_factor REAL,
+      vocal_presence REAL,
+      harmonic_noise_ratio REAL,
       accel_magnitude_avg REAL,
       accel_magnitude_max REAL,
       accel_variance REAL,
@@ -71,6 +77,8 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
       session_id TEXT NOT NULL,
       device_id TEXT NOT NULL,
       rating INTEGER NOT NULL,
+      music_rating INTEGER,
+      crowd_rating INTEGER,
       rated_at INTEGER NOT NULL,
       nearest_window_id TEXT,
       response_time_ms INTEGER,
@@ -83,6 +91,14 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_sr_session ON subjective_ratings(session_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_synced ON sessions(synced);
   `);
+  // Migrate existing DBs that predate multi-dimension ratings
+  for (const col of ['music_rating', 'crowd_rating']) {
+    await database.runAsync(`ALTER TABLE subjective_ratings ADD COLUMN IF NOT EXISTS ${col} INTEGER`).catch(() => {});
+  }
+  // Migrate existing DBs that predate FFT spectral metrics
+  for (const col of ['sub_bass_energy', 'spectral_centroid', 'spectral_flux', 'crest_factor', 'vocal_presence', 'harmonic_noise_ratio']) {
+    await database.runAsync(`ALTER TABLE sensor_windows ADD COLUMN IF NOT EXISTS ${col} REAL`).catch(() => {});
+  }
 }
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
@@ -149,18 +165,20 @@ export async function saveSensorWindow(w: SensorWindow): Promise<void> {
       (id, session_id, window_start, window_end,
        avg_db, max_db, db_variance, music_detected, estimated_bpm,
        audio_classification, bass_presence, mid_high_ratio,
+       sub_bass_energy, spectral_centroid, spectral_flux, crest_factor, vocal_presence, harmonic_noise_ratio,
        accel_magnitude_avg, accel_magnitude_max, accel_variance,
        gyro_activity_avg, gyro_activity_max, movement_classification,
        ble_device_count, ble_count_delta, ble_count_trend,
        gps_is_at_venue, gps_accuracy_meters, screen_off_ratio, camera_activations,
        computed_energy_score, computed_density_score, computed_movement_score,
        computed_music_score, computed_vibe_score)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       w.id, w.sessionId, w.windowStart.getTime(), w.windowEnd.getTime(),
       w.avgDb, w.maxDb, w.dbVariance,
       w.musicDetected == null ? null : (w.musicDetected ? 1 : 0),
       w.estimatedBpm, w.audioClassification, w.bassPresence, w.midHighRatio,
+      w.subBassEnergy, w.spectralCentroid, w.spectralFlux, w.crestFactor, w.vocalPresence, w.harmonicNoiseRatio,
       w.accelMagnitudeAvg, w.accelMagnitudeMax, w.accelVariance,
       w.gyroActivityAvg, w.gyroActivityMax, w.movementClassification,
       w.bleDeviceCount, w.bleCountDelta, w.bleCountTrend,
@@ -226,18 +244,31 @@ export async function saveRating(rating: SubjectiveRating): Promise<void> {
   const database = await getDb();
   await database.runAsync(
     `INSERT OR REPLACE INTO subjective_ratings
-      (id, session_id, device_id, rating, rated_at, nearest_window_id, response_time_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      (id, session_id, device_id, rating, music_rating, crowd_rating, rated_at, nearest_window_id, response_time_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       rating.id,
       rating.sessionId,
       rating.deviceId,
       rating.rating,
+      rating.musicRating ?? null,
+      rating.crowdRating ?? null,
       rating.ratedAt.getTime(),
       rating.nearestWindowId,
       rating.responseTimeMs,
     ]
   );
+}
+
+export async function getRecentVenues(limit = 3): Promise<string[]> {
+  const database = await getDb();
+  const rows = await database.getAllAsync<{ venue_name: string }>(
+    `SELECT DISTINCT venue_name FROM sessions
+     WHERE venue_name IS NOT NULL AND venue_name != '' AND ended_at IS NOT NULL
+     ORDER BY started_at DESC LIMIT ?`,
+    [limit]
+  );
+  return rows.map(r => r.venue_name);
 }
 
 export async function getUnsyncedRatings(): Promise<any[]> {

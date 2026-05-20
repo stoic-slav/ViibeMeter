@@ -119,8 +119,10 @@ export async function syncRatings(): Promise<void> {
     session_id: r.session_id,
     device_id: r.device_id,
     rating: r.rating,
+    music_rating: r.music_rating ?? null,
+    crowd_rating: r.crowd_rating ?? null,
     rated_at: new Date(r.rated_at).toISOString(),
-    nearest_window_id: r.nearest_window_id,
+    nearest_window_id: r.nearest_window_id ?? null,
     response_time_ms: r.response_time_ms,
   }));
 

@@ -53,8 +53,13 @@ export function computeVibeScore(window: Partial<SensorWindow>): VibeScoreBreakd
       const bpmScore = window.estimatedBpm != null
         ? interpolate(BPM_SCORE_CURVE, window.estimatedBpm)
         : 2.0;
-      const bassBonus = (window.bassPresence ?? 0) * 2.0;
-      musicScore = Math.min(5.0, bpmScore * 0.6 + bassBonus);
+      // Sub-bass (kick/bass): strongest dance-floor signal (20–80 Hz fraction)
+      const subBassBonus = (window.subBassEnergy ?? 0) * 1.5;
+      // Spectral flux: dynamic/evolving mix vs static loop
+      const fluxBonus = (window.spectralFlux ?? 0) * 0.8;
+      // Harmonic-to-noise ratio: tonal music vs crowd noise
+      const hnrBonus = (window.harmonicNoiseRatio ?? 0) * 0.7;
+      musicScore = Math.min(5.0, bpmScore * 0.5 + subBassBonus + fluxBonus + hnrBonus);
     }
   }
 

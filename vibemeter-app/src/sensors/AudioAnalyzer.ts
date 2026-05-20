@@ -1,7 +1,13 @@
 import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
+import { Platform } from 'react-native';
 import { AudioMetrics, AudioSample, AudioEvent, AudioClassification } from '../types';
 import { SENSOR_CONFIG } from '../config/constants';
-import { computeFFT, bandEnergy, totalEnergy, spectralFlatness } from '../processing/FFTProcessor';
+import {
+  computeFFT, bandEnergy, totalEnergy,
+  spectralCentroid as fftSpectralCentroid, subBassRatio, vocalPresence as fftVocalPresence,
+  harmonicNoiseRatio as fftHNR, computeSpectralFlux, crestFactor as fftCrestFactor,
+} from '../processing/FFTProcessor';
 import { detectBPM } from '../processing/BPMDetector';
 import { detectMusic, classifyAudio, computeRMS, rmsToDb, dbFullScaleToAmbient } from '../processing/AudioClassifier';
 
@@ -48,20 +54,34 @@ export class AudioAnalyzer {
       const dbSamples: number[] = [];
       let recording: Audio.Recording | null = null;
 
-      const recordingOptions: Audio.RecordingOptions = {
-        ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
-        isMeteringEnabled: true,
-        android: {
-          ...Audio.RecordingOptionsPresets.HIGH_QUALITY.android,
-          sampleRate: SENSOR_CONFIG.AUDIO_SAMPLE_RATE,
-          numberOfChannels: 1,
-        },
-        ios: {
-          ...Audio.RecordingOptionsPresets.HIGH_QUALITY.ios,
-          sampleRate: SENSOR_CONFIG.AUDIO_SAMPLE_RATE,
-          numberOfChannels: 1,
-        },
-      };
+      // On iOS: record as 16-bit PCM WAV so we can extract samples for real BPM detection.
+      // On Android: fall back to AAC metering (no WAV linear PCM support via expo-av).
+      const recordingOptions: Audio.RecordingOptions = Platform.OS === 'ios'
+        ? {
+            isMeteringEnabled: true,
+            android: Audio.RecordingOptionsPresets.HIGH_QUALITY.android,
+            ios: {
+              extension: '.wav',
+              audioQuality: Audio.IOSAudioQuality.HIGH,
+              sampleRate: SENSOR_CONFIG.AUDIO_SAMPLE_RATE,
+              numberOfChannels: 1,
+              bitRate: 128000,
+              linearPCMBitDepth: 16,
+              linearPCMIsBigEndian: false,
+              linearPCMIsFloat: false,
+            },
+            web: {},
+          }
+        : {
+            ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+            isMeteringEnabled: true,
+            android: {
+              ...Audio.RecordingOptionsPresets.HIGH_QUALITY.android,
+              sampleRate: SENSOR_CONFIG.AUDIO_SAMPLE_RATE,
+              numberOfChannels: 1,
+            },
+            ios: Audio.RecordingOptionsPresets.HIGH_QUALITY.ios,
+          };
 
       recording = new Audio.Recording();
       await recording.prepareToRecordAsync(recordingOptions);
@@ -97,13 +117,39 @@ export class AudioAnalyzer {
       const meanDb = avgDb;
       const dbVariance = dbSamples.reduce((s, v) => s + (v - meanDb) ** 2, 0) / dbSamples.length;
 
-      // Without raw PCM we can't do FFT/BPM — use heuristics from dB patterns
-      // For real BPM detection, we generate a synthetic rhythm proxy from dB variance patterns
-      const bpmResult = estimateBPMFromMeteringPattern(dbSamples);
+      // On iOS: extract PCM from WAV file → real spectral BPM + FFT features.
+      // On Android: fall back to metering-based heuristic.
+      let bpmResult = estimateBPMFromMeteringPattern(dbSamples);
+      let bassPresence = estimateBassPresence(avgDb, dbVariance);
+      let midHighRatio = 0.5;
+      let subBassEnergy = 0;
+      let spectralCentroid = 0;
+      let spectralFlux = 0;
+      let crestFactorVal = 0;
+      let vocalPresence = 0;
+      let harmonicNoiseRatio = 0;
 
-      // Bass presence heuristic: high dB with high variance suggests bass-heavy music
-      const bassPresence = estimateBassPresence(avgDb, dbVariance);
-      const midHighRatio = 0.5; // Cannot compute without FFT on raw PCM
+      if (Platform.OS === 'ios' && fileUri) {
+        const pcm = await extractPCMFromWAV(fileUri);
+        if (pcm && pcm.length >= 4096) {
+          const pcmBpm = detectBPM(pcm, SENSOR_CONFIG.AUDIO_SAMPLE_RATE);
+          if (pcmBpm.bpm != null) bpmResult = pcmBpm;
+          const fft = computeFFT(pcm.slice(0, 4096), SENSOR_CONFIG.AUDIO_SAMPLE_RATE);
+          const total = totalEnergy(fft);
+          if (total > 0) {
+            bassPresence = Math.min(1, bandEnergy(fft, 20, 250) / total);
+            const mid = bandEnergy(fft, 250, 4000);
+            const high = bandEnergy(fft, 4000, 20000);
+            midHighRatio = high > 0 ? mid / (mid + high) : 0.5;
+            subBassEnergy = subBassRatio(fft);
+            spectralCentroid = fftSpectralCentroid(fft);
+            vocalPresence = fftVocalPresence(fft);
+            harmonicNoiseRatio = fftHNR(fft);
+          }
+          crestFactorVal = fftCrestFactor(pcm);
+          spectralFlux = computeSpectralFlux(pcm, SENSOR_CONFIG.AUDIO_SAMPLE_RATE);
+        }
+      }
 
       // Music detection heuristic using available signals
       const musicDetected = detectMusicFromMetering(avgDb, dbVariance, bpmResult.confidence);
@@ -125,6 +171,12 @@ export class AudioAnalyzer {
         audioClassification,
         bassPresence,
         midHighRatio,
+        subBassEnergy,
+        spectralCentroid,
+        spectralFlux,
+        crestFactor: crestFactorVal,
+        vocalPresence,
+        harmonicNoiseRatio,
         clapCount,
         audioEvent,
         recognizedSong: this.lastRecognizedSong,
@@ -194,8 +246,10 @@ export class AudioAnalyzer {
     return {
       avgDb: 0, maxDb: 0, dbVariance: 0, musicDetected: false,
       estimatedBpm: null, recognizedBpm: null, bpmConfidence: 0, audioClassification: 'silent',
-      bassPresence: 0, midHighRatio: 0, clapCount: 0,
-      audioEvent: null, recognizedSong: null, recognizedGenre: null,
+      bassPresence: 0, midHighRatio: 0,
+      subBassEnergy: 0, spectralCentroid: 0, spectralFlux: 0,
+      crestFactor: 0, vocalPresence: 0, harmonicNoiseRatio: 0,
+      clapCount: 0, audioEvent: null, recognizedSong: null, recognizedGenre: null,
     };
   }
 }
@@ -302,6 +356,47 @@ function classifyAudioEvent(
   if (avgDb > 70 && dbVariance > 60 && !musicDetected) return 'cheering';
 
   return null;
+}
+
+/**
+ * Parse a WAV file (written by expo-av with linearPCMBitDepth:16) and return
+ * normalized float32 samples in [-1, 1].  Returns null on any parse error.
+ */
+async function extractPCMFromWAV(fileUri: string): Promise<number[] | null> {
+  try {
+    const b64 = await FileSystem.readAsStringAsync(fileUri, { encoding: 'base64' as any });
+    // Decode base64 to byte array
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+    // Parse WAV header: "RIFF....WAVEfmt " starts at offset 0
+    if (bytes.length < 44) return null;
+    const riff = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
+    if (riff !== 'RIFF') return null;
+
+    // Find "data" chunk
+    let offset = 12;
+    while (offset + 8 < bytes.length) {
+      const id = String.fromCharCode(bytes[offset], bytes[offset+1], bytes[offset+2], bytes[offset+3]);
+      const chunkSize = bytes[offset+4] | (bytes[offset+5] << 8) | (bytes[offset+6] << 16) | (bytes[offset+7] << 24);
+      if (id === 'data') {
+        offset += 8;
+        const samples: number[] = [];
+        // 16-bit little-endian signed PCM
+        for (let i = offset; i + 1 < offset + chunkSize && i + 1 < bytes.length; i += 2) {
+          let s = bytes[i] | (bytes[i+1] << 8);
+          if (s >= 32768) s -= 65536; // sign extend
+          samples.push(s / 32768);
+        }
+        return samples;
+      }
+      offset += 8 + chunkSize;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 // Detect transient spikes (claps, snaps, crowd noise bursts) in metering data.

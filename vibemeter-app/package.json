@@ -19,6 +19,7 @@
     "expo-crypto": "~15.0.8",
     "expo-dev-client": "~6.0.20",
     "expo-device": "~8.0.10",
+    "expo-file-system": "~19.0.22",
     "expo-linking": "~8.0.11",
     "expo-location": "~19.0.8",
     "expo-notifications": "~0.32.16",
@@ -40,7 +41,7 @@
     "@expo/cli": "^54.0.23",
     "@types/react": "~19.1.0",
     "@types/uuid": "^10.0.0",
-    "typescript": "~5.9.2"
+    "typescript": "^5.3.3"
   },
   "private": true
 }

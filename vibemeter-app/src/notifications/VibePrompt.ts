@@ -115,7 +115,11 @@ export class VibePrompt {
     }, SENSOR_CONFIG.PROMPT_TIMEOUT_MS);
   }
 
-  async recordRating(rating: 1 | 2 | 3 | 4 | 5): Promise<void> {
+  async recordRating(
+    rating: 1 | 2 | 3 | 4 | 5,
+    musicRating: 1 | 2 | 3 | 4 | 5 | null = null,
+    crowdRating: 1 | 2 | 3 | 4 | 5 | null = null,
+  ): Promise<void> {
     if (!this.sessionId) {
       console.warn(`${LOG_TAG} No active session to record rating`);
       return;
@@ -134,6 +138,8 @@ export class VibePrompt {
       sessionId: this.sessionId,
       deviceId,
       rating,
+      musicRating,
+      crowdRating,
       ratedAt,
       nearestWindowId,
       responseTimeMs,

@@ -1,10 +1,22 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
-import { getWindowsForSession } from '../src/storage/LocalBuffer';
-import { getRatingsForSession } from '../src/storage/LocalBuffer';
-import { getSessions } from '../src/storage/LocalBuffer';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Platform, TouchableOpacity } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { getWindowsForSession, getRatingsForSession, getSessions } from '../src/storage/LocalBuffer';
 
+/* ── Design tokens ─────────────────────────────────────────── */
+const A   = '#00E8A0';
+const S1  = '#0d0d12';
+const S2  = '#181824';
+const TX  = '#f0f0f5';
+const TXD = '#9898c0';
+const TXM = '#c0c0d8';
+const WRN = '#e8a800';
+const DNG = '#e84560';
+const MONO = Platform.select({ ios: 'Courier New', android: 'monospace' }) as string;
+
+function scoreColor(v: number) { return v >= 4 ? A : v >= 2.5 ? WRN : DNG; }
+
+/* ── Types ──────────────────────────────────────────────────── */
 interface WindowRow {
   id: string;
   window_start: number;
@@ -22,129 +34,219 @@ interface WindowRow {
   computed_music_score: number | null;
   computed_density_score: number | null;
 }
+interface RatingRow { id: string; rating: number; rated_at: number; }
 
-interface RatingRow {
-  id: string;
-  rating: number;
-  rated_at: number;
+/* ── Hero gauge (two-half-circle technique) ─────────────────── */
+function HeroGauge({ score, size = 140 }: { score: number; size?: number }) {
+  const color = scoreColor(score);
+  const stroke = size * 0.09;
+  const half = size / 2;
+  const progress = Math.min(score / 5, 1);
+  const rightDeg = Math.min(1, progress * 2) * 180;
+  const leftDeg  = Math.max(0, (progress - 0.5) * 2) * 180;
+
+  const halfCircle = (side: 'left' | 'right', rotation: number, c: string) => {
+    const clipped = side === 'right'
+      ? { position: 'absolute' as const, top: 0, right: 0, width: half, height: size, overflow: 'hidden' as const }
+      : { position: 'absolute' as const, top: 0, left: 0, width: half, height: size, overflow: 'hidden' as const };
+    const offset = side === 'right' ? { left: -half } : { left: 0 };
+    return (
+      <View style={clipped}>
+        <View style={[offset, {
+          position: 'absolute', top: 0, width: size, height: size,
+          borderRadius: half, borderWidth: stroke, borderColor: c,
+          transform: [{ rotate: `${rotation}deg` }],
+        }]} />
+      </View>
+    );
+  };
+
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ position: 'absolute', width: size, height: size, borderRadius: half, borderWidth: stroke, borderColor: S2 }} />
+      {rightDeg > 0 && halfCircle('right', rightDeg, color)}
+      {leftDeg  > 0 && halfCircle('left',  leftDeg,  color)}
+      <View style={{ alignItems: 'center' }}>
+        <Text style={{ fontFamily: MONO, fontSize: size * 0.22, fontWeight: '700', color, lineHeight: size * 0.26 }}>
+          {score.toFixed(1)}
+        </Text>
+        <Text style={{ fontFamily: MONO, fontSize: size * 0.068, color: TXD, letterSpacing: 2, marginTop: 2 }}>
+          VIBE SCORE
+        </Text>
+      </View>
+    </View>
+  );
 }
 
+/* ── Timeline chart (segment line using Views) ──────────────── */
+function TimelineChart({ values, peakValue }: { values: number[]; peakValue: number }) {
+  const H = 64;
+  if (values.length < 2) return <Text style={{ color: TXD, fontFamily: MONO, fontSize: 11 }}>No timeline data</Text>;
+
+  const peakIdx = values.indexOf(peakValue);
+
+  return (
+    <View>
+      {/* Bar-based chart with gradient opacity — matches design's filled area look */}
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: H, gap: 1.5 }}>
+        {values.map((v, i) => {
+          const isPeak = i === peakIdx;
+          const barH = Math.max(4, (v / 5) * H * 0.9);
+          const c = scoreColor(v);
+          return (
+            <View key={i} style={{ flex: 1, justifyContent: 'flex-end', height: H }}>
+              {isPeak && (
+                <Text style={{ fontSize: 8, fontFamily: MONO, color: A, textAlign: 'center', marginBottom: 2 }}>
+                  {v.toFixed(1)}
+                </Text>
+              )}
+              <View style={{
+                height: barH, borderRadius: 2,
+                backgroundColor: isPeak ? A : c,
+                opacity: isPeak ? 1 : 0.55 + (i / values.length) * 0.3,
+              }} />
+            </View>
+          );
+        })}
+      </View>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
+        <Text style={{ fontSize: 9, fontFamily: MONO, color: TXD }}>start</Text>
+        <Text style={{ fontSize: 9, fontFamily: MONO, color: A }}>↑ {peakValue.toFixed(2)} peak</Text>
+        <Text style={{ fontSize: 9, fontFamily: MONO, color: TXD }}>end</Text>
+      </View>
+    </View>
+  );
+}
+
+/* ── Fill bar ───────────────────────────────────────────────── */
+function FillBar({ value, max = 1, color = A, height = 6 }: { value: number; max?: number; color?: string; height?: number }) {
+  const pct = Math.min(1, Math.max(0, value / max));
+  return (
+    <View style={{ height, backgroundColor: S2, borderRadius: height / 2, overflow: 'hidden' }}>
+      <View style={{ width: `${pct * 100}%`, height: '100%', backgroundColor: color, borderRadius: height / 2 }} />
+    </View>
+  );
+}
+
+/* ── Main screen ────────────────────────────────────────────── */
 export default function SummaryScreen() {
   const { sessionId } = useLocalSearchParams<{ sessionId?: string }>();
-  const [windows, setWindows] = useState<WindowRow[]>([]);
-  const [ratings, setRatings] = useState<RatingRow[]>([]);
-  const [session, setSession] = useState<any | null>(null);
-  const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const [windows, setWindows]   = useState<WindowRow[]>([]);
+  const [ratings, setRatings]   = useState<RatingRow[]>([]);
+  const [session, setSession]   = useState<any | null>(null);
+  const [loading, setLoading]   = useState(true);
 
   useEffect(() => {
-    if (!sessionId) {
-      setLoading(false);
-      return;
-    }
-    loadData(sessionId);
+    (async () => {
+      try {
+        const allSessions = await getSessions();
+        const ended = allSessions.filter((s: any) => s.ended_at != null);
+        const targetId = sessionId ?? ended[0]?.id ?? null;
+        if (!targetId) { setLoading(false); return; }
+        const [wins, rats] = await Promise.all([
+          getWindowsForSession(targetId),
+          getRatingsForSession(targetId),
+        ]);
+        setWindows(wins);
+        setRatings(rats);
+        setSession(allSessions.find((s: any) => s.id === targetId) ?? null);
+      } catch (err) {
+        console.error('Summary load error:', err);
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [sessionId]);
-
-  const loadData = async (sid: string) => {
-    try {
-      const [wins, rats, sessions] = await Promise.all([
-        getWindowsForSession(sid),
-        getRatingsForSession(sid),
-        getSessions(),
-      ]);
-      setWindows(wins);
-      setRatings(rats);
-      const s = sessions.find((s: any) => s.id === sid);
-      setSession(s ?? null);
-    } catch (err) {
-      console.error('Summary load error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   if (loading) {
     return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator color="#00FF88" />
+      <View style={[s.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator color={A} />
       </View>
     );
   }
 
-  if (!sessionId || windows.length === 0) {
+  if (windows.length === 0) {
     return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <Text style={styles.emptyText}>No session data yet.</Text>
-        <Text style={styles.emptySubtext}>Complete a session to see your summary.</Text>
+      <View style={[s.container, { justifyContent: 'center', alignItems: 'center', padding: 40 }]}>
+        <Text style={{ color: TXM, fontSize: 16, textAlign: 'center' }}>
+          {session ? 'No sensor data recorded.' : 'No completed sessions yet.'}
+        </Text>
+        <Text style={{ color: TXD, fontSize: 13, marginTop: 8, textAlign: 'center' }}>
+          {session ? 'Try recording for a bit longer.' : 'Complete a session to see your summary.'}
+        </Text>
       </View>
     );
   }
 
-  // Compute stats
+  /* ── Compute stats ── */
   const vibeScores = windows.map(w => w.computed_vibe_score).filter(v => v != null) as number[];
-  const avgVibe = vibeScores.length > 0
-    ? vibeScores.reduce((s, v) => s + v, 0) / vibeScores.length
-    : 0;
-  const peakVibe = vibeScores.length > 0 ? Math.max(...vibeScores) : 0;
-  const peakWindow = windows.find(w => w.computed_vibe_score === peakVibe);
-  const peakTime = peakWindow
-    ? new Date(peakWindow.window_start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    : '--';
+  const avgVibe  = vibeScores.length ? vibeScores.reduce((s, v) => s + v, 0) / vibeScores.length : 0;
+  const peakVibe = vibeScores.length ? Math.max(...vibeScores) : 0;
+
+  const energyScores   = windows.map(w => w.computed_energy_score).filter(v => v != null) as number[];
+  const musicScores    = windows.map(w => w.computed_music_score).filter(v => v != null)  as number[];
+  const motionScores   = windows.map(w => w.computed_movement_score).filter(v => v != null) as number[];
+  const densityScores  = windows.map(w => w.computed_density_score).filter(v => v != null) as number[];
+  const avg = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+
+  const engagementScores = windows.map(w => (w as any).computed_engagement_score).filter(v => v != null) as number[];
+
+  const comps = [
+    { l: 'ENERGY', v: avg(energyScores),      w: '30%' },
+    { l: 'MUSIC',  v: avg(musicScores),        w: '25%' },
+    { l: 'MOTION', v: avg(motionScores),       w: '20%' },
+    { l: 'CROWD',  v: avg(densityScores),      w: '15%' },
+    { l: 'ENGAGE', v: avg(engagementScores),   w: '10%' },
+  ];
 
   const bpmValues = windows.map(w => w.estimated_bpm).filter(v => v != null) as number[];
-  const bpmMin = bpmValues.length > 0 ? Math.min(...bpmValues) : null;
-  const bpmMax = bpmValues.length > 0 ? Math.max(...bpmValues) : null;
+  const classCount: Record<string, number> = {};
+  windows.forEach(w => { if (w.audio_classification) classCount[w.audio_classification] = (classCount[w.audio_classification] ?? 0) + 1; });
 
-  const classificationCounts: Record<string, number> = {};
-  windows.forEach(w => {
-    if (w.audio_classification) {
-      classificationCounts[w.audio_classification] = (classificationCounts[w.audio_classification] ?? 0) + 1;
-    }
-  });
-
-  const avgRating = ratings.length > 0
-    ? ratings.reduce((s, r) => s + r.rating, 0) / ratings.length
-    : null;
+  const avgRating = ratings.length ? ratings.reduce((s, r) => s + r.rating, 0) / ratings.length : null;
 
   const sessionStartMs = windows[0]?.window_start ?? 0;
-  const sessionEndMs = windows[windows.length - 1]?.window_end ?? 0;
-  const durationMin = Math.round((sessionEndMs - sessionStartMs) / 60000);
+  const sessionEndMs   = windows[windows.length - 1]?.window_end ?? 0;
+  const durationSec    = Math.round((sessionEndMs - sessionStartMs) / 1000);
+  const durH = Math.floor(durationSec / 3600), durM = Math.floor((durationSec % 3600) / 60);
+  const durStr = durH > 0 ? `${durH}h ${String(durM).padStart(2, '0')}m` : `${durM}m`;
+
+  const venueName = session?.venue_name ?? 'Session Summary';
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={s.container} contentContainerStyle={s.content}>
       {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.venueName}>
-          {session?.venue_name ?? 'Session Summary'}
+      <View style={{ marginBottom: 16 }}>
+        <Text style={{ fontSize: 10, fontFamily: MONO, color: TXD, letterSpacing: 3, marginBottom: 3 }}>SESSION COMPLETE</Text>
+        <Text style={{ fontSize: 28, fontWeight: '700', color: TX }}>Summary</Text>
+      </View>
+
+      {/* Score card */}
+      <View style={[s.card, { alignItems: 'center', gap: 10, paddingVertical: 20 }]}>
+        <HeroGauge score={avgVibe} size={140} />
+        <Text style={{ fontSize: 12, color: TXM }}>
+          {durStr} · {venueName} · ↑ {peakVibe.toFixed(2)}
         </Text>
-        {session?.venue_type && (
-          <Text style={styles.venueType}>{session.venue_type.replace('_', ' ')}</Text>
-        )}
       </View>
 
-      {/* Key stats */}
-      <View style={styles.statsGrid}>
-        <StatCard label="Avg Vibe" value={avgVibe.toFixed(1)} color="#00FF88" />
-        <StatCard label="Peak Vibe" value={peakVibe.toFixed(1)} sub={peakTime} color="#FFB347" />
-        <StatCard label="Duration" value={`${durationMin}m`} color="#3498DB" />
-        <StatCard label="Ratings" value={`${ratings.length}`} color="#9B59B6" />
-      </View>
-
-      {/* Sensor vs rating alignment */}
+      {/* Sensor vs Rating alignment */}
       {avgRating != null && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Sensor vs You</Text>
-          <View style={styles.comparisonRow}>
-            <View style={styles.comparisonItem}>
-              <Text style={styles.comparisonValue}>{avgVibe.toFixed(1)}</Text>
-              <Text style={styles.comparisonLabel}>Sensor avg</Text>
+        <View style={s.card}>
+          <Text style={s.cardTitle}>SENSOR VS YOU</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', marginBottom: 12 }}>
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ fontFamily: MONO, fontSize: 36, fontWeight: '700', color: scoreColor(avgVibe) }}>{avgVibe.toFixed(1)}</Text>
+              <Text style={{ fontSize: 12, color: TXD }}>Sensor avg</Text>
             </View>
-            <Text style={styles.comparisonDivider}>vs</Text>
-            <View style={styles.comparisonItem}>
-              <Text style={styles.comparisonValue}>{avgRating.toFixed(1)}</Text>
-              <Text style={styles.comparisonLabel}>Your avg</Text>
+            <Text style={{ color: S2, fontSize: 14 }}>vs</Text>
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ fontFamily: MONO, fontSize: 36, fontWeight: '700', color: scoreColor(avgRating) }}>{avgRating.toFixed(1)}</Text>
+              <Text style={{ fontSize: 12, color: TXD }}>Your avg</Text>
             </View>
           </View>
-          <Text style={styles.alignmentNote}>
+          <Text style={{ fontSize: 12, color: TXM, textAlign: 'center' }}>
             {Math.abs(avgVibe - avgRating) < 0.8
               ? '✓ Good alignment — sensors matched your experience'
               : avgVibe > avgRating
@@ -154,174 +256,87 @@ export default function SummaryScreen() {
         </View>
       )}
 
-      {/* Timeline chart (simplified bar chart) */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Vibe Timeline</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <View style={styles.timeline}>
-            {windows.map((w, i) => {
-              const score = w.computed_vibe_score ?? 0;
-              const barHeight = Math.max(4, (score / 5) * 80);
-              const time = new Date(w.window_start).toLocaleTimeString([], {
-                hour: '2-digit', minute: '2-digit'
-              });
-              // Find rating closest to this window
-              const nearRating = ratings.find(r => {
-                const diff = Math.abs(r.rated_at - w.window_start);
-                return diff < 90000; // within 90 sec
-              });
-              return (
-                <View key={w.id} style={styles.timelineBar}>
-                  {nearRating && (
-                    <View style={[styles.ratingDot, { bottom: barHeight + 4 }]}>
-                      <Text style={styles.ratingDotText}>{nearRating.rating}</Text>
-                    </View>
-                  )}
-                  <View style={[styles.bar, { height: barHeight, backgroundColor: getBarColor(score) }]} />
-                  {i % 5 === 0 && <Text style={styles.timeLabel}>{time}</Text>}
-                </View>
-              );
-            })}
-          </View>
-        </ScrollView>
-        <Text style={styles.timelineLegend}>• Bars = sensor score · Numbers = your ratings</Text>
+      {/* Vibe Over Time */}
+      <View style={s.card}>
+        <Text style={s.cardTitle}>VIBE OVER TIME</Text>
+        <TimelineChart values={vibeScores} peakValue={peakVibe} />
+        <Text style={{ fontSize: 10, color: TXD, fontFamily: MONO, marginTop: 8, textAlign: 'center' }}>
+          {windows.length} windows sampled
+        </Text>
       </View>
 
-      {/* BPM */}
-      {bpmMin != null && bpmMax != null && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Music</Text>
-          <Text style={styles.stat}>
-            BPM range: {bpmMin} – {bpmMax}
+      {/* Component Breakdown */}
+      <View style={s.card}>
+        <Text style={s.cardTitle}>COMPONENT BREAKDOWN</Text>
+        {comps.map(c => (
+          <View key={c.l} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 11 }}>
+            <Text style={{ width: 48, fontSize: 10, fontFamily: MONO, color: TXD, letterSpacing: 1 }}>{c.l}</Text>
+            <Text style={{ width: 24, fontSize: 9, fontFamily: MONO, color: TXD, textAlign: 'right' }}>{c.w}</Text>
+            <View style={{ flex: 1 }}><FillBar value={c.v} max={5} color={scoreColor(c.v)} /></View>
+            <Text style={{ width: 28, fontSize: 12, fontFamily: MONO, fontWeight: '700', color: scoreColor(c.v), textAlign: 'right' }}>{c.v.toFixed(1)}</Text>
+          </View>
+        ))}
+      </View>
+
+      {/* Music */}
+      {bpmValues.length > 0 && (
+        <View style={s.card}>
+          <Text style={s.cardTitle}>MUSIC</Text>
+          <Text style={{ color: TXM, fontSize: 14, marginBottom: 8 }}>
+            BPM range: {Math.min(...bpmValues)} – {Math.max(...bpmValues)}
           </Text>
-          {Object.entries(classificationCounts).map(([cls, count]) => (
-            <Text key={cls} style={styles.stat}>
-              {cls.replace('_', ' ')}: {Math.round((count / windows.length) * 100)}% of session
+          {Object.entries(classCount).map(([cls, count]) => (
+            <Text key={cls} style={{ color: TXD, fontSize: 13, marginBottom: 4, fontFamily: MONO }}>
+              {cls.replace('_', ' ')}: {Math.round((count / windows.length) * 100)}%
             </Text>
           ))}
         </View>
       )}
 
-      {/* BLE density */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Crowd</Text>
+      {/* Crowd */}
+      <View style={s.card}>
+        <Text style={s.cardTitle}>CROWD</Text>
         {windows.filter(w => w.ble_device_count != null).length > 0 ? (
           <>
-            <Text style={styles.stat}>
-              Max devices nearby: {Math.max(...windows.map(w => w.ble_device_count ?? 0))}
+            <Text style={{ color: TXM, fontSize: 14, marginBottom: 4 }}>
+              Max nearby: {Math.max(...windows.map(w => w.ble_device_count ?? 0))}
             </Text>
-            <Text style={styles.stat}>
-              Avg devices nearby: {
-                Math.round(
-                  windows.filter(w => w.ble_device_count != null)
-                    .reduce((s, w) => s + (w.ble_device_count ?? 0), 0) /
-                  Math.max(1, windows.filter(w => w.ble_device_count != null).length)
-                )
-              }
+            <Text style={{ color: TXM, fontSize: 14 }}>
+              Avg nearby: {Math.round(
+                windows.filter(w => w.ble_device_count != null)
+                  .reduce((sum, w) => sum + (w.ble_device_count ?? 0), 0) /
+                Math.max(1, windows.filter(w => w.ble_device_count != null).length)
+              )}
             </Text>
           </>
         ) : (
-          <Text style={styles.emptySubtext}>No BLE data collected</Text>
+          <Text style={{ color: TXD, fontSize: 13 }}>No BLE data collected</Text>
         )}
       </View>
 
-      {/* Data quality note */}
-      <Text style={styles.qualityNote}>
-        {windows.length} windows · {ratings.length} ratings ·{' '}
-        {Math.round((windows.filter(w => w.avg_db != null).length / windows.length) * 100)}% audio coverage
+      {/* Back button */}
+      <TouchableOpacity style={s.backBtn} onPress={() => router.push('/')}>
+        <Text style={s.backBtnText}>← BACK TO SESSIONS</Text>
+      </TouchableOpacity>
+
+      <Text style={{ color: TXD, fontSize: 11, textAlign: 'center', fontFamily: MONO, marginTop: 8 }}>
+        {windows.length} windows · {ratings.length} ratings
       </Text>
     </ScrollView>
   );
 }
 
-function StatCard({
-  label, value, sub, color,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  color: string;
-}) {
-  return (
-    <View style={statStyles.card}>
-      <Text style={[statStyles.value, { color }]}>{value}</Text>
-      {sub && <Text style={statStyles.sub}>{sub}</Text>}
-      <Text style={statStyles.label}>{label}</Text>
-    </View>
-  );
-}
-
-function getBarColor(score: number): string {
-  if (score < 1.5) return '#333';
-  if (score < 2.5) return '#555';
-  if (score < 3.5) return '#FFB347';
-  if (score < 4.5) return '#00CC6A';
-  return '#00FF88';
-}
-
-const statStyles = StyleSheet.create({
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#060608' },
+  content:   { padding: 20, paddingBottom: 48, gap: 12 },
   card: {
-    flex: 1,
-    backgroundColor: '#0A0A0A',
-    borderRadius: 10,
-    padding: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#1A1A1A',
-    minWidth: 70,
+    backgroundColor: S1, borderRadius: 14, padding: 16,
+    borderWidth: 1, borderColor: S2,
   },
-  value: { fontSize: 26, fontWeight: 'bold' },
-  sub: { color: '#888', fontSize: 10, marginTop: 2 },
-  label: { color: '#555', fontSize: 10, marginTop: 4, letterSpacing: 1 },
-});
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  content: { padding: 20, paddingBottom: 40 },
-
-  header: { marginBottom: 20 },
-  venueName: { color: '#FFF', fontSize: 24, fontWeight: 'bold' },
-  venueType: { color: '#888', fontSize: 13, marginTop: 2 },
-
-  statsGrid: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-
-  card: {
-    backgroundColor: '#0A0A0A',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#1A1A1A',
+  cardTitle: { fontSize: 10, fontFamily: MONO, color: '#b8b8cc', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
+  backBtn: {
+    height: 52, borderRadius: 16, backgroundColor: S2, borderWidth: 1, borderColor: '#22222e',
+    alignItems: 'center', justifyContent: 'center', marginTop: 4,
   },
-  cardTitle: { color: '#888', fontSize: 12, letterSpacing: 2, marginBottom: 12 },
-
-  comparisonRow: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', marginBottom: 12 },
-  comparisonItem: { alignItems: 'center' },
-  comparisonValue: { color: '#FFF', fontSize: 36, fontWeight: 'bold' },
-  comparisonLabel: { color: '#555', fontSize: 12 },
-  comparisonDivider: { color: '#333', fontSize: 14 },
-  alignmentNote: { color: '#888', fontSize: 12, textAlign: 'center' },
-
-  // Timeline
-  timeline: { flexDirection: 'row', alignItems: 'flex-end', height: 100, gap: 3, paddingBottom: 16 },
-  timelineBar: { alignItems: 'center', width: 20, position: 'relative' },
-  bar: { width: 16, borderRadius: 3, minHeight: 4 },
-  timeLabel: { color: '#333', fontSize: 8, position: 'absolute', bottom: 0, width: 50 },
-  ratingDot: {
-    position: 'absolute',
-    backgroundColor: '#00FF88',
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  ratingDotText: { color: '#000', fontSize: 9, fontWeight: 'bold' },
-  timelineLegend: { color: '#333', fontSize: 10, marginTop: 8, textAlign: 'center' },
-
-  stat: { color: '#CCC', fontSize: 14, marginBottom: 4 },
-
-  emptyText: { color: '#555', fontSize: 16 },
-  emptySubtext: { color: '#333', fontSize: 13, marginTop: 8, textAlign: 'center' },
-  qualityNote: { color: '#333', fontSize: 11, textAlign: 'center' },
+  backBtnText: { fontFamily: MONO, fontSize: 12, fontWeight: '700', color: TXM, letterSpacing: 2 },
 });

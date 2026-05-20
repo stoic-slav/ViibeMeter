@@ -15,6 +15,12 @@ export interface SensorWindow {
   audioClassification: AudioClassification | null;
   bassPresence: number | null;
   midHighRatio: number | null;
+  subBassEnergy: number | null;       // 0–1: fraction of energy in 20–80 Hz (kick/bass)
+  spectralCentroid: number | null;    // Hz: frequency center of mass (brightness)
+  spectralFlux: number | null;        // 0–1: frame-to-frame energy change (dynamics)
+  crestFactor: number | null;         // dB: peak/RMS ratio (transient punchiness)
+  vocalPresence: number | null;       // 0–1: fraction of energy in 300–3 kHz
+  harmonicNoiseRatio: number | null;  // 0–1: tonal vs noisy content
 
   // Motion
   accelMagnitudeAvg: number | null;
@@ -92,6 +98,8 @@ export interface SubjectiveRating {
   sessionId: string;
   deviceId: string;
   rating: 1 | 2 | 3 | 4 | 5;
+  musicRating: 1 | 2 | 3 | 4 | 5 | null;
+  crowdRating: 1 | 2 | 3 | 4 | 5 | null;
   ratedAt: Date;
   nearestWindowId: string | null;
   responseTimeMs: number;
@@ -125,16 +133,22 @@ export interface AudioMetrics {
   maxDb: number;
   dbVariance: number;
   musicDetected: boolean;
-  estimatedBpm: number | null;      // metering-based heuristic (low accuracy)
-  recognizedBpm: number | null;     // exact BPM from Apple Music metadata
+  estimatedBpm: number | null;
+  recognizedBpm: number | null;
   bpmConfidence: number;
   audioClassification: AudioClassification;
   bassPresence: number;
   midHighRatio: number;
+  subBassEnergy: number;        // 0–1: 20–80 Hz kick/bass fraction
+  spectralCentroid: number;     // Hz: brightness
+  spectralFlux: number;         // 0–1: mix dynamics
+  crestFactor: number;          // dB: transient punchiness
+  vocalPresence: number;        // 0–1: vocal/speech band
+  harmonicNoiseRatio: number;   // 0–1: tonal vs noise
   clapCount: number;
-  recognizedSong: string | null;    // "Artist – Title" or null
-  recognizedGenre: string | null;   // genre from AudD/Spotify metadata, e.g. "Tech House"
-  audioEvent: AudioEvent | null;    // crowd moment label
+  recognizedSong: string | null;
+  recognizedGenre: string | null;
+  audioEvent: AudioEvent | null;
 }
 
 export interface MotionMetrics {
@@ -185,7 +199,14 @@ export interface LiveDashboardData {
   audioBpm: number | null;
   movementBpm: number | null;
   rhythmicity: number;
-  phaseCoherence: number;   // 0–1: how well movement rhythm matches audio BPM
+  phaseCoherence: number;
   recognizedGenre: string | null;
   trend15m: TrendDir;
+  // FFT-derived music features
+  subBassEnergy: number;
+  spectralCentroid: number;
+  spectralFlux: number;
+  crestFactor: number;
+  vocalPresence: number;
+  harmonicNoiseRatio: number;
 }

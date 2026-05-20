@@ -42,13 +42,13 @@ export default function RootLayout() {
     <Tabs
       screenOptions={{
         tabBarStyle: {
-          backgroundColor: '#0A0A0A',
-          borderTopColor: '#1A1A1A',
+          backgroundColor: '#0d0d12',
+          borderTopColor: '#181824',
         },
-        tabBarActiveTintColor: '#00FF88',
-        tabBarInactiveTintColor: '#555',
-        headerStyle: { backgroundColor: '#000' },
-        headerTintColor: '#FFF',
+        tabBarActiveTintColor: '#00E8A0',
+        tabBarInactiveTintColor: '#9898c0',
+        headerStyle: { backgroundColor: '#060608' },
+        headerTintColor: '#f0f0f5',
         headerTitleStyle: { fontWeight: 'bold' },
       }}
     >

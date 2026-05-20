@@ -198,6 +198,12 @@ export class SensorOrchestrator {
       rhythmicity,
       phaseCoherence:      computePhaseCoherence(lastMovBpm, audioBpm),
       trend15m:            this.compute15mTrend(),
+      subBassEnergy:       this.currentWindow.subBassEnergy ?? 0,
+      spectralCentroid:    this.currentWindow.spectralCentroid ?? 0,
+      spectralFlux:        this.currentWindow.spectralFlux ?? 0,
+      crestFactor:         this.currentWindow.crestFactor ?? 0,
+      vocalPresence:       this.currentWindow.vocalPresence ?? 0,
+      harmonicNoiseRatio:  this.currentWindow.harmonicNoiseRatio ?? 0,
     };
   }
 
@@ -260,6 +266,12 @@ export class SensorOrchestrator {
       this.currentWindow.audioClassification = metrics.audioClassification;
       this.currentWindow.bassPresence = metrics.bassPresence;
       this.currentWindow.midHighRatio = metrics.midHighRatio;
+      this.currentWindow.subBassEnergy = metrics.subBassEnergy;
+      this.currentWindow.spectralCentroid = metrics.spectralCentroid;
+      this.currentWindow.spectralFlux = metrics.spectralFlux;
+      this.currentWindow.crestFactor = metrics.crestFactor;
+      this.currentWindow.vocalPresence = metrics.vocalPresence;
+      this.currentWindow.harmonicNoiseRatio = metrics.harmonicNoiseRatio;
 
       this.pushReading(this.dbReadings, metrics.avgDb);
       if (bestBpm) this.pushReading(this.bpmReadings, bestBpm);
@@ -351,6 +363,12 @@ export class SensorOrchestrator {
       audioClassification: this.currentWindow.audioClassification ?? null,
       bassPresence: this.currentWindow.bassPresence ?? null,
       midHighRatio: this.currentWindow.midHighRatio ?? null,
+      subBassEnergy: this.currentWindow.subBassEnergy ?? null,
+      spectralCentroid: this.currentWindow.spectralCentroid ?? null,
+      spectralFlux: this.currentWindow.spectralFlux ?? null,
+      crestFactor: this.currentWindow.crestFactor ?? null,
+      vocalPresence: this.currentWindow.vocalPresence ?? null,
+      harmonicNoiseRatio: this.currentWindow.harmonicNoiseRatio ?? null,
       accelMagnitudeAvg: this.currentWindow.accelMagnitudeAvg ?? null,
       accelMagnitudeMax: this.currentWindow.accelMagnitudeMax ?? null,
       accelVariance: this.currentWindow.accelVariance ?? null,
