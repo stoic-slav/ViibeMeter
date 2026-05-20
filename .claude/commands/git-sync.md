@@ -18,18 +18,9 @@ Look for `README.md` and `CLAUDE.md` in the project root.
 - If **only one exists**, create the missing one.
 - If **both exist**, proceed to step 3.
 
-Also check for `TESTER_GUIDE.md`. If it exists, update it only if user-facing behaviour changed (session flow, prompts, privacy). Do not create it if it doesn't exist.
-
 ### 3. Audit existing docs against the code
 
-Compare docs against the actual code. Check:
-- `src/processing/VibeScoreEngine.ts` — scoring formula weights and signal inputs
-- `src/types/index.ts` — fields in `SensorWindow`, `LiveDashboardData`, `VibeScoreBreakdown`
-- `src/storage/LocalBuffer.ts` — SQLite schema (table columns)
-- `app/meter.tsx` — UI panels, metrics displayed, tab structure
-- `src/sensors/` — active collectors and signals
-
-Update only what is stale or missing. Do not rewrite sections that are still accurate — surgical edits only. Do not add speculative or planned content; document only what the code currently does.
+Read the source files to understand the current state of the project: entry points, core modules, data flow, configuration, and schema. Compare against the existing docs and update only what is stale or missing. Do not rewrite sections that are still accurate — surgical edits only. Do not add speculative or planned content; document only what the code currently does.
 
 ### 4. Git commit
 
@@ -61,7 +52,6 @@ git push
 
 ## Rules
 
-- Do not touch `FUNDING.md`.
 - Do not skip the commit or push for any reason — this skill always ends with a push.
 - If the working tree is already clean (nothing to commit), say so clearly and do not push.
 - Do not use `--no-verify` or any flag that bypasses hooks.
