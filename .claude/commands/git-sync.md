@@ -6,7 +6,11 @@ Update all project documentation to reflect the current state of the codebase, t
 
 ### 1. Check what changed since the last commit
 
-Run `git diff HEAD` and `git log -1 --format="%H %s"` to understand what has changed since the last commit. This diff is the source of truth for the commit message you will write at the end.
+Run `git diff HEAD` and `git status` to check for any changes since the last commit.
+
+If there are **no uncommitted changes and no untracked files**, stop immediately — there is nothing to do. Say "Nothing to sync — working tree is clean." and do not proceed further.
+
+Otherwise, the diff is the source of truth for the commit message you will write at the end.
 
 ### 2. Check for documentation
 
@@ -52,6 +56,6 @@ git push
 
 ## Rules
 
-- Do not skip the commit or push for any reason — this skill always ends with a push.
-- If the working tree is already clean (nothing to commit), say so clearly and do not push.
+- If the working tree is clean at step 1 (no diff, no untracked files), stop immediately and do nothing.
+- Otherwise, always end with a commit and push — do not skip either step.
 - Do not use `--no-verify` or any flag that bypasses hooks.
