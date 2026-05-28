@@ -54,11 +54,10 @@ If yes — there's a novel primitive here worth building a product around. If no
 | BPM | Not included | Via Deezer metadata |
 | Speed | Native, no HTTP round-trip | ~300ms API call |
 
-**Native PCM BPM module** (longer term):
-- AudD/ShazamKit BPM only works for recognized tracks — DJ blends and live music get nothing
-- Install `react-native-audio-record` to stream raw 16-bit PCM, run autocorrelation on-device
-- Gives real-time BPM for any music, recognized or not
-- Requires: `pod install` + `xcodebuild clean && xcodebuild build`
+**Native PCM BPM** (implemented — `src/processing/BPMDetector.ts`):
+- On iOS, `AudioAnalyzer` records 16-bit PCM WAV via `expo-av` and runs spectral flux onset detection on-device
+- Works for any audio (DJ sets, live music, unrecognized tracks) — no song recognition required
+- AudD metadata BPM (Apple Music tempo / Deezer) supplements this when a track is recognized
 
 > **Important:** Any `npm install` touching native packages requires `xcodebuild clean` before the next native rebuild. Incremental builds cache stale ExpoModulesCore objects and cause a `NativeJSLogger` crash on boot.
 
