@@ -54,10 +54,12 @@ If yes — there's a novel primitive here worth building a product around. If no
 | BPM | Not included | Via Deezer metadata |
 | Speed | Native, no HTTP round-trip | ~300ms API call |
 
-**Native PCM BPM** (implemented — `src/processing/BPMDetector.ts`):
-- On iOS, `AudioAnalyzer` records 16-bit PCM WAV via `expo-av` and runs spectral flux onset detection on-device
+**Native PCM BPM + FFT** (implemented — `src/processing/BPMDetector.ts`, `src/sensors/AudioAnalyzer.ts`):
+- **iOS:** `expo-av` records 16-bit PCM WAV; samples extracted post-recording for FFT and BPM
+- **Android:** `react-native-audio-record` streams raw 16-bit PCM chunks in real-time; same FFT and BPM pipeline runs on the accumulated buffer — full feature parity with iOS
 - Works for any audio (DJ sets, live music, unrecognized tracks) — no song recognition required
-- AudD metadata BPM (Apple Music tempo / Deezer) supplements this when a track is recognized
+- AudD metadata BPM (Apple Music tempo / Deezer) supplements the on-device estimate when a track is recognized
+- Android first-run requires `npx expo prebuild --platform android` to generate the `android/` directory
 
 > **Important:** Any `npm install` touching native packages requires `xcodebuild clean` before the next native rebuild. Incremental builds cache stale ExpoModulesCore objects and cause a `NativeJSLogger` crash on boot.
 
