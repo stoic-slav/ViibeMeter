@@ -55,7 +55,7 @@ export default function RootLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'VibeMeter',
+          title: 'ViibeMeter',
           tabBarLabel: 'Home',
           tabBarIcon: ({ color }) => <TabIcon label="⌂" color={color} />,
         }}

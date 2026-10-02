@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "VibeMeter",
+    "name": "ViibeMeter",
     "slug": "vibemeter",
     "version": "0.2.0",
     "orientation": "portrait",
@@ -16,11 +16,11 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.leogerasimov.vibemeter",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "VibeMeter measures ambient sound levels to compute vibe scores. No audio is recorded or stored.",
-        "NSLocationWhenInUseUsageDescription": "VibeMeter uses your location to detect when you arrive at and leave venues.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "VibeMeter tracks your location in the background to measure how long you stay at a venue.",
-        "NSBluetoothAlwaysUsageDescription": "VibeMeter scans for nearby Bluetooth devices to estimate crowd density. No device identities are stored.",
-        "NSMotionUsageDescription": "VibeMeter measures how much you move and whether it matches the beat. Only summary values are stored.",
+        "NSMicrophoneUsageDescription": "ViibeMeter analyses short sound clips on your phone to score the vibe. Clips are deleted right away; no audio is stored or uploaded.",
+        "NSLocationWhenInUseUsageDescription": "ViibeMeter uses your location to detect when you arrive at and leave venues.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "ViibeMeter tracks your location in the background to measure how long you stay at a venue.",
+        "NSBluetoothAlwaysUsageDescription": "ViibeMeter scans for nearby Bluetooth devices to estimate crowd density. No device identities are stored.",
+        "NSMotionUsageDescription": "ViibeMeter measures how much you move and whether it matches the beat. Only summary values are stored.",
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [
           "location",
@@ -67,7 +67,7 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "VibeMeter tracks your location in the background to measure how long you stay at a venue."
+          "locationAlwaysAndWhenInUsePermission": "ViibeMeter tracks your location in the background to measure how long you stay at a venue."
         }
       ],
       [
