@@ -43,7 +43,7 @@ Decide whether ViibeMeter is worth building out. The question is whether passive
 2. **Run the four device tests** (steady ~120 BPM song from a speaker, phone in pocket, event code `TEST1`): on beat 2–3 min → Beat Sync above ~0.65; off beat → ~0.3 or below; standing still → low movement energy; keep going ~6 min so data reaches Supabase. Also check the song shows on the Music tab (ShazamKit).
 3. **Verify uploads in Supabase:** `movement_energy`, `beat_plv`, `beat_phase_mean`, `tempo_match`, `pulse_clarity`, FFT columns and song columns non-null; sessions carry `event_code`, `phone_placement`, `dance_affinity`.
 4. **Ship build 2** (`eas build -p ios --profile production --auto-submit`) with the rename and anonymous ID once the tests pass, plus any fixes.
-5. **Publish the privacy policy:** fill in the contact email in `docs/PRIVACY.md`, push, and use the GitHub URL in App Store Connect. Needed before external TestFlight (public link) testing, which also needs a feedback email and Apple beta review (~1 day).
+5. **Publish the privacy policy:** use the GitHub URL in App Store Connect. Needed before external TestFlight (public link) testing, which also needs a feedback email and Apple beta review (~1 day).
 6. **Android** on a friend's phone: same tests, BLE counts on Android 12+, and whether long screen-off sessions get killed (may need a foreground service).
 7. **Big-event data collection:** 10–20 pre-recruited testers on one event code (crowd sync needs ≥3 devices; target ~150 labelled ratings).
 8. **Analysis:** `fetch_data.py`, then `correlations.py` and `crowd_sync.py`.

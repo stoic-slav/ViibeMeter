@@ -42,4 +42,4 @@ Summary numbers and ratings are stored in a database hosted by Supabase in the E
 
 ## Contact
 
-Leo Gerasimov — CONTACT_EMAIL
+Leo Gerasimov — stoicslav@gmail.com
