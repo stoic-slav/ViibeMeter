@@ -40,6 +40,13 @@ export interface SensorWindow {
   tempoMatch: number | null;          // 0–1 graded movement-vs-music tempo agreement
   pulseClarity: number | null;        // 0–1 audio beat clarity (onset-interval agreement)
 
+  // Recognized track (collect-only). No title/artist is stored, only these descriptors.
+  songIsrc: string | null;            // ISRC of the track playing (same song across devices)
+  songGenre: string | null;
+  songBpm: number | null;             // metadata tempo (Deezer / Apple Music)
+  songPopularity: number | null;      // Deezer rank (higher = more popular)
+  recognitionSource: RecognitionSource | null;
+
   // Density
   bleDeviceCount: number | null;
   bleCountDelta: number | null;
@@ -80,6 +87,8 @@ export type MovementAxis = 'vertical' | 'horizontal';
 export type PhonePlacement = 'pocket' | 'hand' | 'bag';
 
 export type CrowdTrend = 'filling' | 'stable' | 'thinning' | 'unknown';
+
+export type RecognitionSource = 'shazam' | 'audd';
 
 export type AudioEvent = 'crowd_clapping' | 'cheering' | 'dj_drop';
 
@@ -167,6 +176,9 @@ export interface AudioMetrics {
   clapCount: number;
   recognizedSong: string | null;
   recognizedGenre: string | null;
+  recognizedIsrc: string | null;
+  trackPopularity: number | null;
+  recognitionSource: RecognitionSource | null;
   audioEvent: AudioEvent | null;
 }
 

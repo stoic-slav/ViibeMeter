@@ -53,6 +53,7 @@ export class SensorOrchestrator {
   private rhythmicityValues: number[] = [];
   private axisValues: MovementAxis[] = [];
   private pulseClarityValues: number[] = [];
+  private windowSong: Pick<SensorWindow, 'songIsrc' | 'songGenre' | 'songBpm' | 'songPopularity' | 'recognitionSource'> = emptySong();
   private lastBeatSync: BeatSyncResult | null = null;
   private cycleCount = 0;
 
@@ -161,6 +162,7 @@ export class SensorOrchestrator {
     this.rhythmicityValues = [];
     this.axisValues = [];
     this.pulseClarityValues = [];
+    this.windowSong = emptySong();
   }
 
   /** Fire finalizeWindow at each wall-clock minute boundary (recomputed every time to avoid drift). */
@@ -320,6 +322,16 @@ export class SensorOrchestrator {
     this.currentWindow.vocalPresence = metrics.vocalPresence;
     this.currentWindow.harmonicNoiseRatio = metrics.harmonicNoiseRatio;
     if (metrics.avgDb > 0) this.pulseClarityValues.push(metrics.bpmConfidence);
+    // Latest recognized track in the window wins
+    if (metrics.recognitionSource) {
+      this.windowSong = {
+        songIsrc: metrics.recognizedIsrc,
+        songGenre: metrics.recognizedGenre,
+        songBpm: metrics.recognizedBpm,
+        songPopularity: metrics.trackPopularity,
+        recognitionSource: metrics.recognitionSource,
+      };
+    }
 
     this.pushReading(this.dbReadings, metrics.avgDb);
     if (bestBpm) this.pushReading(this.bpmReadings, bestBpm);
@@ -415,6 +427,7 @@ export class SensorOrchestrator {
       gyroActivityMax: this.currentWindow.gyroActivityMax ?? null,
       movementClassification: this.currentWindow.movementClassification ?? null,
       ...this.aggregateRhythmMetrics(),
+      ...this.windowSong,
       bleDeviceCount: this.currentWindow.bleDeviceCount ?? null,
       bleCountDelta: this.currentWindow.bleCountDelta ?? null,
       bleCountTrend: this.currentWindow.bleCountTrend ?? null,
@@ -489,6 +502,10 @@ export class SensorOrchestrator {
 }
 
 export const sensorOrchestrator = SensorOrchestrator.getInstance();
+
+function emptySong(): Pick<SensorWindow, 'songIsrc' | 'songGenre' | 'songBpm' | 'songPopularity' | 'recognitionSource'> {
+  return { songIsrc: null, songGenre: null, songBpm: null, songPopularity: null, recognitionSource: null };
+}
 
 function mean(values: number[]): number | null {
   return values.length ? values.reduce((s, v) => s + v, 0) / values.length : null;

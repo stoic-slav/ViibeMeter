@@ -67,6 +67,11 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
       beat_phase_mean REAL,
       tempo_match REAL,
       pulse_clarity REAL,
+      song_isrc TEXT,
+      song_genre TEXT,
+      song_bpm REAL,
+      song_popularity INTEGER,
+      recognition_source TEXT,
       ble_device_count INTEGER,
       ble_count_delta INTEGER,
       ble_count_trend TEXT,
@@ -115,6 +120,12 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
     ...['movement_energy', 'movement_bpm', 'rhythmicity', 'beat_plv', 'beat_phase_mean', 'tempo_match', 'pulse_clarity']
       .map(c => ['sensor_windows', c, 'REAL'] as [string, string, string]),
     ['sensor_windows', 'movement_axis', 'TEXT'],
+    // recognized track descriptors
+    ['sensor_windows', 'song_isrc', 'TEXT'],
+    ['sensor_windows', 'song_genre', 'TEXT'],
+    ['sensor_windows', 'song_bpm', 'REAL'],
+    ['sensor_windows', 'song_popularity', 'INTEGER'],
+    ['sensor_windows', 'recognition_source', 'TEXT'],
     // session covariates for crowd sync
     ['sessions', 'event_code', 'TEXT'],
     ['sessions', 'phone_placement', 'TEXT'],
@@ -198,11 +209,12 @@ export async function saveSensorWindow(w: SensorWindow): Promise<void> {
        gyro_activity_avg, gyro_activity_max, movement_classification,
        movement_energy, movement_bpm, rhythmicity, movement_axis,
        beat_plv, beat_phase_mean, tempo_match, pulse_clarity,
+       song_isrc, song_genre, song_bpm, song_popularity, recognition_source,
        ble_device_count, ble_count_delta, ble_count_trend,
        gps_is_at_venue, gps_accuracy_meters, screen_off_ratio, camera_activations,
        computed_energy_score, computed_density_score, computed_movement_score,
        computed_music_score, computed_vibe_score)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (${Array(49).fill('?').join(',')})`,
     [
       w.id, w.sessionId, w.windowStart.getTime(), w.windowEnd.getTime(),
       w.avgDb, w.maxDb, w.dbVariance,
@@ -213,6 +225,7 @@ export async function saveSensorWindow(w: SensorWindow): Promise<void> {
       w.gyroActivityAvg, w.gyroActivityMax, w.movementClassification,
       w.movementEnergy, w.movementBpm, w.rhythmicity, w.movementAxis,
       w.beatPlv, w.beatPhaseMean, w.tempoMatch, w.pulseClarity,
+      w.songIsrc, w.songGenre, w.songBpm, w.songPopularity, w.recognitionSource,
       w.bleDeviceCount, w.bleCountDelta, w.bleCountTrend,
       w.gpsIsAtVenue == null ? null : (w.gpsIsAtVenue ? 1 : 0),
       w.gpsAccuracyMeters, w.screenOffRatio, w.cameraActivations,

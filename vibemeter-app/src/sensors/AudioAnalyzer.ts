@@ -1,7 +1,8 @@
 import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
+// SDK 54: the classic API lives under /legacy; the root import's readAsStringAsync throws.
+import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
-import { AudioMetrics, AudioEvent, AudioClassification } from '../types';
+import { AudioMetrics, AudioEvent, AudioClassification, RecognitionSource } from '../types';
 import { SENSOR_CONFIG } from '../config/constants';
 import {
   computeFFT, bandEnergy, totalEnergy,
@@ -11,20 +12,40 @@ import {
 import { detectBPM } from '../processing/BPMDetector';
 import { classifyAudio, computeRMS, rmsToDb, dbFullScaleToAmbient } from '../processing/AudioClassifier';
 import AudioRecord from 'react-native-audio-record';
+import { isShazamAvailable, matchFile as shazamMatchFile } from '../../modules/shazam-match';
 
 const LOG_TAG = '[AudioAnalyzer]';
 const AUDD_TOKEN = process.env.EXPO_PUBLIC_AUDD_TOKEN ?? '';
-const RECOGNITION_MIN_INTERVAL_MS = 5_000;
+const RECOGNITION_MIN_INTERVAL_MS = 30_000;
+// A recognized song is reported only while it was confirmed recently, so a track
+// that ended does not keep tagging later windows.
+const SONG_STALE_MS = 120_000;
+
+interface RecognizedTrack {
+  label: string;               // "Artist – Title", on-device display only
+  genre: string | null;
+  bpm: number | null;
+  isrc: string | null;
+  popularity: number | null;   // Deezer rank
+  source: RecognitionSource;
+  confirmedAt: number;
+}
+
+interface PendingAuddTrack {
+  label: string;
+  genre: string | null;
+  bpm: number | null;
+  isrc: string | null;
+  popularity: number | null;
+}
 
 export class AudioAnalyzer {
   private isRecording = false;
   private lastRecognitionAt = 0;
-  private lastRecognizedSong: string | null = null;
-  private lastRecognizedGenre: string | null = null;
-  private lastRecognizedBpm: number | null = null;
-  private pendingSong: string | null = null;
-  private pendingGenre: string | null = null;
-  private pendingBpm: number | null = null;
+  private track: RecognizedTrack | null = null;
+  private pendingAudd: PendingAuddTrack | null = null;
+  private deezerCache = new Map<string, { bpm: number | null; rank: number | null }>();
+  private loggedShazamError = false;
 
   /**
    * Capture a 5-second audio sample and return computed metrics.
@@ -105,14 +126,11 @@ export class AudioAnalyzer {
       return this.buildFallbackMetrics();
     }
 
-    // Extract raw PCM from the WAV file for FFT and BPM analysis
-    const pcmSamples: number[] = [];
-    if (fileUri) {
-      const pcm = await extractPCMFromWAV(fileUri);
-      if (pcm) pcmSamples.push(...pcm);
-    }
+    // Extract raw PCM from the WAV file for FFT and BPM analysis.
+    // (Never spread it into push(): ~220k arguments overflows the JS stack.)
+    const pcmSamples = (fileUri ? await extractPCMFromWAV(fileUri) : null) ?? [];
 
-    return this.analyzePCMSamples(pcmSamples, dbSamples, fileUri, 'audio/m4a', recordStartMs);
+    return this.analyzePCMSamples(pcmSamples, dbSamples, fileUri, 'audio/wav', recordStartMs);
   }
 
   // ─── Android ─────────────────────────────────────────────────────────────────
@@ -137,7 +155,7 @@ export class AudioAnalyzer {
     ) => { remove: () => void })('data', (data: string) => {
       const chunk = decodePCMChunk(data);
       if (chunk.length === 0) return;
-      pcmSamples.push(...chunk);
+      for (const s of chunk) pcmSamples.push(s);
       // Derive dB from RMS so Android metering matches iOS granularity
       dbSamples.push(dbFullScaleToAmbient(rmsToDb(computeRMS(chunk))));
     });
@@ -212,7 +230,14 @@ export class AudioAnalyzer {
     const audioClassification = classifyAudio(avgDb, musicDetected);
     const audioEvent = classifyAudioEvent(dbSamples, clapCount, avgDb, dbVariance, musicDetected);
 
-    await this.attemptRecognition(fileUri, audioClassification, avgDb, fileType);
+    try {
+      await this.attemptRecognition(fileUri, audioClassification, avgDb, fileType);
+    } finally {
+      // Raw audio must never persist on the device: drop the temp recording
+      if (fileUri) await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
+    }
+
+    const track = this.track && Date.now() - this.track.confirmedAt <= SONG_STALE_MS ? this.track : null;
 
     return {
       avgDb,
@@ -220,7 +245,7 @@ export class AudioAnalyzer {
       dbVariance,
       musicDetected,
       estimatedBpm: bpmResult.bpm,
-      recognizedBpm: this.lastRecognizedBpm,
+      recognizedBpm: track?.bpm ?? null,
       bpmConfidence: bpmResult.confidence,
       audioClassification,
       bassPresence,
@@ -235,12 +260,17 @@ export class AudioAnalyzer {
       beatOnsetTimesMs,
       clapCount,
       audioEvent,
-      recognizedSong: this.lastRecognizedSong,
-      recognizedGenre: this.lastRecognizedGenre,
+      recognizedSong: track?.label ?? null,
+      recognizedGenre: track?.genre ?? null,
+      recognizedIsrc: track?.isrc ?? null,
+      trackPopularity: track?.popularity ?? null,
+      recognitionSource: track?.source ?? null,
     };
   }
 
-  // ─── AudD song recognition ────────────────────────────────────────────────────
+  // ─── Song recognition ─────────────────────────────────────────────────────────
+  // iOS: ShazamKit (on-device fingerprint, free). Elsewhere: AudD (uploads the clip),
+  // only when a token is configured. Deezer fills in tempo and popularity by ISRC.
 
   private async attemptRecognition(
     fileUri: string | null,
@@ -248,49 +278,101 @@ export class AudioAnalyzer {
     avgDb: number,
     fileType: string,
   ): Promise<void> {
-    if (!AUDD_TOKEN || !fileUri) return;
+    if (!fileUri) return;
     if (classification === 'silent') return;
     if (avgDb < SENSOR_CONFIG.AUDIO_DB_TALKING) return;
     if (Date.now() - this.lastRecognitionAt < RECOGNITION_MIN_INTERVAL_MS) return;
 
     try {
-      this.lastRecognitionAt = Date.now();
-      const fileName = fileType === 'audio/wav' ? 'sample.wav' : 'sample.m4a';
-      const formData = new FormData();
-      formData.append('file', { uri: fileUri, type: fileType, name: fileName } as any);
-      formData.append('api_token', AUDD_TOKEN);
-      formData.append('return', 'apple_music,deezer');
-
-      const response = await fetch('https://api.audd.io/', {
-        method: 'POST',
-        body: formData,
-        headers: { Accept: 'application/json' },
-      });
-      const data = await response.json();
-      if (data.status === 'success' && data.result) {
-        const candidate = `${data.result.artist} – ${data.result.title}`;
-        const amAttrs = data.result.apple_music?.attributes;
-        const genres: string[] | undefined = amAttrs?.genreNames;
-        const genre = genres && genres.length > 0 ? genres[0] : null;
-        const amTempo: number | null = amAttrs?.tempo ? Math.round(amAttrs.tempo) : null;
-        const deezerBpm: number | null = data.result.deezer?.bpm ? Math.round(data.result.deezer.bpm) : null;
-        const bpm = amTempo ?? deezerBpm;
-        if (candidate === this.pendingSong) {
-          this.lastRecognizedSong = candidate;
-          this.lastRecognizedGenre = genre ?? this.lastRecognizedGenre;
-          this.lastRecognizedBpm = bpm ?? this.lastRecognizedBpm;
-        } else {
-          this.pendingSong = candidate;
-          this.pendingGenre = genre;
-          this.pendingBpm = bpm;
-        }
-      } else {
-        this.pendingSong = null;
-        this.pendingGenre = null;
-        this.pendingBpm = null;
+      if (isShazamAvailable) {
+        this.lastRecognitionAt = Date.now();
+        await this.recognizeWithShazam(fileUri);
+      } else if (AUDD_TOKEN) {
+        this.lastRecognitionAt = Date.now();
+        await this.recognizeWithAudd(fileUri, fileType);
       }
     } catch (err) {
       console.warn(`${LOG_TAG} Song recognition error:`, err);
+    }
+  }
+
+  private async recognizeWithShazam(fileUri: string): Promise<void> {
+    const result = await shazamMatchFile(fileUri);
+    if (!result) return;
+    if (result.error && !this.loggedShazamError) {
+      this.loggedShazamError = true;
+      console.warn(`${LOG_TAG} ShazamKit: ${result.error}`);
+    }
+    if (!result.matched) return;
+
+    const isrc = result.isrc ?? null;
+    const deezer = isrc ? await this.lookupDeezer(isrc) : null;
+    // A single ShazamKit match is reliable, so no second confirmation is needed
+    this.track = {
+      label: `${result.artist ?? '?'} – ${result.title ?? '?'}`,
+      genre: result.genres?.[0] ?? null,
+      bpm: deezer?.bpm ?? null,
+      isrc,
+      popularity: deezer?.rank ?? null,
+      source: 'shazam',
+      confirmedAt: Date.now(),
+    };
+  }
+
+  private async recognizeWithAudd(fileUri: string, fileType: string): Promise<void> {
+    const fileName = fileType === 'audio/wav' ? 'sample.wav' : 'sample.m4a';
+    const formData = new FormData();
+    formData.append('file', { uri: fileUri, type: fileType, name: fileName } as any);
+    formData.append('api_token', AUDD_TOKEN);
+    formData.append('return', 'apple_music,deezer');
+
+    const response = await fetch('https://api.audd.io/', {
+      method: 'POST',
+      body: formData,
+      headers: { Accept: 'application/json' },
+    });
+    const data = await response.json();
+    if (data.status !== 'success' || !data.result) {
+      this.pendingAudd = null;
+      return;
+    }
+
+    const amAttrs = data.result.apple_music?.attributes;
+    const genres: string[] | undefined = amAttrs?.genreNames;
+    const amTempo: number | null = amAttrs?.tempo ? Math.round(amAttrs.tempo) : null;
+    const deezerBpm: number | null = data.result.deezer?.bpm ? Math.round(data.result.deezer.bpm) : null;
+    const candidate: PendingAuddTrack = {
+      label: `${data.result.artist} – ${data.result.title}`,
+      genre: genres && genres.length > 0 ? genres[0] : null,
+      bpm: amTempo ?? deezerBpm,
+      isrc: amAttrs?.isrc ?? data.result.deezer?.isrc ?? null,
+      popularity: data.result.deezer?.rank ?? null,
+    };
+
+    // AudD occasionally returns a wrong match, so require the same song twice in a row
+    if (candidate.label === this.pendingAudd?.label) {
+      this.track = { ...candidate, source: 'audd', confirmedAt: Date.now() };
+    } else {
+      this.pendingAudd = candidate;
+    }
+  }
+
+  /** Tempo and popularity rank from Deezer's public API (only the ISRC is sent). */
+  private async lookupDeezer(isrc: string): Promise<{ bpm: number | null; rank: number | null } | null> {
+    const cached = this.deezerCache.get(isrc);
+    if (cached) return cached;
+    try {
+      const response = await fetch(`https://api.deezer.com/track/isrc:${encodeURIComponent(isrc)}`);
+      const data = await response.json();
+      if (data.error) return null;
+      const info = {
+        bpm: typeof data.bpm === 'number' && data.bpm > 0 ? Math.round(data.bpm) : null,
+        rank: typeof data.rank === 'number' && data.rank > 0 ? data.rank : null,
+      };
+      this.deezerCache.set(isrc, info);
+      return info;
+    } catch {
+      return null;
     }
   }
 
@@ -303,6 +385,7 @@ export class AudioAnalyzer {
       crestFactor: 0, vocalPresence: 0, harmonicNoiseRatio: 0,
       beatBpm: null, beatOnsetTimesMs: [],
       clapCount: 0, audioEvent: null, recognizedSong: null, recognizedGenre: null,
+      recognizedIsrc: null, trackPopularity: null, recognitionSource: null,
     };
   }
 }
