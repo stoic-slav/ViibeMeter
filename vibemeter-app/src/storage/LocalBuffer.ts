@@ -27,6 +27,9 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
       venue_longitude REAL,
       device_model TEXT,
       os_version TEXT,
+      event_code TEXT,
+      phone_placement TEXT,
+      dance_affinity INTEGER,
       synced INTEGER DEFAULT 0,
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
@@ -56,6 +59,14 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
       gyro_activity_avg REAL,
       gyro_activity_max REAL,
       movement_classification TEXT,
+      movement_energy REAL,
+      movement_bpm REAL,
+      rhythmicity REAL,
+      movement_axis TEXT,
+      beat_plv REAL,
+      beat_phase_mean REAL,
+      tempo_match REAL,
+      pulse_clarity REAL,
       ble_device_count INTEGER,
       ble_count_delta INTEGER,
       ble_count_trend TEXT,
@@ -91,13 +102,26 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_sr_session ON subjective_ratings(session_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_synced ON sessions(synced);
   `);
-  // Migrate existing DBs that predate multi-dimension ratings
-  for (const col of ['music_rating', 'crowd_rating']) {
-    await database.runAsync(`ALTER TABLE subjective_ratings ADD COLUMN IF NOT EXISTS ${col} INTEGER`).catch(() => {});
-  }
-  // Migrate existing DBs that predate FFT spectral metrics
-  for (const col of ['sub_bass_energy', 'spectral_centroid', 'spectral_flux', 'crest_factor', 'vocal_presence', 'harmonic_noise_ratio']) {
-    await database.runAsync(`ALTER TABLE sensor_windows ADD COLUMN IF NOT EXISTS ${col} REAL`).catch(() => {});
+  // Migrate existing DBs. SQLite has no "ADD COLUMN IF NOT EXISTS", so add each column
+  // and ignore the "duplicate column" error when it already exists.
+  const migrations: [table: string, column: string, type: string][] = [
+    // multi-dimension ratings
+    ['subjective_ratings', 'music_rating', 'INTEGER'],
+    ['subjective_ratings', 'crowd_rating', 'INTEGER'],
+    // FFT spectral metrics
+    ...['sub_bass_energy', 'spectral_centroid', 'spectral_flux', 'crest_factor', 'vocal_presence', 'harmonic_noise_ratio']
+      .map(c => ['sensor_windows', c, 'REAL'] as [string, string, string]),
+    // movement energy + beat sync
+    ...['movement_energy', 'movement_bpm', 'rhythmicity', 'beat_plv', 'beat_phase_mean', 'tempo_match', 'pulse_clarity']
+      .map(c => ['sensor_windows', c, 'REAL'] as [string, string, string]),
+    ['sensor_windows', 'movement_axis', 'TEXT'],
+    // session covariates for crowd sync
+    ['sessions', 'event_code', 'TEXT'],
+    ['sessions', 'phone_placement', 'TEXT'],
+    ['sessions', 'dance_affinity', 'INTEGER'],
+  ];
+  for (const [table, col, type] of migrations) {
+    await database.runAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`).catch(() => {});
   }
 }
 
@@ -108,8 +132,9 @@ export async function saveSession(session: Session): Promise<void> {
   await database.runAsync(
     `INSERT OR REPLACE INTO sessions
       (id, device_id, venue_name, venue_type, started_at, ended_at, dwell_minutes,
-       auto_detected, venue_latitude, venue_longitude, device_model, os_version)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       auto_detected, venue_latitude, venue_longitude, device_model, os_version,
+       event_code, phone_placement, dance_affinity)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       session.id,
       session.deviceId,
@@ -123,6 +148,9 @@ export async function saveSession(session: Session): Promise<void> {
       session.venueLongitude,
       session.deviceModel,
       session.osVersion,
+      session.eventCode,
+      session.phonePlacement,
+      session.danceAffinity,
     ]
   );
 }
@@ -168,11 +196,13 @@ export async function saveSensorWindow(w: SensorWindow): Promise<void> {
        sub_bass_energy, spectral_centroid, spectral_flux, crest_factor, vocal_presence, harmonic_noise_ratio,
        accel_magnitude_avg, accel_magnitude_max, accel_variance,
        gyro_activity_avg, gyro_activity_max, movement_classification,
+       movement_energy, movement_bpm, rhythmicity, movement_axis,
+       beat_plv, beat_phase_mean, tempo_match, pulse_clarity,
        ble_device_count, ble_count_delta, ble_count_trend,
        gps_is_at_venue, gps_accuracy_meters, screen_off_ratio, camera_activations,
        computed_energy_score, computed_density_score, computed_movement_score,
        computed_music_score, computed_vibe_score)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       w.id, w.sessionId, w.windowStart.getTime(), w.windowEnd.getTime(),
       w.avgDb, w.maxDb, w.dbVariance,
@@ -181,6 +211,8 @@ export async function saveSensorWindow(w: SensorWindow): Promise<void> {
       w.subBassEnergy, w.spectralCentroid, w.spectralFlux, w.crestFactor, w.vocalPresence, w.harmonicNoiseRatio,
       w.accelMagnitudeAvg, w.accelMagnitudeMax, w.accelVariance,
       w.gyroActivityAvg, w.gyroActivityMax, w.movementClassification,
+      w.movementEnergy, w.movementBpm, w.rhythmicity, w.movementAxis,
+      w.beatPlv, w.beatPhaseMean, w.tempoMatch, w.pulseClarity,
       w.bleDeviceCount, w.bleCountDelta, w.bleCountTrend,
       w.gpsIsAtVenue == null ? null : (w.gpsIsAtVenue ? 1 : 0),
       w.gpsAccuracyMeters, w.screenOffRatio, w.cameraActivations,

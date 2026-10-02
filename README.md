@@ -22,10 +22,12 @@ If yes — there's a novel primitive here worth building a product around. If no
 | Crowd event detection | Microphone | Clapping, cheering, DJ drops | **High** — peak-moment signal; captures crowd reactions |
 | Accelerometer magnitude | IMU | User movement / dancing | **High** — dancing = high vibe; stationary = low vibe |
 | Gyroscope activity | IMU | Body movement patterns | **Medium** — adds dimensionality to movement type |
-| Movement BPM | IMU + autocorrelation | Rhythmic movement frequency (30–240 BPM) | **Medium** — rhythmic sync with music suggests engagement |
+| Movement energy | DeviceMotion (gravity removed) | RMS of linear acceleration (m/s²) — how much the person moves | **High** — the only signal shown to predict self-reported enjoyment from a body sensor (Martella 2015) |
+| Movement BPM | IMU + autocorrelation | Rhythmic movement frequency (30–240 BPM), from the vertical or horizontal component, whichever is more periodic | **Medium** — rhythmic sync with music suggests engagement |
 | Rhythmicity score | IMU | How periodic/consistent the movement is (0–1) | **Medium** — dancing is periodic; random jostling is not |
-| Beat sync | Audio + motion fusion | `√(rhythmicity × phaseCoherence)` — body movement locked to music | **High** — user moving in sync with music = strongest single-device engagement signal |
-| Phase coherence | Audio + motion fusion | Whether body movement BPM matches music BPM or a harmonic | **High** — component of beat sync; 1.0 = perfect harmonic match |
+| Beat phase lock (`beat_plv`) | Audio + motion recorded at the same time | Do movement peaks land at the same point in the beat every time? (0–1; ≈0.3 is chance) | **Collect-only** — person ↔ music sync; not in the composite score until validated |
+| Tempo match | Audio + motion fusion | Movement tempo vs music tempo at ½×, 1×, 2×, 3× harmonics (graded 0–1) | **Collect-only** — component of beat sync |
+| Pulse clarity | Microphone | How clear the beat is (onset-interval agreement, 0–1) | **Medium** — clearer pulses drive more movement and group sync (Burger 2013, Ellamil 2016) |
 | Step cadence | Pedometer | Walking vs dancing vs stationary | **Low** — redundant with accelerometer; useful as a tie-breaker |
 | Sub-bass energy | Microphone + FFT | Fraction of audio energy in 20–80 Hz (kick/bass) | **High** — heavy bass = dance-floor system; strongest genre-independent energy marker |
 | Spectral flux | Microphone + FFT | How rapidly the frequency spectrum changes frame-to-frame | **Medium** — high = evolving mix (builds, drops, transitions); low = static loop or silence |
@@ -63,10 +65,24 @@ If yes — there's a novel primitive here worth building a product around. If no
 
 > **Important:** Any `npm install` touching native packages requires `xcodebuild clean` before the next native rebuild. Incremental builds cache stale ExpoModulesCore objects and cause a `NativeJSLogger` crash on boot.
 
-### Planned signals (multi-device, server-side)
+### Crowd sync (multi-device, server-side) — `analysis/crowd_sync.py`
 
 | Signal | Source | What it proxies | Vibe value |
 |--------|--------|-----------------|------------|
+| Crowd phase sync | `beat_phase_mean` across co-located devices | Are people hitting the beat at the same moment as each other? | **Collect-only** — strongest causal evidence for synchrony (Tarr 2016: bonding), measured with phones in a real club (Ellamil 2016); not yet proven for enjoyment ratings |
+| Crowd tempo agreement | `movement_bpm` across devices | Share of devices moving at the same tempo (half/double time folded) | **Collect-only** — works even when the audio beat is missed |
+
+**How it works:** testers at the same event type the same **event code** when starting a session. Windows are aligned to wall-clock minutes, so every phone's window for 21:14 has the same `window_start`. Each phone measures the phase of its movement relative to the beat *it hears* and uploads one number per minute (`beat_phase_mean`), so device clock offsets cancel and no raw data leaves the phone. For each event-minute with ≥3 devices:
+```
+crowd_phase_sync      = |mean over devices of e^(i · beat_phase_mean)|
+crowd_tempo_agreement = fraction of devices within ±5% of the median (octave-folded) movement BPM
+crowd_sync            = crowd_phase_sync × mean(beat_plv)
+```
+`correlations.py` joins crowd metrics back to each rating and tests whether crowd sync predicts a person's rating **beyond** their own movement energy. Top-decile minutes are written to `output/crowd_peak_moments.csv` for venue reports.
+
+**Data needed:** ≥3 testers at the same event entering the same code — the "one big event" plan below is the way to get it. Run `python3 crowd_sync.py --selftest` to check the maths without data.
+
+--------|--------|-----------------|------------|
 | Crowd rhythmic alignment | Movement BPM across co-located devices | Fraction of nearby users moving at the same BPM as the music | **Critical** — the most novel signal in the stack |
 
 **How it works:** Each device independently reports its movement BPM to Supabase. The analysis layer groups devices by venue and 1-minute window, then computes what fraction of them converge within ±5 BPM of each other (and of the recognized music BPM). A venue where 8 out of 10 devices are all moving at 128 BPM — the same as the DJ set — is objectively in a high-energy collective state. No single device can see this; it only emerges from multi-user data.
@@ -111,9 +127,10 @@ If a signal is unavailable its weight redistributes proportionally to present si
 ### Data Flow
 
 ```
-Session start → SensorOrchestrator (staggered: audio 2s, motion 5s, BLE 8s, GPS 10s)
+Session start → SensorOrchestrator (audio + motion captured together each cycle; BLE, GPS staggered)
+  → beat sync computed from each overlapping audio/motion capture
   → 4 parallel collectors on timers
-  → every 60s: SensorWindow aggregated + scored by VibeScoreEngine
+  → every wall-clock minute: SensorWindow aggregated + scored by VibeScoreEngine
   → written to SQLite (LocalBuffer, synced=0)
   → every 5 min: SupabaseSync batches unsynced rows → Supabase, marks synced=1
   → UI (meter.tsx) receives live updates via callback

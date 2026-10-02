@@ -15,6 +15,7 @@ export interface BPMResult {
   bpm: number | null;
   confidence: number;  // 0.0 to 1.0
   onsetCount: number;
+  onsetTimes: number[]; // seconds from the start of the sample buffer
 }
 
 const HOP_SIZE = 512;   // samples between frames
@@ -27,7 +28,7 @@ const FRAME_SIZE = 2048;
  */
 export function detectBPM(samples: number[], sampleRate: number): BPMResult {
   if (samples.length < FRAME_SIZE * 2) {
-    return { bpm: null, confidence: 0, onsetCount: 0 };
+    return { bpm: null, confidence: 0, onsetCount: 0, onsetTimes: [] };
   }
 
   // Build sequence of FFT frames
@@ -39,7 +40,7 @@ export function detectBPM(samples: number[], sampleRate: number): BPMResult {
   }
 
   if (frames.length < 4) {
-    return { bpm: null, confidence: 0, onsetCount: 0 };
+    return { bpm: null, confidence: 0, onsetCount: 0, onsetTimes: [] };
   }
 
   // Compute spectral flux between consecutive frames
@@ -76,7 +77,7 @@ export function detectBPM(samples: number[], sampleRate: number): BPMResult {
   }
 
   if (onsetTimes.length < 3) {
-    return { bpm: null, confidence: 0, onsetCount: onsetTimes.length };
+    return { bpm: null, confidence: 0, onsetCount: onsetTimes.length, onsetTimes };
   }
 
   // Compute inter-onset intervals (IOIs)
@@ -94,7 +95,7 @@ export function detectBPM(samples: number[], sampleRate: number): BPMResult {
   );
 
   if (validCandidates.length < 2) {
-    return { bpm: null, confidence: 0, onsetCount: onsetTimes.length };
+    return { bpm: null, confidence: 0, onsetCount: onsetTimes.length, onsetTimes };
   }
 
   // Find median BPM
@@ -109,13 +110,14 @@ export function detectBPM(samples: number[], sampleRate: number): BPMResult {
   const confidence = agreeing / validCandidates.length;
 
   if (confidence < SENSOR_CONFIG.BPM_CONFIDENCE_THRESHOLD) {
-    return { bpm: null, confidence, onsetCount: onsetTimes.length };
+    return { bpm: null, confidence, onsetCount: onsetTimes.length, onsetTimes };
   }
 
   return {
     bpm: Math.round(medianBPM),
     confidence,
     onsetCount: onsetTimes.length,
+    onsetTimes,
   };
 }
 

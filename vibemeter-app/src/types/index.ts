@@ -29,6 +29,16 @@ export interface SensorWindow {
   gyroActivityAvg: number | null;
   gyroActivityMax: number | null;
   movementClassification: MovementClassification | null;
+  movementEnergy: number | null;      // RMS of gravity-removed acceleration (m/s²)
+  movementBpm: number | null;         // dominant movement tempo
+  rhythmicity: number | null;         // 0–1: how periodic the movement is
+  movementAxis: MovementAxis | null;  // which component the rhythm came from
+
+  // Beat sync (person ↔ music) — collect-only, not in composite score
+  beatPlv: number | null;             // 0–1 phase-locking of movement peaks to the beat
+  beatPhaseMean: number | null;       // radians: where in the beat movement lands (crowd sync input)
+  tempoMatch: number | null;          // 0–1 graded movement-vs-music tempo agreement
+  pulseClarity: number | null;        // 0–1 audio beat clarity (onset-interval agreement)
 
   // Density
   bleDeviceCount: number | null;
@@ -65,6 +75,10 @@ export type MovementClassification =
   | 'dancing'
   | 'jumping';
 
+export type MovementAxis = 'vertical' | 'horizontal';
+
+export type PhonePlacement = 'pocket' | 'hand' | 'bag';
+
 export type CrowdTrend = 'filling' | 'stable' | 'thinning' | 'unknown';
 
 export type AudioEvent = 'crowd_clapping' | 'cheering' | 'dj_drop';
@@ -91,6 +105,9 @@ export interface Session {
   venueLongitude: number | null;
   deviceModel: string;
   osVersion: string;
+  eventCode: string | null;              // shared code so co-located testers can be grouped
+  phonePlacement: PhonePlacement | null;
+  danceAffinity: number | null;          // 1–5 self-reported enjoyment of dancing
 }
 
 export interface SubjectiveRating {
@@ -145,6 +162,8 @@ export interface AudioMetrics {
   crestFactor: number;          // dB: transient punchiness
   vocalPresence: number;        // 0–1: vocal/speech band
   harmonicNoiseRatio: number;   // 0–1: tonal vs noise
+  beatBpm: number | null;               // tempo from this recording's onsets (null if unclear)
+  beatOnsetTimesMs: number[];           // absolute onset times (Date.now() clock) for beat sync
   clapCount: number;
   recognizedSong: string | null;
   recognizedGenre: string | null;
@@ -160,7 +179,10 @@ export interface MotionMetrics {
   movementClassification: MovementClassification;
   stepCadence: number | null;    // steps per minute
   movementBpm: number | null;    // dominant rhythmic frequency (30–240 BPM) from accel FFT
-  rhythmicity: number;           // 0–1: ratio of peak power to total — how periodic the movement is
+  rhythmicity: number;           // 0–1: autocorrelation peak — how periodic the movement is
+  movementEnergy: number | null; // RMS of gravity-removed acceleration (m/s²)
+  movementAxis: MovementAxis | null;
+  movementSeries: { t: number; v: number }[]; // on-device only, used for beat sync, never stored
 }
 
 export interface VibeScoreBreakdown {
@@ -199,7 +221,8 @@ export interface LiveDashboardData {
   audioBpm: number | null;
   movementBpm: number | null;
   rhythmicity: number;
-  phaseCoherence: number;
+  beatPlv: number | null;
+  tempoMatch: number;
   recognizedGenre: string | null;
   trend15m: TrendDir;
   // FFT-derived music features

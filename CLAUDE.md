@@ -49,13 +49,13 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
 ### Data Flow
 
 ```
-Session start → SensorOrchestrator (staggered launch: audio 2s, motion 5s, BLE 8s, location 10s)
-  → 4 parallel collectors run on timers
-  → Every 60s: SensorWindow aggregated + scored by VibeScoreEngine
+Session start → SensorOrchestrator (audio + motion captured together each cycle; BLE, location staggered)
+  → BeatSync compares movement peaks with the audio beat grid from the same capture
+  → At each wall-clock minute: SensorWindow aggregated + scored by VibeScoreEngine
   → Window written to SQLite (LocalBuffer, synced=0)
   → Every 5 min: SupabaseSync batches unsynced rows → Supabase, marks synced=1
   → UI (meter.tsx) receives vibe updates via callback
-  → Every 25 min: VibePrompt fires micro-rating notification
+  → Every 5 min: VibePrompt fires micro-rating notification
   → Session end: SessionManager finalizes, final sync triggered
 ```
 
@@ -83,6 +83,8 @@ Each signal produces a 0–5 component score via piecewise linear curves defined
 - Engagement — 10%: screen-off ratio × 5.0
 
 If a signal is unavailable, its weight redistributes proportionally to present signals. A `confidence` field (0–1) tracks the fraction of signals used.
+
+Beat sync (`beat_plv`, `tempo_match`, `src/processing/BeatSync.ts`), movement energy and crowd sync (`analysis/crowd_sync.py`) are **collect-only**: stored and uploaded, but not part of the composite score until analysis validates them. Windows are aligned to wall-clock minutes so crowd sync can compare devices.
 
 FFT-derived spectral metrics (sub-bass energy, spectral centroid, spectral flux, crest factor, vocal presence, harmonic-to-noise ratio) are computed in `src/processing/FFTProcessor.ts` (Cooley-Tukey) and extracted from raw PCM in `AudioAnalyzer.ts` (iOS only; Android returns 0 fallbacks).
 
