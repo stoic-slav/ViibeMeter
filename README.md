@@ -57,7 +57,7 @@ If yes — there's a novel primitive here worth building a product around. If no
 | Speed | Native, no HTTP round-trip | ~300ms API call |
 
 **Native PCM BPM + FFT** (implemented — `src/processing/BPMDetector.ts`, `src/sensors/AudioAnalyzer.ts`):
-- **iOS:** `expo-av` records 16-bit PCM WAV; samples extracted post-recording for FFT and BPM
+- **iOS:** a local `AVAudioEngine` module captures continuously into an in-memory buffer (16-bit PCM, never written to disk) for FFT, BPM and ShazamKit
 - **Android:** `react-native-audio-record` streams raw 16-bit PCM chunks in real-time; same FFT and BPM pipeline runs on the accumulated buffer — full feature parity with iOS
 - Works for any audio (DJ sets, live music, unrecognized tracks) — no song recognition required
 - AudD metadata BPM (Apple Music tempo / Deezer) supplements the on-device estimate when a track is recognized

@@ -41,6 +41,7 @@ The first time you open it, allow **microphone, motion, Bluetooth, location and 
 - When "How's the vibe?" appears, tap your honest answer (2 seconds).
 - Missed one? No problem, the next comes in 5 minutes.
 - Keep the app running. Locking the screen is fine; force-closing it stops the measurement.
+- **Android:** a "ViibeMeter is measuring" notification stays visible during the session. That's what keeps it measuring with the screen off, so leave it there. If your phone asks about battery optimisation for ViibeMeter, choose **Don't optimise** / **Unrestricted**.
 
 **When you leave:**
 1. Open ViibeMeter and tap **Stop**.
@@ -76,7 +77,7 @@ The first time you open it, allow **microphone, motion, Bluetooth, location and 
 
 ## Privacy
 
-- **No audio is stored or uploaded.** Each ~5-second clip is analysed on the phone and deleted. Song recognition sends Apple only an irreversible fingerprint.
+- **No audio is stored or uploaded.** Sound is analysed on the phone a few seconds at a time and then discarded. Song recognition sends Apple only an irreversible fingerprint.
 - **No GPS coordinates are stored.** Location is only used on the phone to check you are still at the venue.
 - **No Bluetooth device IDs are stored.** Only the number of nearby devices.
 - You are identified by a **random anonymous ID**, shown at the bottom of the home screen. No name, email or phone number.

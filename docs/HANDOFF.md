@@ -1,6 +1,6 @@
 # Handoff: continue ViibeMeter work
 
-Updated 2 October 2026 at the end of a local (Mac) session, so the next session can continue without the chat history.
+Updated 3 October 2026 at the end of a local (Mac) session, so the next session can continue without the chat history.
 **How the owner works:** they want Claude to drive end to end and give only minimal direction and oversight. Do the work, verify it, and report outcomes plainly, including failures. Ask only when a decision is genuinely theirs.
 
 ## Goal
@@ -8,50 +8,65 @@ Decide whether ViibeMeter is worth building out. The question is whether passive
 
 ## State
 
-### Distribution (new this session)
-- **Apple Developer Program is active** (individual, team `APRS7H5DD6`). The owner's iPhone is company-managed: **Developer Mode is off and must stay off**, so the only install route is **TestFlight**, which the company allows.
-- **Bundle ID is now `com.leogerasimov.vibemeter`.** `com.vibemeter.app` was unavailable to our team. Do not change it again: it is tied to the App Store Connect record, certificates and TestFlight group. Android package is still `com.vibemeter.app` (no Play listing yet).
-- **App Store Connect app:** name **ViibeMeter** (renamed by the owner), ASC app id `6818585201` (pinned in `eas.json`). TestFlight internal group "Team (Expo)" contains the owner.
-- **ShazamKit App Service is enabled** on the app ID (owner did it in the developer portal).
-- **EAS:** Expo account `stoicslav`, project `@stoicslav/vibemeter`. Supabase URL and anon key are EAS env vars (preview and production). `EXPO_PUBLIC_AUDD_TOKEN` is local `.env` only, so cloud builds have no AudD (fine: iOS uses ShazamKit).
-- **iOS build 1 (v0.2.0)** built on EAS (`05e8db2d-…`) and was queued for TestFlight submission (`dd503dd5-…`). It contains commits up to `6701245` (audio fix + ShazamKit) but not the rename to ViibeMeter or the on-screen anonymous ID.
-- **Android preview APK** (`faa6cbd2-…`) was queued on the EAS free tier for over an hour. It was uploaded before `.npmrc` was committed, so if it fails at `npm install`, rerun `eas build -p android --profile preview`.
+### Distribution
+- **Apple Developer Program is active** (individual, team `APRS7H5DD6`). The owner's iPhone is company-managed: **Developer Mode is off and must stay off**, so the only install route is **TestFlight**.
+- **Bundle ID is `com.leogerasimov.vibemeter`.** Do not change it: it is tied to the App Store Connect record, certificates and the TestFlight group. The Android package is still `com.vibemeter.app` (no Play listing).
+- **App Store Connect:** app **ViibeMeter**, ASC app id `6818585201` (pinned in `eas.json`). The TestFlight internal group "Team (Expo)" contains the owner. ShazamKit App Service is enabled on the app ID.
+- **EAS:** Expo account `stoicslav`, project `@stoicslav/vibemeter`. The Supabase URL and anon key are EAS env vars. `EXPO_PUBLIC_AUDD_TOKEN` is local `.env` only, so cloud builds have no AudD.
+- **Upload route:** `eas submit` sat in the free-tier queue for hours, so builds are downloaded (`ViibeMeter.ipa`, gitignored) and the owner uploads them with **Transporter** on the Mac.
+- **iOS builds:** 1 (rejected by Apple: background mode `processing`, ITMS-90771), 2 (fixed), 3 (continuous background capture, BPM rewrite), 4 (dB calibration, no fake BLE zeros), **5 = current on the owner's iPhone** (Shazam runs above 40 dB). Build numbers auto-increment remotely.
+- **Android:** preview APK builds on EAS (`eas build -p android --profile preview`). The build with the new foreground service is `944bd7ce-…` (3 Oct). No Android device has run any build yet; the owner will share the APK link with friends.
 
-### Code changes this session
-- **Critical iOS fix:** in Expo SDK 54, `readAsStringAsync` from the root `expo-file-system` import always throws, so iOS never read the PCM. Every iOS window had FFT metrics of 0, no beat grid, and no beat sync. `AudioAnalyzer.ts` now imports `expo-file-system/legacy`. A follow-up stack overflow (`push(...220k samples)`) was also fixed. Verified in the simulator: PCM BPM and dB now come through.
-- **Old Supabase data is affected by this bug.** The ~150 May windows have no valid FFT or beat data from iOS.
-- Temporary WAV clips are now deleted after each analysis (they used to pile up in the cache).
-- **ShazamKit:** local Expo module `vibemeter-app/modules/shazam-match` (Swift) matches the recorded clip. Only the fingerprint leaves the device. Deezer `track/isrc:` lookup adds tempo and popularity rank. AudD remains the fallback on Android when a token is set. Simulator returned ShazamKit error 202 before the App Service was enabled; unverified on a device.
-- New collect-only window columns: `song_isrc`, `song_genre`, `song_bpm`, `song_popularity`, `recognition_source` (SQLite migration + Supabase migration `20261002163648_song_descriptors.sql`, applied).
-- `app.json`: `NSMotionUsageDescription`, `ITSAppUsesNonExemptEncryption=false`, version 0.2.0, name ViibeMeter, honest microphone prompt. `eas.json`: remote app versioning with auto-increment.
-- Home screen shows the anonymous device ID (needed for deletion requests in the privacy policy).
-- `analysis/fetch_data.py` paginates past the 1,000-row cap (verified against live data: 29 sessions, 164 windows, 16 ratings).
-- `docs/PRIVACY.md` (privacy policy) and a rewritten `TESTER_GUIDE.md`.
+### Audio pipeline (iOS), changed 2–3 Oct
+- **Continuous capture:** local Expo module `vibemeter-app/modules/audio-capture` (Swift; replaces the earlier `shazam-match`). `AVAudioEngine` input tap into a 12 s in-memory ring buffer (Int16, 44.1 kHz mono); nothing is written to disk. Session category `.playAndRecord`, mode `.measurement` (no automatic gain), `.mixWithOthers`. It restarts itself after interruptions, route changes and media-server resets.
+- **Why:** with separate 5 s clips, iOS suspended the app between clips once the screen locked, so sessions paused. A continuously open mic plus `UIBackgroundModes: audio` keeps it running. **Verified on the owner's iPhone (build 3, screen off).**
+- `AudioAnalyzer.start()`/`stop()` open and close the mic for the whole session (called by `SensorOrchestrator`). Each cycle reads the latest 5 s with `readRecent`.
+- **ShazamKit** matches the last 8 s of the ring buffer (`matchRecent`); only the fingerprint leaves the device. It runs at most every 30 s when the room is above `SHAZAM_MIN_DB` (40). Deezer's `track/isrc:` lookup adds tempo and popularity. Not yet confirmed on a device: the 3 Oct hand test had too low a dB reading for the old 55 dB gate.
+- **dB calibration:** measurement mode has no auto gain, so raw levels are ~25 dB lower than the old 94 dB offset assumed. iOS now uses `IOS_RAW_MIC_DBFS_OFFSET = 120`. The owner's Apple Watch read ~50 dB for music that the app (old offset 94) logged as 34 dB, suggesting ~110 may be closer. **Calibrate in the next test** by noting the Watch reading next to the app's value. Android keeps offset 94 (unverified).
+- **BPM detector rewritten** (`BPMDetector.ts`): inter-onset intervals read hi-hats as >200 BPM, so real music never got a tempo. Now it uses an onset envelope (full band + bass band below 200 Hz), centred unbiased autocorrelation, a 120 BPM log-tempo prior, a double-tempo check, parabolic interpolation and a fitted beat-grid phase. Synthetic tests: 90/117/120/128/140 BPM exact, phase error ≤ 5 ms, noise rejected. Results below `BPM_PCM_MIN_CLARITY` (0.3) are dropped.
+
+### Android background (new 3 Oct, untested on a device)
+Android stops an app's work with the screen off in three ways, and `modules/session-service` (Kotlin, Android only) handles each:
+1. Background mic and location need a **foreground service** of type `microphone|location` (ongoing notification "ViibeMeter is measuring"). It is started in `SensorOrchestrator.startSession` after the permission prompts and stopped in `stopSession`.
+2. React Native pauses JS timers when the app is backgrounded unless a **headless JS task** is running. The service starts task `ViibeMeterSession` (registered in `vibemeter-app/index.ts`), which stays pending until the session stops.
+3. `expo-sensors` stops listening when the activity is backgrounded, so the service records **accelerometer, gravity, linear acceleration and gyroscope natively** into a 15 s in-memory buffer. `MotionTracker` reads it on Android while the service runs.
+Audio on Android still uses `react-native-audio-record` per cycle, which the microphone-type service allows in the background. The Kotlin has only been compiled by EAS, never run.
+
+### BLE
+iOS cannot discover arbitrary nearby devices in the background, and Android pauses unfiltered scans with the screen off. Scans are now skipped while the app is not active, so locked-phone windows record no BLE count instead of a fake 0. Crowd density therefore only comes from minutes when the screen is on.
+
+### Device test results (owner's iPhone, 2 Oct, session `954f077f`, placement hand, Billie Jean from a laptop)
+- Screen-off recording continuous (both minutes present).
+- Window 1: BPM 117 (song is ~117), pulse clarity 0.21. Window 2: beat PLV 0.82, tempo match 0.71, movement BPM 60, classified "dancing".
+- dB 34 (pre-calibration), so music was not detected and Shazam did not run. BLE 0 (background; now skipped).
+
+### Earlier changes (2 Oct)
+- iOS PCM read fixed (`expo-file-system/legacy`; SDK 54 root import throws). Old May data has no valid iOS FFT or beat data.
+- Collect-only song columns `song_isrc`, `song_genre`, `song_bpm`, `song_popularity`, `recognition_source` (SQLite migration and Supabase migration `20261002163648_song_descriptors.sql`, applied).
+- Home screen shows the anonymous device ID. `analysis/fetch_data.py` paginates past 1,000 rows. `docs/PRIVACY.md` (live on GitHub, contact stoicslav@gmail.com) and `TESTER_GUIDE.md`.
 
 ### Local build notes
-- `pod install` needs `LANG=en_US.UTF-8` on this Mac (Ruby 4 encoding error otherwise).
-- The pinned TypeScript 5.3.3 cannot parse Expo's `module: preserve`. Type-check with `npx -p typescript@5.9 tsc --noEmit`.
-- The simulator build lives in `ios/build/sim`. The simulator uses the Mac's microphone, so the audio pipeline can be tested there; motion and BLE cannot.
+- `pod install` needs `LANG=en_US.UTF-8` on this Mac.
+- Type-check with `npx -p typescript@5.9 tsc --noEmit` (the pinned 5.3 cannot parse Expo's `module: preserve`).
+- No Java or Android SDK on this Mac: Android code is only compiled on EAS.
 
 ## Supabase
 - Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, eu-west-3. Free tier, pauses when idle.
-- Schema matches every field the app uploads (checked this session).
-- **Purged on 2 Oct 2026** (owner ran `truncate` in the SQL editor; verified 0 rows). A CSV backup of the old rows is in `analysis/data/` on the owner's Mac (gitignored). All data from now on comes from the fixed v0.2.0 pipeline.
+- **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
 ## Do next, in order
-1. **Install from TestFlight** on the owner's iPhone once Apple finishes processing build 1.
-2. **Run the four device tests** (steady ~120 BPM song from a speaker, phone in pocket, event code `TEST1`): on beat 2–3 min → Beat Sync above ~0.65; off beat → ~0.3 or below; standing still → low movement energy; keep going ~6 min so data reaches Supabase. Also check the song shows on the Music tab (ShazamKit).
-3. **Verify uploads in Supabase:** `movement_energy`, `beat_plv`, `beat_phase_mean`, `tempo_match`, `pulse_clarity`, FFT columns and song columns non-null; sessions carry `event_code`, `phone_placement`, `dance_affinity`.
-4. **Ship build 2** (`eas build -p ios --profile production --auto-submit`) with the rename and anonymous ID once the tests pass, plus any fixes.
-5. **Publish the privacy policy:** use the GitHub URL in App Store Connect. Needed before external TestFlight (public link) testing, which also needs a feedback email and Apple beta review (~1 day).
-6. **Android** on a friend's phone: same tests, BLE counts on Android 12+, and whether long screen-off sessions get killed (may need a foreground service).
-7. **Big-event data collection:** 10–20 pre-recruited testers on one event code (crowd sync needs ≥3 devices; target ~150 labelled ratings).
-8. **Analysis:** `fetch_data.py`, then `correlations.py` and `crowd_sync.py`.
+1. **10-minute validation test on build 5** (owner): music out loud, phone locked, a few minutes on beat, one off beat, one still; note the Apple Watch dB once. Then check every window: continuity, dB, `music_detected`, song columns (Shazam), BPM, beat PLV.
+2. **Set `IOS_RAW_MIC_DBFS_OFFSET`** from the Watch-versus-app comparison and ship the next iOS build.
+3. **Android on a friend's phone:** install the APK from build `944bd7ce-…`, run a locked 10-minute session and check that windows are continuous and motion is non-zero. If the service fails to start, look for `SessionService` in logcat. Calibrate the Android dB offset too.
+4. **Pilot at a real venue with ≥3 phones** on one event code (crowd sync), ratings every 5 minutes. Invite testers in App Store Connect (internal) or set up external TestFlight (needs the privacy URL, a feedback email and Apple beta review).
+5. **Analysis:** `fetch_data.py`, then `correlations.py` and `crowd_sync.py`.
+6. Optional: store ~10 s sub-window rows for beat sync and movement (discussed with the owner, not requested yet).
 
 ## Known caveats
-- Motion runs 6.5 s alongside every audio recording, so battery use is a bit higher.
-- Android is untested in the field.
-- `expo-av` and `expo-background-fetch` are deprecated in SDK 54 (warnings only). Migrating to `expo-audio` / `expo-background-task` is future work.
+- Battery: on iOS the mic is open for the whole session, and on Android a wake lock is held while the session service runs.
+- Android has never run on a device.
+- `expo-av` and `expo-background-fetch` are deprecated in SDK 54 (warnings only).
+- A spurious BPM of 200 on ambient noise was seen once in the simulator.
 
 ## Research basis (why these signals)
 Ranked by how directly each is tied to enjoyment. No paper proves any signal predicts a vibe rating, which is the gap this app tests.

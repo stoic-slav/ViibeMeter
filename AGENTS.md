@@ -40,7 +40,7 @@ xcodebuild -workspace VibeMeter.xcworkspace -scheme VibeMeter \
 
 bash ../deploy.sh            # JS-only fast deploy to a plugged-in iPhone (needs an existing native build, ios-deploy, idevicedebug)
 
-eas build --platform ios                          # cloud build for TestFlight
+eas build --platform ios                          # cloud build for TestFlight (download the .ipa and upload with Transporter)
 eas build --platform android --profile preview    # installable Android APK
 ```
 
@@ -99,9 +99,15 @@ If a signal is unavailable, its weight redistributes proportionally to present s
 - `beat_plv`, `beat_phase_mean`, `tempo_match` (`src/processing/BeatSync.ts`): how movement peaks land on the audio beat. Audio and motion are recorded at the same time so they share one clock.
 - Crowd sync (`analysis/crowd_sync.py`): computed server-side across devices that share an `event_code`; needs ≥3 devices. Windows are aligned to wall-clock minutes so devices can be compared.
 
-**Song recognition:** iOS uses ShazamKit through the local Expo module `modules/shazam-match` (fingerprint only, the ShazamKit App Service must be enabled on the app ID); other platforms fall back to AudD when `EXPO_PUBLIC_AUDD_TOKEN` is set. Deezer's ISRC lookup adds tempo and popularity. Stored per window, collect-only: `song_isrc`, `song_genre`, `song_bpm`, `song_popularity`, `recognition_source`. Temporary audio clips are deleted after each analysis.
+**Song recognition:** iOS uses ShazamKit on the in-memory audio buffer (fingerprint only; the ShazamKit App Service must be enabled on the app ID), at most every 30 s when the room is above `SHAZAM_MIN_DB`. Android falls back to AudD when `EXPO_PUBLIC_AUDD_TOKEN` is set (louder rooms only, since it is paid and uploads the clip). Deezer's ISRC lookup adds tempo and popularity. Stored per window, collect-only: `song_isrc`, `song_genre`, `song_bpm`, `song_popularity`, `recognition_source`. Android's temporary WAV clips are deleted after each analysis.
 
-FFT-derived spectral metrics (sub-bass energy, spectral centroid, spectral flux, crest factor, vocal presence, harmonic-to-noise ratio) are computed in `src/processing/FFTProcessor.ts` (Cooley-Tukey) from raw PCM extracted in `AudioAnalyzer.ts`. iOS records WAV via `expo-av` and reads it with `expo-file-system/legacy` (the SDK 54 root import throws); Android streams PCM via `react-native-audio-record`. Both run the same pipeline.
+FFT-derived spectral metrics (sub-bass energy, spectral centroid, spectral flux, crest factor, vocal presence, harmonic-to-noise ratio) are computed in `src/processing/FFTProcessor.ts` (Cooley-Tukey) from raw PCM. BPM and the beat grid come from `src/processing/BPMDetector.ts` (onset-envelope autocorrelation with a 120 BPM tempo prior). iOS reads the latest 5 s from the continuous capture module; Android streams PCM per cycle via `react-native-audio-record`. Both run the same pipeline. The iOS mic runs in measurement mode (no automatic gain), so iOS uses its own dB offset, `IOS_RAW_MIC_DBFS_OFFSET`.
+
+### Local native modules (`vibemeter-app/modules/`, autolinked)
+- `audio-capture` (iOS, Swift): `AVAudioEngine` capture for the whole session into a 12 s in-memory ring buffer, plus ShazamKit matching. The continuously open mic, with `UIBackgroundModes: audio`, is what keeps iOS from suspending the app with the screen locked. Never write this audio to disk.
+- `session-service` (Android, Kotlin): a `microphone|location` foreground service with an ongoing notification, a headless JS task (`ViibeMeterSession`, registered in `index.ts`) that keeps JS timers running in the background, and native motion capture into an in-memory buffer, because `expo-sensors` stops in the background. `MotionTracker` reads that buffer while the service runs.
+
+**Background limits:** neither platform allows useful BLE discovery with the screen off, so BLE scans are skipped while the app is not active (no measurement rather than a fake 0).
 
 ### Storage schema
 Three SQLite tables in `LocalBuffer`, mirrored in Supabase:
@@ -125,7 +131,7 @@ These patches were applied to fix build issues. Do not revert:
 
 ## Analysis scripts
 Python scripts in `analysis/` query Supabase and run statistical analysis:
-- `fetch_data.py`: pulls sessions, sensor windows and ratings to CSV (currently reads at most 1,000 rows per table).
+- `fetch_data.py`: pulls sessions, sensor windows and ratings to CSV (paginated).
 - `correlations.py`: per-signal Pearson/Spearman, within-person correlations, headline tests (movement energy; crowd sync and beat lock beyond movement energy), moderators by platform, placement and dance affinity.
 - `crowd_sync.py`: per event-code and minute crowd phase sync, tempo agreement and combined crowd sync.
 - `optimize_weights.py`: Ridge and Random Forest weight analysis.
