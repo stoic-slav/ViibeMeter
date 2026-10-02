@@ -272,15 +272,18 @@ export class AudioAnalyzer {
     avgDb: number,
     fileType: string,
   ): Promise<void> {
-    if (classification === 'silent') return;
-    if (avgDb < SENSOR_CONFIG.AUDIO_DB_TALKING) return;
     if (Date.now() - this.lastRecognitionAt < RECOGNITION_MIN_INTERVAL_MS) return;
 
     try {
       if (isAudioCaptureAvailable) {
+        // Shazam is free and only matches real music, so it also runs in quieter rooms
+        // (background music in a café) that the classifier would call silent
+        if (avgDb < SENSOR_CONFIG.SHAZAM_MIN_DB) return;
         this.lastRecognitionAt = Date.now();
         await this.recognizeWithShazam();
       } else if (AUDD_TOKEN && fileUri) {
+        // AudD is paid and uploads the clip: only try when the room is clearly loud
+        if (classification === 'silent' || avgDb < SENSOR_CONFIG.AUDIO_DB_TALKING) return;
         this.lastRecognitionAt = Date.now();
         await this.recognizeWithAudd(fileUri, fileType);
       }

@@ -59,6 +59,7 @@ export const SENSOR_CONFIG = {
   AUDIO_DB_LOW_MUSIC: 65,
   AUDIO_DB_HIGH_MUSIC: 78,
   AUDIO_DB_LOUD_MUSIC: 88,
+  SHAZAM_MIN_DB: 40,                   // song recognition on iOS runs above this (quiet background music)
 
   // Music detection thresholds
   MUSIC_BASS_PRESENCE_MIN: 0.3,
