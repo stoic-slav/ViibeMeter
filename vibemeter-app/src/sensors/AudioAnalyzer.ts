@@ -122,7 +122,7 @@ export class AudioAnalyzer {
     // dB per ~46 ms chunk, the same granularity as the Android path
     const dbSamples: number[] = [];
     for (let i = 0; i + DB_CHUNK_SAMPLES <= pcmSamples.length; i += DB_CHUNK_SAMPLES) {
-      dbSamples.push(dbFullScaleToAmbient(rmsToDb(computeRMS(pcmSamples.slice(i, i + DB_CHUNK_SAMPLES)))));
+      dbSamples.push(dbFullScaleToAmbient(rmsToDb(computeRMS(pcmSamples.slice(i, i + DB_CHUNK_SAMPLES))), SENSOR_CONFIG.IOS_RAW_MIC_DBFS_OFFSET));
     }
     return this.analyzePCMSamples(pcmSamples, dbSamples, null, 'audio/wav', recent.startMs);
   }

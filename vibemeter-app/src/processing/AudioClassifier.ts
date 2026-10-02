@@ -56,9 +56,10 @@ export function rmsToDb(rms: number): number {
 
 /**
  * Convert a dB value relative to full scale to an approximate ambient SPL.
- * Assumes typical phone mic sensitivity with ~94 dB offset.
+ * The offset depends on whether the OS applies automatic gain: with gain (expo-av,
+ * Android default) ~94 dB matched observed levels; a raw MEMS mic (iOS measurement
+ * mode, no gain) sits at ~-26 dBFS for 94 dB SPL, so ~120 dB.
  */
-export function dbFullScaleToAmbient(dbFS: number): number {
-  // Add approximate mic sensitivity offset to get ambient dB SPL
-  return dbFS + 94;
+export function dbFullScaleToAmbient(dbFS: number, offsetDb: number = 94): number {
+  return dbFS + offsetDb;
 }

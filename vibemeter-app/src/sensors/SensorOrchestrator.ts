@@ -1,4 +1,5 @@
 import * as Crypto from 'expo-crypto';
+import { AppState, Platform } from 'react-native';
 import { SensorWindow, Session, VibeScoreBreakdown, SensorReading, LiveDashboardData, TrendDir, AudioMetrics, MotionMetrics, MovementAxis } from '../types';
 import { SENSOR_CONFIG } from '../config/constants';
 import { AudioAnalyzer } from './AudioAnalyzer';
@@ -368,6 +369,9 @@ export class SensorOrchestrator {
   }
 
   private async collectBLESample(): Promise<void> {
+    // iOS does not let apps discover arbitrary nearby devices in the background, so a
+    // locked-phone scan always finds 0. Record no measurement rather than an empty room.
+    if (Platform.OS === 'ios' && AppState.currentState !== 'active') return;
     try {
       const metrics = await this.bleScanner.scan();
       if (!metrics) return;

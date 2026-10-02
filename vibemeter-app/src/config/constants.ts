@@ -51,6 +51,9 @@ export const SENSOR_CONFIG = {
   },
 
   // Audio classification dB thresholds
+  // iOS capture runs in measurement mode (no automatic gain): dBFS + this ≈ dB SPL.
+  // Uncalibrated per device; check against a sound-level meter when possible.
+  IOS_RAW_MIC_DBFS_OFFSET: 120,
   AUDIO_DB_SILENT: 30,
   AUDIO_DB_TALKING: 55,
   AUDIO_DB_LOW_MUSIC: 65,
