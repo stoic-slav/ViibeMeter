@@ -542,7 +542,8 @@ function MotionPanel({ live, onInfo }: { live: LiveDashboardData | null; onInfo:
   const mbpm  = live?.movementBpm ?? null;
   const bpm   = live?.audioBpm ?? null;
   const rhy   = live?.rhythmicity ?? 0;
-  const phase = live?.phaseCoherence ?? 0;
+  const plv   = live?.beatPlv ?? null;
+  const tmatch = live?.tempoMatch ?? 0;
 
   const mvLabel = (mag ?? 0) > 2 ? 'DANCING' : (mag ?? 0) > 1.2 ? 'MOVING' : (mag ?? 0) > 0.6 ? 'WALKING' : 'STATIONARY';
   const mvC     = (mag ?? 0) > 2 ? A : (mag ?? 0) > 1.2 ? WRN : TXD;
@@ -556,9 +557,10 @@ function MotionPanel({ live, onInfo }: { live: LiveDashboardData | null; onInfo:
     ? `vs ${bpm ?? '--'} BPM music`
     : `${mbpm ?? '--'} body · ${bpm ?? '--'} music (${sync.tag})`;
 
-  const bs    = Math.sqrt(Math.max(0, rhy * phase));
+  // Beat sync = phase-locking of movement peaks to the beat × tempo agreement
+  const bs    = plv != null ? plv * tmatch : 0;
   const bsC   = scoreColor(bs * 5);
-  const bsLbl = bs > 0.65 ? 'LOCKED IN' : bs > 0.4 ? 'BUILDING' : 'DRIFTING';
+  const bsLbl = plv == null ? 'NO BEAT' : bs > 0.65 ? 'LOCKED IN' : bs > 0.4 ? 'BUILDING' : 'DRIFTING';
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24, gap: 12 }}>
@@ -600,7 +602,7 @@ function MotionPanel({ live, onInfo }: { live: LiveDashboardData | null; onInfo:
       <Card>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
           <View>
-            <LblWithInfo label="Beat Sync" onInfo={onInfo} info="How well your body movement aligns with the music beat, combining rhythmicity × phase coherence. >0.65 = locked in, 0.4–0.65 = building, <0.4 = drifting. Requires both audio BPM and movement BPM to be active." />
+            <LblWithInfo label="Beat Sync" onInfo={onInfo} info="How well your body movement lands on the music beat: phase lock × tempo match. Movement and audio are recorded at the same time, and each movement peak is compared with the beat grid. >0.65 = locked in, 0.4–0.65 = building, <0.4 = drifting. Needs a clear beat in the audio and rhythmic movement. Logged for research only — it does not change the vibe score yet." />
             <BigNum value={bs.toFixed(2)} size={44} color={bsC} />
           </View>
           <Chip label={bsLbl} color={bsC} />
@@ -609,8 +611,9 @@ function MotionPanel({ live, onInfo }: { live: LiveDashboardData | null; onInfo:
         <Text style={{ fontSize: 12, color: TXM, marginTop: 8 }}>rhythmic body movement in sync with music</Text>
         <View style={{ flexDirection: 'row', gap: 14, marginTop: 14 }}>
           {([
-            { l: 'RHYTHMICITY', v: rhy, info: 'How regular and periodic your movement signal is (0–1). High = consistent repeating movement like dancing to a beat. Low = irregular or stationary. Computed from the ratio of peak spectral power to total power in the accelerometer FFT.' },
-            { l: 'PHASE COHERENCE', v: phase, info: 'Whether your movement rhythm matches the music BPM or a harmonic of it (½×, 1×, 2×, 3×). 1.0 = perfectly in sync with a harmonic, 0 = no match detected. Requires both movement BPM and audio BPM to be active.' },
+            { l: 'RHYTHMICITY', v: rhy, info: 'How regular and periodic your movement signal is (0–1). High = consistent repeating movement like dancing to a beat. Low = irregular or stationary. Computed from the autocorrelation peak of the gravity-free acceleration signal.' },
+            { l: 'PHASE LOCK', v: plv ?? 0, info: 'Whether your movement peaks land at the same point in the beat every time (0–1). 1.0 = every bounce hits the same moment of the beat; values near 0.3 or below are chance level. Robust to fixed audio/motion latency.' },
+            { l: 'TEMPO MATCH', v: tmatch, info: 'How close your movement tempo is to the music BPM or a harmonic of it (½×, 1×, 2×, 3×). 1.0 = exact match, 0 = more than 10% off.' },
           ] as Array<{ l: string; v: number; info: string }>).map(item => (
             <View key={item.l} style={{ flex: 1 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 5 }}>

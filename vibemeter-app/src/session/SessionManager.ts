@@ -1,9 +1,10 @@
 import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import * as Crypto from 'expo-crypto';
-import { Session, VenueType } from '../types';
+import { Session, VenueType, PhonePlacement } from '../types';
 import { saveSession, updateSessionEnd, getSessions } from '../storage/LocalBuffer';
 import { getDeviceId } from '../storage/DeviceIdentity';
+import { getDanceAffinity } from '../storage/UserProfile';
 import { syncSessions } from '../storage/SupabaseSync';
 
 const LOG_TAG = '[SessionManager]';
@@ -22,6 +23,7 @@ export class SessionManager {
   async startSession(
     venueName: string | null,
     venueType: VenueType | null,
+    options: { eventCode?: string | null; phonePlacement?: PhonePlacement | null } = {},
   ): Promise<Session> {
     if (this.activeSession) {
       console.warn(`${LOG_TAG} Session already active, ending it first`);
@@ -29,6 +31,7 @@ export class SessionManager {
     }
 
     const deviceId = await getDeviceId();
+    const danceAffinity = await getDanceAffinity();
     const session: Session = {
       id: Crypto.randomUUID(),
       deviceId,
@@ -42,6 +45,9 @@ export class SessionManager {
       venueLongitude: null,
       deviceModel: Device.modelName ?? Platform.OS,
       osVersion: `${Platform.OS} ${Platform.Version}`,
+      eventCode: normalizeEventCode(options.eventCode),
+      phonePlacement: options.phonePlacement ?? null,
+      danceAffinity,
     };
 
     await saveSession(session);
@@ -85,6 +91,12 @@ export class SessionManager {
   async getPastSessions(): Promise<any[]> {
     return getSessions();
   }
+}
+
+/** Event codes are compared exactly server-side, so normalise case and whitespace. */
+function normalizeEventCode(code: string | null | undefined): string | null {
+  const c = (code ?? '').trim().toUpperCase().replace(/\s+/g, '');
+  return c.length > 0 ? c.slice(0, 32) : null;
 }
 
 // Singleton

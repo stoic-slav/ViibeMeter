@@ -1,0 +1,208 @@
+"""
+VibeMeter — Crowd Sync (person ↔ person synchrony)
+
+For every event code and wall-clock minute with at least MIN_DEVICES phones, measures
+whether people are moving on the same beat, in the same phase, as each other.
+
+Inputs are per-window scalars uploaded by each phone (no raw sensor data):
+  beat_phase_mean  where in the beat that phone's movement peaks land (radians)
+  beat_plv         how consistently that phone's movement locks to the beat (0–1)
+  movement_bpm     that phone's dominant movement tempo
+
+Metrics per (event_code, minute):
+  crowd_phase_sync       |mean e^{i·beat_phase_mean}| across devices — do people hit the beat
+                         at the same moment? Privacy-safe analogue of the intersubject phase
+                         synchronisation in Ellamil et al. 2016 (PLoS ONE). Device clock offsets
+                         cancel because each phone measures phase against the beat it hears.
+  crowd_tempo_agreement  share of devices whose movement tempo (folded to one octave) is within
+                         ±5% of the median — works even when the audio beat is not detected.
+  crowd_sync             crowd_phase_sync × mean(beat_plv): locked to the music AND to each other.
+
+Usage:
+  python3 crowd_sync.py              (run fetch_data.py first)
+  python3 crowd_sync.py --selftest   (synthetic checks, no data needed)
+"""
+
+import sys
+import numpy as np
+import pandas as pd
+from pathlib import Path
+
+DATA_DIR = Path(__file__).parent / 'data'
+OUTPUT_DIR = Path(__file__).parent / 'output'
+
+MIN_DEVICES = 3
+TEMPO_TOLERANCE = 0.05
+
+
+def fold_tempo(bpm: float) -> float:
+    """Fold a tempo into [80, 160) BPM so half-time / double-time movers count as agreeing."""
+    if not np.isfinite(bpm) or bpm <= 0:
+        return np.nan
+    while bpm < 80:
+        bpm *= 2
+    while bpm >= 160:
+        bpm /= 2
+    return bpm
+
+
+def _crowd_metrics(group: pd.DataFrame) -> pd.Series:
+    n_devices = group['device_id'].nunique()
+    out = {
+        'n_devices': n_devices,
+        'crowd_phase_sync': np.nan,
+        'crowd_tempo_agreement': np.nan,
+        'crowd_sync': np.nan,
+        'crowd_mean_plv': np.nan,
+    }
+    if n_devices < MIN_DEVICES:
+        return pd.Series(out)
+
+    # One value per device (a device has at most one window per minute; average just in case)
+    per_device = group.groupby('device_id').agg(
+        phase_cos=('beat_phase_mean', lambda p: np.cos(p).mean()),
+        phase_sin=('beat_phase_mean', lambda p: np.sin(p).mean()),
+        beat_plv=('beat_plv', 'mean'),
+        movement_bpm=('movement_bpm', 'mean'),
+    )
+
+    phased = per_device.dropna(subset=['phase_cos', 'phase_sin', 'beat_plv'])
+    if len(phased) >= MIN_DEVICES:
+        angles = np.arctan2(phased['phase_sin'], phased['phase_cos'])
+        phase_sync = float(np.abs(np.exp(1j * angles).mean()))
+        mean_plv = float(phased['beat_plv'].mean())
+        out.update(crowd_phase_sync=phase_sync, crowd_mean_plv=mean_plv,
+                   crowd_sync=phase_sync * mean_plv)
+
+    tempos = per_device['movement_bpm'].map(fold_tempo).dropna()
+    if len(tempos) >= MIN_DEVICES:
+        med = tempos.median()
+        out['crowd_tempo_agreement'] = float((abs(tempos - med) / med <= TEMPO_TOLERANCE).mean())
+
+    return pd.Series(out)
+
+
+def compute_crowd_sync(windows: pd.DataFrame, sessions: pd.DataFrame) -> pd.DataFrame:
+    """Return one row per (event_code, minute) with crowd metrics (NaN below MIN_DEVICES)."""
+    cols = ['id', 'device_id', 'event_code']
+    if 'event_code' not in sessions.columns:
+        return pd.DataFrame()
+    w = windows.merge(sessions[cols].rename(columns={'id': 'session_id'}), on='session_id', how='inner')
+    w = w[w['event_code'].notna() & (w['event_code'].astype(str).str.len() > 0)].copy()
+    if w.empty:
+        return pd.DataFrame()
+    for col in ['beat_phase_mean', 'beat_plv', 'movement_bpm']:
+        if col not in w.columns:
+            w[col] = np.nan
+    w['minute'] = pd.to_datetime(w['window_start'], utc=True).dt.floor('min')
+    crowd = (w.groupby(['event_code', 'minute'])
+               .apply(_crowd_metrics, include_groups=False)
+               .reset_index())
+    crowd['n_devices'] = crowd['n_devices'].astype(int)
+    return crowd
+
+
+def attach_crowd_sync(windows: pd.DataFrame, sessions: pd.DataFrame) -> pd.DataFrame:
+    """Add crowd metrics to every window row (NaN when the window has no qualifying crowd)."""
+    crowd = compute_crowd_sync(windows, sessions)
+    out = windows.copy()
+    crowd_cols = ['crowd_phase_sync', 'crowd_tempo_agreement', 'crowd_sync', 'n_devices']
+    if crowd.empty or 'event_code' not in sessions.columns:
+        for c in crowd_cols:
+            out[c] = np.nan
+        return out
+    out = out.merge(sessions[['id', 'event_code']].rename(columns={'id': 'session_id'}),
+                    on='session_id', how='left')
+    out['minute'] = pd.to_datetime(out['window_start'], utc=True).dt.floor('min')
+    out = out.merge(crowd[['event_code', 'minute'] + crowd_cols], on=['event_code', 'minute'], how='left')
+    return out.drop(columns=['minute'])
+
+
+def peak_moments(crowd: pd.DataFrame, top_fraction: float = 0.1) -> pd.DataFrame:
+    """Top-decile crowd_sync minutes per event — candidate 'memorable moments' (Martella 2015)."""
+    valid = crowd.dropna(subset=['crowd_sync'])
+    if valid.empty:
+        return valid
+    cut = valid.groupby('event_code')['crowd_sync'].transform(lambda s: s.quantile(1 - top_fraction))
+    return valid[valid['crowd_sync'] >= cut].sort_values(['event_code', 'minute'])
+
+
+# ── Synthetic self-test ───────────────────────────────────────────────────────
+
+def _synthetic(phases, plvs, bpms, event='TEST', minute='2026-10-02T21:00:00Z'):
+    sessions = pd.DataFrame({
+        'id': [f's{i}' for i in range(len(phases))],
+        'device_id': [f'd{i}' for i in range(len(phases))],
+        'event_code': event,
+    })
+    windows = pd.DataFrame({
+        'id': [f'w{i}' for i in range(len(phases))],
+        'session_id': sessions['id'],
+        'window_start': minute,
+        'beat_phase_mean': phases,
+        'beat_plv': plvs,
+        'movement_bpm': bpms,
+    })
+    return windows, sessions
+
+
+def selftest():
+    rng = np.random.default_rng(7)
+
+    w, s = _synthetic([1.0, 1.05, 0.95, 1.02], [0.9] * 4, [120, 121, 60, 240])
+    r = compute_crowd_sync(w, s).iloc[0]
+    assert r['crowd_phase_sync'] > 0.99, r
+    assert r['crowd_tempo_agreement'] == 1.0, r  # half/double time fold to 120
+    assert abs(r['crowd_sync'] - r['crowd_phase_sync'] * 0.9) < 1e-9
+    print(f"aligned phases      → crowd_phase_sync={r['crowd_phase_sync']:.3f}  tempo_agreement={r['crowd_tempo_agreement']:.2f}")
+
+    sims = []
+    for _ in range(200):
+        w, s = _synthetic(list(rng.uniform(-np.pi, np.pi, 4)), [0.9] * 4, [120, 135, 100, 150])
+        sims.append(compute_crowd_sync(w, s).iloc[0]['crowd_phase_sync'])
+    print(f"random phases (n=4) → mean crowd_phase_sync={np.mean(sims):.3f}  (chance level for 4 devices ≈ 0.44)")
+    assert np.mean(sims) < 0.6
+
+    w, s = _synthetic([1.0, 1.0], [0.9, 0.9], [120, 120])
+    r = compute_crowd_sync(w, s).iloc[0]
+    assert np.isnan(r['crowd_sync']) and r['n_devices'] == 2
+    print("2 devices           → NaN (below MIN_DEVICES)")
+
+    w, s = _synthetic([1.0, 1.1, 0.9], [0.8] * 3, [120] * 3)
+    attached = attach_crowd_sync(w, s)
+    assert attached['crowd_sync'].notna().all()
+    print("attach_crowd_sync   → crowd metrics joined to every window")
+    print("selftest OK")
+
+
+def main():
+    try:
+        windows = pd.read_csv(DATA_DIR / 'sensor_windows.csv')
+        sessions = pd.read_csv(DATA_DIR / 'sessions.csv')
+    except FileNotFoundError as e:
+        print(f"ERROR: Data files not found. Run fetch_data.py first.\n{e}")
+        return
+
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    crowd = compute_crowd_sync(windows, sessions)
+    if crowd.empty:
+        print("No sessions with an event code yet — crowd sync needs ≥3 testers entering the same code.")
+        return
+
+    valid = crowd.dropna(subset=['crowd_sync'])
+    print(f"Event-minutes: {len(crowd)}  (with ≥{MIN_DEVICES} devices and beat data: {len(valid)})")
+    for event, g in crowd.groupby('event_code'):
+        v = g.dropna(subset=['crowd_sync'])
+        print(f"  {event:<16} minutes={len(g):>4}  max devices={g['n_devices'].max():>3}  "
+              f"mean crowd_sync={v['crowd_sync'].mean() if len(v) else float('nan'):.3f}")
+
+    crowd.to_csv(OUTPUT_DIR / 'crowd_sync.csv', index=False)
+    peak_moments(crowd).to_csv(OUTPUT_DIR / 'crowd_peak_moments.csv', index=False)
+    print(f"\nSaved {OUTPUT_DIR}/crowd_sync.csv and crowd_peak_moments.csv")
+
+
+if __name__ == '__main__':
+    if '--selftest' in sys.argv:
+        selftest()
+    else:
+        main()

@@ -55,13 +55,21 @@ def main():
         print(f"Unique devices: {sessions['device_id'].nunique()}")
         if 'venue_type' in sessions.columns:
             print(f"Venue types:    {sessions['venue_type'].value_counts().to_dict()}")
+        if 'os_version' in sessions.columns:
+            platforms = sessions['os_version'].dropna().str.split().str[0].str.lower()
+            print(f"Platforms:      {platforms.value_counts().to_dict()}")
         completed = sessions[sessions['ended_at'].notna()]
         print(f"Completed sessions: {len(completed)}")
+        if 'event_code' in sessions.columns:
+            codes = sessions['event_code'].dropna()
+            print(f"Sessions with event code: {len(codes)} ({codes.nunique()} events)")
 
     if len(windows) > 0:
         print(f"\n=== Signal Coverage ===")
         for col in ['avg_db', 'estimated_bpm', 'accel_magnitude_avg', 'ble_device_count',
-                    'music_detected', 'gps_is_at_venue', 'screen_off_ratio']:
+                    'music_detected', 'gps_is_at_venue', 'screen_off_ratio',
+                    'sub_bass_energy', 'pulse_clarity',
+                    'movement_energy', 'beat_plv', 'tempo_match', 'beat_phase_mean']:
             if col in windows.columns:
                 pct = windows[col].notna().mean() * 100
                 print(f"  {col:<30}: {pct:.1f}%")

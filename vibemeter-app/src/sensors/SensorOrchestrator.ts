@@ -1,17 +1,19 @@
 import * as Crypto from 'expo-crypto';
-import { SensorWindow, Session, VibeScoreBreakdown, SensorReading, LiveDashboardData, TrendDir } from '../types';
+import { SensorWindow, Session, VibeScoreBreakdown, SensorReading, LiveDashboardData, TrendDir, AudioMetrics, MotionMetrics, MovementAxis } from '../types';
 import { SENSOR_CONFIG } from '../config/constants';
 import { AudioAnalyzer } from './AudioAnalyzer';
 import { MotionTracker } from './MotionTracker';
 import { BLEScanner } from './BLEScanner';
 import { LocationTracker } from './LocationTracker';
 import { computeVibeScore } from '../processing/VibeScoreEngine';
+import { computeBeatSync, computeTempoMatch, aggregateBeatSync, BeatSyncResult } from '../processing/BeatSync';
 import { saveSensorWindow, deleteOldSyncedWindows } from '../storage/LocalBuffer';
 import { syncAll } from '../storage/SupabaseSync';
 
 const LOG_TAG = '[SensorOrchestrator]';
 const ROLLING_WINDOW_MS = 90_000;   // keep 90s of readings for display
 const TREND_WINDOW_MS   = 900_000;  // keep 15min of window scores for trend
+const MINUTE_MS = 60_000;
 
 type VibeUpdateCallback = (window: SensorWindow, breakdown: VibeScoreBreakdown, live: LiveDashboardData) => void;
 
@@ -28,10 +30,9 @@ export class SensorOrchestrator {
   private windowStartTime: Date | null = null;
 
   private audioTimer: ReturnType<typeof setTimeout> | null = null;
-  private motionTimer: ReturnType<typeof setTimeout> | null = null;
   private bleTimer: ReturnType<typeof setTimeout> | null = null;
   private locationTimer: ReturnType<typeof setTimeout> | null = null;
-  private windowTimer: ReturnType<typeof setInterval> | null = null;
+  private windowTimer: ReturnType<typeof setTimeout> | null = null;
   private uploadTimer: ReturnType<typeof setInterval> | null = null;
 
   private onVibeUpdate: VibeUpdateCallback | null = null;
@@ -44,6 +45,16 @@ export class SensorOrchestrator {
   private bpmReadings: SensorReading[] = [];
   private stepReadings: SensorReading[] = [];
   private movementBpmReadings: SensorReading[] = [];
+
+  // Per-window accumulators for rhythm / beat-sync metrics (one entry per capture)
+  private beatResults: BeatSyncResult[] = [];
+  private energyValues: number[] = [];
+  private movementBpmValues: number[] = [];
+  private rhythmicityValues: number[] = [];
+  private axisValues: MovementAxis[] = [];
+  private pulseClarityValues: number[] = [];
+  private lastBeatSync: BeatSyncResult | null = null;
+  private cycleCount = 0;
 
   // Finalized window vibe scores for 15min trend
   private windowVibeHistory: { t: number; score: number }[] = [];
@@ -84,13 +95,12 @@ export class SensorOrchestrator {
     await this.locationTracker.requestPermissions();
     this.startNewWindow();
 
-    // Staggered starts — short enough to feel instant
-    this.audioTimer  = setTimeout(() => this.scheduleAudio(),    0);
-    this.motionTimer = setTimeout(() => this.scheduleMotion(),  300);
+    // Audio + motion run together (beat sync needs them on one clock); others staggered
+    this.audioTimer  = setTimeout(() => this.scheduleRhythm(),   0);
     this.bleTimer    = setTimeout(() => this.scheduleBLE(),     600);
     this.locationTimer = setTimeout(() => this.scheduleLocation(), 900);
 
-    this.windowTimer = setInterval(() => this.finalizeWindow(), SENSOR_CONFIG.WINDOW_DURATION_MS);
+    this.scheduleWindowBoundary();
     this.uploadTimer = setInterval(() => this.runUpload(), SENSOR_CONFIG.UPLOAD_BATCH_INTERVAL_MS);
   }
 
@@ -99,13 +109,12 @@ export class SensorOrchestrator {
 
     this.isRunning = false;
 
-    [this.audioTimer, this.motionTimer, this.bleTimer, this.locationTimer].forEach(t => {
+    [this.audioTimer, this.bleTimer, this.locationTimer, this.windowTimer].forEach(t => {
       if (t) clearTimeout(t);
     });
-    if (this.windowTimer) clearInterval(this.windowTimer);
     if (this.uploadTimer) clearInterval(this.uploadTimer);
 
-    this.audioTimer = this.motionTimer = this.bleTimer = this.locationTimer = null;
+    this.audioTimer = this.bleTimer = this.locationTimer = null;
     this.windowTimer = this.uploadTimer = null;
 
     await this.finalizeWindow();
@@ -122,8 +131,7 @@ export class SensorOrchestrator {
   async runCollectionCycle(): Promise<void> {
     if (!this.isRunning || !this.currentSession) return;
     await Promise.allSettled([
-      this.collectAudioSample(),
-      this.collectMotionSample(),
+      this.collectRhythmCycle(),
       this.collectBLESample(),
       this.collectLocationSample(),
     ]);
@@ -134,13 +142,36 @@ export class SensorOrchestrator {
 
   // ── Private ──────────────────────────────────────────────────────────────────
 
-  private startNewWindow(): void {
-    this.windowStartTime = new Date();
+  /**
+   * Windows are aligned to wall-clock minutes so windows from different phones share
+   * the same window_start — required for crowd sync. The first window of a session
+   * is partial (session start → next minute boundary).
+   */
+  private startNewWindow(boundaryMs?: number): void {
+    const start = boundaryMs ?? Math.floor(Date.now() / MINUTE_MS) * MINUTE_MS;
+    this.windowStartTime = new Date(start);
     this.currentWindow = {
       id: Crypto.randomUUID(),
       sessionId: this.currentSession!.id,
       windowStart: this.windowStartTime,
     };
+    this.beatResults = [];
+    this.energyValues = [];
+    this.movementBpmValues = [];
+    this.rhythmicityValues = [];
+    this.axisValues = [];
+    this.pulseClarityValues = [];
+  }
+
+  /** Fire finalizeWindow at each wall-clock minute boundary (recomputed every time to avoid drift). */
+  private scheduleWindowBoundary(): void {
+    if (!this.isRunning) return;
+    const now = Date.now();
+    const next = Math.floor(now / MINUTE_MS) * MINUTE_MS + MINUTE_MS;
+    this.windowTimer = setTimeout(async () => {
+      await this.finalizeWindow(next);
+      this.scheduleWindowBoundary();
+    }, next - now);
   }
 
   private pushReading(buf: SensorReading[], value: number): void {
@@ -174,7 +205,7 @@ export class SensorOrchestrator {
     const lastStep   = this.stepReadings.length ? this.stepReadings[this.stepReadings.length - 1].v : null;
     const lastMovBpm = this.movementBpmReadings.length ? this.movementBpmReadings[this.movementBpmReadings.length - 1].v : null;
     const audioBpm   = this.currentWindow.estimatedBpm ?? null;
-    const rhythmicity = (this.currentWindow as any)._rhythmicity ?? 0;
+    const rhythmicity = this.rhythmicityValues.length ? this.rhythmicityValues[this.rhythmicityValues.length - 1] : 0;
 
     return {
       dbReadings:          [...this.dbReadings],
@@ -196,7 +227,8 @@ export class SensorOrchestrator {
       audioBpm,
       movementBpm:         lastMovBpm,
       rhythmicity,
-      phaseCoherence:      computePhaseCoherence(lastMovBpm, audioBpm),
+      beatPlv:             this.lastBeatSync?.plv ?? null,
+      tempoMatch:          computeTempoMatch(lastMovBpm, audioBpm).tempoMatch,
       trend15m:            this.compute15mTrend(),
       subBassEnergy:       this.currentWindow.subBassEnergy ?? 0,
       spectralCentroid:    this.currentWindow.spectralCentroid ?? 0,
@@ -207,26 +239,45 @@ export class SensorOrchestrator {
     };
   }
 
-  private scheduleAudio(): void {
+  private scheduleRhythm(): void {
     if (!this.isRunning) return;
-    this.collectAudioSample().then(() => {
+    this.collectRhythmCycle().then(() => {
       if (this.isRunning) {
-        this.audioTimer = setTimeout(() => this.scheduleAudio(), SENSOR_CONFIG.AUDIO_SAMPLE_INTERVAL_MS);
+        this.audioTimer = setTimeout(() => this.scheduleRhythm(), SENSOR_CONFIG.AUDIO_SAMPLE_INTERVAL_MS);
       }
     });
   }
 
-  private scheduleMotion(): void {
-    if (!this.isRunning) return;
-    if (this.motionTracker.isLongTermStationary()) {
-      this.motionTimer = setTimeout(() => this.scheduleMotion(), SENSOR_CONFIG.MOTION_SAMPLE_INTERVAL_MS * 3);
-      return;
-    }
-    this.collectMotionSample().then(() => {
-      if (this.isRunning) {
-        this.motionTimer = setTimeout(() => this.scheduleMotion(), SENSOR_CONFIG.MOTION_SAMPLE_INTERVAL_MS);
+  /**
+   * One capture: record audio and motion at the same time, then compute beat sync
+   * from the overlapping window. When the user has been stationary for a long time,
+   * motion is sampled only every 3rd cycle to save battery.
+   */
+  private async collectRhythmCycle(): Promise<void> {
+    this.cycleCount++;
+    const skipMotion = this.motionTracker.isLongTermStationary() && this.cycleCount % 3 !== 0;
+    const [audioRes, motionRes] = await Promise.allSettled([
+      this.audioAnalyzer.analyze(),
+      skipMotion ? Promise.resolve(null) : this.motionTracker.sample(),
+    ]);
+    const audio = audioRes.status === 'fulfilled' ? audioRes.value : null;
+    const motion = motionRes.status === 'fulfilled' ? motionRes.value : null;
+    if (audioRes.status === 'rejected') console.warn(`${LOG_TAG} Audio collection error:`, audioRes.reason);
+    if (motionRes.status === 'rejected') console.warn(`${LOG_TAG} Motion collection error:`, motionRes.reason);
+
+    if (audio) this.applyAudioMetrics(audio);
+    if (motion) this.applyMotionMetrics(motion);
+
+    this.lastBeatSync = null;
+    if (audio && motion && audio.beatBpm != null) {
+      const sync = computeBeatSync(motion.movementSeries, audio.beatOnsetTimesMs, audio.beatBpm, motion.movementBpm);
+      if (sync) {
+        this.beatResults.push(sync);
+        this.lastBeatSync = sync;
+        console.log(`${LOG_TAG} BeatSync: plv=${sync.plv.toFixed(2)} tempo=${sync.tempoMatch.toFixed(2)} ×${sync.harmonic} peaks=${sync.peakCount}`);
       }
-    });
+    }
+    if (audio || motion) this.emitPreviewUpdate();
   }
 
   private scheduleBLE(): void {
@@ -247,69 +298,57 @@ export class SensorOrchestrator {
     });
   }
 
-  private async collectAudioSample(): Promise<void> {
-    try {
-      const metrics = await this.audioAnalyzer.analyze();
-      if (!metrics) return;
+  private applyAudioMetrics(metrics: AudioMetrics): void {
+    const dbValues = this.currentWindow.avgDb
+      ? [this.currentWindow.avgDb, metrics.avgDb]
+      : [metrics.avgDb];
 
-      const dbValues = this.currentWindow.avgDb
-        ? [this.currentWindow.avgDb, metrics.avgDb]
-        : [metrics.avgDb];
+    this.currentWindow.avgDb = dbValues.reduce((s, v) => s + v, 0) / dbValues.length;
+    this.currentWindow.maxDb = Math.max(this.currentWindow.maxDb ?? 0, metrics.maxDb);
+    this.currentWindow.dbVariance = metrics.dbVariance;
+    this.currentWindow.musicDetected = metrics.musicDetected;
+    // Prefer exact metadata BPM over metering heuristic
+    const bestBpm = metrics.recognizedBpm ?? metrics.estimatedBpm;
+    this.currentWindow.estimatedBpm = bestBpm;
+    this.currentWindow.audioClassification = metrics.audioClassification;
+    this.currentWindow.bassPresence = metrics.bassPresence;
+    this.currentWindow.midHighRatio = metrics.midHighRatio;
+    this.currentWindow.subBassEnergy = metrics.subBassEnergy;
+    this.currentWindow.spectralCentroid = metrics.spectralCentroid;
+    this.currentWindow.spectralFlux = metrics.spectralFlux;
+    this.currentWindow.crestFactor = metrics.crestFactor;
+    this.currentWindow.vocalPresence = metrics.vocalPresence;
+    this.currentWindow.harmonicNoiseRatio = metrics.harmonicNoiseRatio;
+    if (metrics.avgDb > 0) this.pulseClarityValues.push(metrics.bpmConfidence);
 
-      this.currentWindow.avgDb = dbValues.reduce((s, v) => s + v, 0) / dbValues.length;
-      this.currentWindow.maxDb = Math.max(this.currentWindow.maxDb ?? 0, metrics.maxDb);
-      this.currentWindow.dbVariance = metrics.dbVariance;
-      this.currentWindow.musicDetected = metrics.musicDetected;
-      // Prefer exact metadata BPM over metering heuristic
-      const bestBpm = metrics.recognizedBpm ?? metrics.estimatedBpm;
-      this.currentWindow.estimatedBpm = bestBpm;
-      this.currentWindow.audioClassification = metrics.audioClassification;
-      this.currentWindow.bassPresence = metrics.bassPresence;
-      this.currentWindow.midHighRatio = metrics.midHighRatio;
-      this.currentWindow.subBassEnergy = metrics.subBassEnergy;
-      this.currentWindow.spectralCentroid = metrics.spectralCentroid;
-      this.currentWindow.spectralFlux = metrics.spectralFlux;
-      this.currentWindow.crestFactor = metrics.crestFactor;
-      this.currentWindow.vocalPresence = metrics.vocalPresence;
-      this.currentWindow.harmonicNoiseRatio = metrics.harmonicNoiseRatio;
+    this.pushReading(this.dbReadings, metrics.avgDb);
+    if (bestBpm) this.pushReading(this.bpmReadings, bestBpm);
+    (this.currentWindow as any)._clapCount = metrics.clapCount;
+    (this.currentWindow as any)._audioEvent = metrics.audioEvent;
+    (this.currentWindow as any)._recognizedSong = metrics.recognizedSong;
+    (this.currentWindow as any)._recognizedGenre = metrics.recognizedGenre;
 
-      this.pushReading(this.dbReadings, metrics.avgDb);
-      if (bestBpm) this.pushReading(this.bpmReadings, bestBpm);
-      (this.currentWindow as any)._clapCount = metrics.clapCount;
-      (this.currentWindow as any)._audioEvent = metrics.audioEvent;
-      (this.currentWindow as any)._recognizedSong = metrics.recognizedSong;
-      (this.currentWindow as any)._recognizedGenre = metrics.recognizedGenre;
-
-      console.log(`${LOG_TAG} Audio: ${metrics.avgDb.toFixed(1)}dB bpm=${bestBpm} (recog=${metrics.recognizedBpm}) claps=${metrics.clapCount} song=${metrics.recognizedSong} genre=${metrics.recognizedGenre}`);
-      this.emitPreviewUpdate();
-    } catch (err) {
-      console.warn(`${LOG_TAG} Audio collection error:`, err);
-    }
+    console.log(`${LOG_TAG} Audio: ${metrics.avgDb.toFixed(1)}dB bpm=${bestBpm} (recog=${metrics.recognizedBpm}) claps=${metrics.clapCount} song=${metrics.recognizedSong} genre=${metrics.recognizedGenre}`);
   }
 
-  private async collectMotionSample(): Promise<void> {
-    try {
-      const metrics = await this.motionTracker.sample();
-      if (!metrics) return;
+  private applyMotionMetrics(metrics: MotionMetrics): void {
+    this.currentWindow.accelMagnitudeAvg = metrics.accelMagnitudeAvg;
+    this.currentWindow.accelMagnitudeMax = metrics.accelMagnitudeMax;
+    this.currentWindow.accelVariance = metrics.accelVariance;
+    this.currentWindow.gyroActivityAvg = metrics.gyroActivityAvg;
+    this.currentWindow.gyroActivityMax = metrics.gyroActivityMax;
+    this.currentWindow.movementClassification = metrics.movementClassification;
 
-      this.currentWindow.accelMagnitudeAvg = metrics.accelMagnitudeAvg;
-      this.currentWindow.accelMagnitudeMax = metrics.accelMagnitudeMax;
-      this.currentWindow.accelVariance = metrics.accelVariance;
-      this.currentWindow.gyroActivityAvg = metrics.gyroActivityAvg;
-      this.currentWindow.gyroActivityMax = metrics.gyroActivityMax;
-      this.currentWindow.movementClassification = metrics.movementClassification;
+    this.pushReading(this.magReadings, metrics.accelMagnitudeAvg);
+    this.pushReading(this.gyroReadings, metrics.gyroActivityAvg);
+    if (metrics.stepCadence != null)  this.pushReading(this.stepReadings, metrics.stepCadence);
+    if (metrics.movementBpm != null)  this.pushReading(this.movementBpmReadings, metrics.movementBpm);
+    this.rhythmicityValues.push(metrics.rhythmicity);
+    if (metrics.movementEnergy != null) this.energyValues.push(metrics.movementEnergy);
+    if (metrics.movementBpm != null) this.movementBpmValues.push(metrics.movementBpm);
+    if (metrics.movementAxis) this.axisValues.push(metrics.movementAxis);
 
-      this.pushReading(this.magReadings, metrics.accelMagnitudeAvg);
-      this.pushReading(this.gyroReadings, metrics.gyroActivityAvg);
-      if (metrics.stepCadence != null)  this.pushReading(this.stepReadings, metrics.stepCadence);
-      if (metrics.movementBpm != null)  this.pushReading(this.movementBpmReadings, metrics.movementBpm);
-      (this.currentWindow as any)._rhythmicity = metrics.rhythmicity;
-
-      console.log(`${LOG_TAG} Motion: ${metrics.movementClassification} movBPM=${metrics.movementBpm} rhythm=${metrics.rhythmicity.toFixed(2)} steps=${metrics.stepCadence}spm`);
-      this.emitPreviewUpdate();
-    } catch (err) {
-      console.warn(`${LOG_TAG} Motion collection error:`, err);
-    }
+    console.log(`${LOG_TAG} Motion: ${metrics.movementClassification} energy=${metrics.movementEnergy?.toFixed(2)} movBPM=${metrics.movementBpm} rhythm=${metrics.rhythmicity.toFixed(2)} axis=${metrics.movementAxis} steps=${metrics.stepCadence}spm`);
   }
 
   private async collectBLESample(): Promise<void> {
@@ -375,6 +414,7 @@ export class SensorOrchestrator {
       gyroActivityAvg: this.currentWindow.gyroActivityAvg ?? null,
       gyroActivityMax: this.currentWindow.gyroActivityMax ?? null,
       movementClassification: this.currentWindow.movementClassification ?? null,
+      ...this.aggregateRhythmMetrics(),
       bleDeviceCount: this.currentWindow.bleDeviceCount ?? null,
       bleCountDelta: this.currentWindow.bleCountDelta ?? null,
       bleCountTrend: this.currentWindow.bleCountTrend ?? null,
@@ -390,14 +430,30 @@ export class SensorOrchestrator {
     };
   }
 
-  private async finalizeWindow(): Promise<void> {
+  private aggregateRhythmMetrics(): Pick<SensorWindow,
+    'movementEnergy' | 'movementBpm' | 'rhythmicity' | 'movementAxis' |
+    'beatPlv' | 'beatPhaseMean' | 'tempoMatch' | 'pulseClarity'> {
+    const beat = aggregateBeatSync(this.beatResults);
+    return {
+      movementEnergy: mean(this.energyValues),
+      movementBpm: median(this.movementBpmValues),
+      rhythmicity: mean(this.rhythmicityValues),
+      movementAxis: mode(this.axisValues),
+      beatPlv: beat.plv,
+      beatPhaseMean: beat.phaseMean,
+      tempoMatch: beat.tempoMatch,
+      pulseClarity: mean(this.pulseClarityValues),
+    };
+  }
+
+  private async finalizeWindow(boundaryMs?: number): Promise<void> {
     if (!this.currentSession || !this.windowStartTime) return;
     if (!this.currentWindow.avgDb && !this.currentWindow.accelMagnitudeAvg && !this.currentWindow.bleDeviceCount) {
-      this.startNewWindow();
+      this.startNewWindow(boundaryMs);
       return;
     }
 
-    const windowEnd = new Date();
+    const windowEnd = new Date(boundaryMs ?? Date.now());
     const breakdown = computeVibeScore(this.currentWindow);
     const window = this.buildSensorWindow(breakdown, windowEnd);
 
@@ -420,7 +476,7 @@ export class SensorOrchestrator {
     }
 
     await deleteOldSyncedWindows();
-    this.startNewWindow();
+    this.startNewWindow(boundaryMs);
   }
 
   private async runUpload(): Promise<void> {
@@ -434,13 +490,19 @@ export class SensorOrchestrator {
 
 export const sensorOrchestrator = SensorOrchestrator.getInstance();
 
-// Returns 0–1: how well the movement rhythm matches the audio beat (or its harmonics).
-function computePhaseCoherence(movementBpm: number | null, audioBpm: number | null): number {
-  if (!movementBpm || !audioBpm) return 0;
-  const harmonics = [0.5, 1, 2, 3];
-  for (const h of harmonics) {
-    const target = audioBpm * h;
-    if (target > 0 && Math.abs(movementBpm - target) / target < 0.1) return 1;
-  }
-  return 0;
+function mean(values: number[]): number | null {
+  return values.length ? values.reduce((s, v) => s + v, 0) / values.length : null;
+}
+
+function median(values: number[]): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+function mode<T>(values: T[]): T | null {
+  if (!values.length) return null;
+  const counts = new Map<T, number>();
+  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }

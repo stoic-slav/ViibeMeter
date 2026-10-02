@@ -11,8 +11,8 @@ export const SENSOR_CONFIG = {
 
   // Motion sampling
   MOTION_SAMPLE_RATE_HZ: 50,          // higher rate needed for movement BPM FFT
-  MOTION_SAMPLE_DURATION_MS: 3000,
-  MOTION_SAMPLE_INTERVAL_MS: 10000,     // every 10 sec
+  MOTION_SAMPLE_DURATION_MS: 6500,     // runs alongside each audio recording (5s + startup margin) for beat sync
+  MOTION_SAMPLE_INTERVAL_MS: 10000,     // legacy; motion now runs inside the audio cycle
   MOTION_STATIONARY_THRESHOLD: 0.15,
   MOTION_WALKING_THRESHOLD: 0.4,
   MOTION_SWAYING_THRESHOLD: 0.8,

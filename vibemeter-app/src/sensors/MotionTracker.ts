@@ -1,5 +1,5 @@
-import { Accelerometer, Gyroscope, Pedometer } from 'expo-sensors';
-import { MotionMetrics, MotionSample } from '../types';
+import { Accelerometer, DeviceMotion, Gyroscope, Pedometer } from 'expo-sensors';
+import { MotionMetrics, MotionSample, MovementAxis } from '../types';
 import { SENSOR_CONFIG } from '../config/constants';
 import {
   computeAccelMagnitude,
@@ -9,23 +9,61 @@ import {
 } from '../processing/MovementClassifier';
 
 const LOG_TAG = '[MotionTracker]';
+const G = 9.80665; // m/s² per g
 
 export class MotionTracker {
   private isStationary = false;
   private stationaryStartTime = 0;
   private pedometerAvailable: boolean | null = null;
 
+  private deviceMotionAvailable: boolean | null = null;
+
+  /**
+   * Sample motion for MOTION_SAMPLE_DURATION_MS.
+   * Uses DeviceMotion (gravity removed, as in Ellamil et al. 2016) when available and splits
+   * linear acceleration into vertical (along gravity) and horizontal components, which is
+   * independent of how the phone sits in a pocket. Falls back to the raw accelerometer.
+   */
   async sample(): Promise<MotionMetrics | null> {
     try {
-      Accelerometer.setUpdateInterval(1000 / SENSOR_CONFIG.MOTION_SAMPLE_RATE_HZ);
-      Gyroscope.setUpdateInterval(1000 / SENSOR_CONFIG.MOTION_SAMPLE_RATE_HZ);
+      if (this.deviceMotionAvailable === null) {
+        this.deviceMotionAvailable = await DeviceMotion.isAvailableAsync().catch(() => false);
+      }
+      const intervalMs = 1000 / SENSOR_CONFIG.MOTION_SAMPLE_RATE_HZ;
+      Gyroscope.setUpdateInterval(intervalMs);
 
       const accelSamples: MotionSample[] = [];
       const gyroData: { x: number; y: number; z: number }[] = [];
+      const vertical: { t: number; v: number }[] = [];
+      const horizontal: { t: number; v: number }[] = [];
+      const linearMag: number[] = [];
 
-      const accelSub = Accelerometer.addListener(data => {
-        accelSamples.push({ timestamp: Date.now(), accelX: data.x, accelY: data.y, accelZ: data.z, gyroX: 0, gyroY: 0, gyroZ: 0 });
-      });
+      let accelSub: { remove: () => void };
+      if (this.deviceMotionAvailable) {
+        DeviceMotion.setUpdateInterval(intervalMs);
+        accelSub = DeviceMotion.addListener(m => {
+          const t = Date.now();
+          const g = m.accelerationIncludingGravity;
+          if (!g) return;
+          // Legacy fields stay in g-units so existing thresholds keep working
+          accelSamples.push({ timestamp: t, accelX: g.x / G, accelY: g.y / G, accelZ: g.z / G, gyroX: 0, gyroY: 0, gyroZ: 0 });
+          const a = m.acceleration;
+          if (!a) return;
+          const gx = g.x - a.x, gy = g.y - a.y, gz = g.z - a.z;
+          const gn = Math.sqrt(gx * gx + gy * gy + gz * gz);
+          if (gn < 1e-3) return;
+          const vert = (a.x * gx + a.y * gy + a.z * gz) / gn;
+          const total = Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+          vertical.push({ t, v: vert });
+          horizontal.push({ t, v: Math.sqrt(Math.max(0, total * total - vert * vert)) });
+          linearMag.push(total);
+        });
+      } else {
+        Accelerometer.setUpdateInterval(intervalMs);
+        accelSub = Accelerometer.addListener(data => {
+          accelSamples.push({ timestamp: Date.now(), accelX: data.x, accelY: data.y, accelZ: data.z, gyroX: 0, gyroY: 0, gyroZ: 0 });
+        });
+      }
       const gyroSub = Gyroscope.addListener(data => {
         gyroData.push({ x: data.x, y: data.y, z: data.z });
       });
@@ -54,7 +92,27 @@ export class MotionTracker {
       const gyroActivityMax = gyroMagnitudes.length > 0 ? Math.max(...gyroMagnitudes) : 0;
 
       const movementClassification = classifyMovement(accelMagnitudeAvg, accelVariance, gyroActivityAvg);
-      const { movementBpm, rhythmicity } = computeMovementRhythm(magnitudes, SENSOR_CONFIG.MOTION_SAMPLE_RATE_HZ);
+
+      // Rhythm: take whichever gravity-free component is more periodic.
+      // Fallback (no DeviceMotion): magnitude series, as before.
+      let movementBpm: number | null;
+      let rhythmicity: number;
+      let movementAxis: MovementAxis | null = null;
+      let movementSeries: { t: number; v: number }[];
+      let movementEnergy: number | null = null;
+      if (vertical.length >= 20) {
+        const rv = computeMovementRhythm(vertical.map(p => p.v), SENSOR_CONFIG.MOTION_SAMPLE_RATE_HZ);
+        const rh = computeMovementRhythm(horizontal.map(p => p.v), SENSOR_CONFIG.MOTION_SAMPLE_RATE_HZ);
+        const useVertical = rv.rhythmicity >= rh.rhythmicity;
+        ({ movementBpm, rhythmicity } = useVertical ? rv : rh);
+        movementAxis = useVertical ? 'vertical' : 'horizontal';
+        movementSeries = useVertical ? vertical : horizontal;
+        movementEnergy = Math.sqrt(linearMag.reduce((s, v) => s + v * v, 0) / linearMag.length);
+      } else {
+        ({ movementBpm, rhythmicity } = computeMovementRhythm(magnitudes, SENSOR_CONFIG.MOTION_SAMPLE_RATE_HZ));
+        movementSeries = accelSamples.map((s, i) => ({ t: s.timestamp, v: magnitudes[i] }));
+        movementEnergy = Math.sqrt(magnitudes.reduce((s, v) => s + v * v, 0) / magnitudes.length) * G;
+      }
 
       if (movementClassification === 'stationary') {
         if (!this.isStationary) { this.isStationary = true; this.stationaryStartTime = Date.now(); }
@@ -68,6 +126,7 @@ export class MotionTracker {
         accelMagnitudeAvg, accelMagnitudeMax, accelVariance,
         gyroActivityAvg, gyroActivityMax, movementClassification,
         stepCadence, movementBpm, rhythmicity,
+        movementEnergy, movementAxis, movementSeries,
       };
     } catch (err) {
       console.warn(`${LOG_TAG} Error sampling motion:`, err);

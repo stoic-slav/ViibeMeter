@@ -94,6 +94,8 @@ export class AudioAnalyzer {
     });
 
     await recording.startAsync();
+    // Anchor on the shared Date.now() clock so onsets line up with motion samples
+    const recordStartMs = Date.now();
     await new Promise(r => setTimeout(r, SENSOR_CONFIG.AUDIO_SAMPLE_DURATION_MS));
     const fileUri = recording.getURI() ?? null;
     await recording.stopAndUnloadAsync();
@@ -110,7 +112,7 @@ export class AudioAnalyzer {
       if (pcm) pcmSamples.push(...pcm);
     }
 
-    return this.analyzePCMSamples(pcmSamples, dbSamples, fileUri, 'audio/m4a');
+    return this.analyzePCMSamples(pcmSamples, dbSamples, fileUri, 'audio/m4a', recordStartMs);
   }
 
   // ─── Android ─────────────────────────────────────────────────────────────────
@@ -141,6 +143,7 @@ export class AudioAnalyzer {
     });
 
     AudioRecord.start();
+    const recordStartMs = Date.now();
     await new Promise(r => setTimeout(r, SENSOR_CONFIG.AUDIO_SAMPLE_DURATION_MS));
     const filePath = await AudioRecord.stop();
     subscription?.remove?.();
@@ -152,7 +155,7 @@ export class AudioAnalyzer {
 
     // AudioRecord returns an absolute path; FormData upload needs a file:// URI
     const fileUri = filePath ? `file://${filePath}` : null;
-    return this.analyzePCMSamples(pcmSamples, dbSamples, fileUri, 'audio/wav');
+    return this.analyzePCMSamples(pcmSamples, dbSamples, fileUri, 'audio/wav', recordStartMs);
   }
 
   // ─── Shared PCM analysis (called by both platforms) ──────────────────────────
@@ -162,6 +165,7 @@ export class AudioAnalyzer {
     dbSamples: number[],
     fileUri: string | null,
     fileType: string,
+    recordStartMs: number,
   ): Promise<AudioMetrics | null> {
     const avgDb = dbSamples.reduce((s, v) => s + v, 0) / dbSamples.length;
     const maxDb = Math.max(...dbSamples);
@@ -177,10 +181,16 @@ export class AudioAnalyzer {
     let crestFactorVal = 0;
     let vocalPresence = 0;
     let harmonicNoiseRatio = 0;
+    let beatBpm: number | null = null;
+    let beatOnsetTimesMs: number[] = [];
 
     if (pcmSamples.length >= 4096) {
       const pcmBpm = detectBPM(pcmSamples, SENSOR_CONFIG.AUDIO_SAMPLE_RATE);
-      if (pcmBpm.bpm != null) bpmResult = pcmBpm;
+      if (pcmBpm.bpm != null) {
+        bpmResult = pcmBpm;
+        beatBpm = pcmBpm.bpm;
+        beatOnsetTimesMs = pcmBpm.onsetTimes.map(t => recordStartMs + t * 1000);
+      }
 
       const fft = computeFFT(pcmSamples.slice(0, 4096), SENSOR_CONFIG.AUDIO_SAMPLE_RATE);
       const total = totalEnergy(fft);
@@ -221,6 +231,8 @@ export class AudioAnalyzer {
       crestFactor: crestFactorVal,
       vocalPresence,
       harmonicNoiseRatio,
+      beatBpm,
+      beatOnsetTimesMs,
       clapCount,
       audioEvent,
       recognizedSong: this.lastRecognizedSong,
@@ -289,6 +301,7 @@ export class AudioAnalyzer {
       bassPresence: 0, midHighRatio: 0,
       subBassEnergy: 0, spectralCentroid: 0, spectralFlux: 0,
       crestFactor: 0, vocalPresence: 0, harmonicNoiseRatio: 0,
+      beatBpm: null, beatOnsetTimesMs: [],
       clapCount: 0, audioEvent: null, recognizedSong: null, recognizedGenre: null,
     };
   }

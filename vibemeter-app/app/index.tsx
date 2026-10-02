@@ -8,6 +8,16 @@ import { sessionManager } from '../src/session/SessionManager';
 import { sensorOrchestrator } from '../src/sensors/SensorOrchestrator';
 import { vibePrompt } from '../src/notifications/VibePrompt';
 import { getRecentVenues } from '../src/storage/LocalBuffer';
+import { getDanceAffinity, setDanceAffinity } from '../src/storage/UserProfile';
+import { PhonePlacement } from '../src/types';
+
+type StartOptions = { venueName: string; eventCode: string; phonePlacement: PhonePlacement | null };
+
+const PLACEMENTS: { value: PhonePlacement; label: string }[] = [
+  { value: 'pocket', label: 'Pocket' },
+  { value: 'hand',   label: 'Hand' },
+  { value: 'bag',    label: 'Bag' },
+];
 
 /* ── Design tokens ─────────────────────────────────────────── */
 const A   = '#00E8A0';
@@ -122,12 +132,43 @@ function SessionsScreen({ onStart, pastSessions, loading }: {
 }
 
 /* ── Venue input screen ────────────────────────────────────── */
+/* ── One-time dance affinity question ───────────────────────── */
+function AffinityScreen({ onDone }: { onDone: (value: number) => void }) {
+  return (
+    <View style={s.container}>
+      <View style={s.header}>
+        <Text style={s.wordmark}>VIIBEMETER</Text>
+        <Text style={s.title}>One quick question</Text>
+      </View>
+      <View style={{ paddingHorizontal: 20 }}>
+        <Text style={s.formLabel}>HOW MUCH DO YOU ENJOY DANCING?</Text>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          {[1, 2, 3, 4, 5].map(v => (
+            <TouchableOpacity key={v} style={s.affinityBtn} onPress={() => onDone(v)} activeOpacity={0.8}>
+              <Text style={s.affinityNum}>{v}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+          <Text style={s.hint}>not at all</Text>
+          <Text style={s.hint}>love it</Text>
+        </View>
+        <Text style={[s.hint, { marginTop: 20 }]}>Asked once. Stays anonymous — it helps compare ratings fairly between people.</Text>
+      </View>
+    </View>
+  );
+}
+
+/* ── Venue input screen ────────────────────────────────────── */
 function VenueScreen({ onStart, onSkip, loading }: {
-  onStart: (name: string) => void;
+  onStart: (opts: StartOptions) => void;
   onSkip: () => void;
   loading: boolean;
 }) {
   const [name, setName] = useState('');
+  const [eventCode, setEventCode] = useState('');
+  const [placement, setPlacement] = useState<PhonePlacement | null>(null);
+  const start = (venueName: string) => onStart({ venueName, eventCode, phonePlacement: placement });
   const [recentVenues, setRecentVenues] = useState<string[]>([]);
   useEffect(() => { getRecentVenues(3).then(setRecentVenues); }, []);
   return (
@@ -146,8 +187,34 @@ function VenueScreen({ onStart, onSkip, loading }: {
           onChangeText={setName}
           autoFocus
           returnKeyType="go"
-          onSubmitEditing={() => onStart(name)}
+          onSubmitEditing={() => start(name)}
         />
+        <Text style={[s.formLabel, { marginTop: 20 }]}>WHERE'S YOUR PHONE?</Text>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          {PLACEMENTS.map(p => (
+            <TouchableOpacity
+              key={p.value}
+              style={[s.placementChip, placement === p.value && s.recentRowSelected]}
+              onPress={() => setPlacement(p.value)}
+            >
+              <Text style={[s.recentText, placement === p.value && { color: A }]}>{p.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Text style={[s.formLabel, { marginTop: 20 }]}>EVENT CODE (OPTIONAL)</Text>
+        <TextInput
+          style={[s.input, eventCode.length > 0 && { borderColor: A + '55' }]}
+          placeholder="Same code as your group, e.g. DISCO42"
+          placeholderTextColor={TXD}
+          value={eventCode}
+          onChangeText={setEventCode}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          maxLength={32}
+        />
+        <Text style={[s.hint, { marginTop: 6 }]}>Lets us measure how in sync the crowd is.</Text>
+
         {recentVenues.length > 0 && <Text style={[s.formLabel, { marginTop: 20 }]}>RECENT</Text>}
         <View style={{ gap: 8 }}>
           {recentVenues.map(v => (
@@ -164,7 +231,7 @@ function VenueScreen({ onStart, onSkip, loading }: {
       <View style={{ padding: 20, paddingBottom: 28, gap: 10 }}>
         <TouchableOpacity
           style={[s.startBtn, loading && { opacity: 0.5 }]}
-          onPress={() => onStart(name || 'Unknown venue')}
+          onPress={() => start(name || 'Unknown venue')}
           disabled={loading}
           activeOpacity={0.85}
         >
@@ -181,7 +248,7 @@ function VenueScreen({ onStart, onSkip, loading }: {
 /* ── Main screen (two-step: sessions → venue) ──────────────── */
 export default function HomeScreen() {
   const router = useRouter();
-  const [step, setStep]             = useState<'sessions' | 'venue'>('sessions');
+  const [step, setStep]             = useState<'sessions' | 'affinity' | 'venue'>('sessions');
   const [pastSessions, setPastSessions] = useState<any[]>([]);
   const [loading, setLoading]       = useState(false);
 
@@ -192,11 +259,16 @@ export default function HomeScreen() {
     setPastSessions(sessions.filter((s: any) => s.ended_at != null).slice(0, 10));
   }, []);
 
-  const handleStartSession = async (venueName: string) => {
+  const handleNewSession = async () => {
+    const affinity = await getDanceAffinity();
+    setStep(affinity == null ? 'affinity' : 'venue');
+  };
+
+  const handleStartSession = async ({ venueName, eventCode, phonePlacement }: StartOptions) => {
     if (loading) return;
     setLoading(true);
     try {
-      const session = await sessionManager.startSession(venueName.trim() || null, null);
+      const session = await sessionManager.startSession(venueName.trim() || null, null, { eventCode, phonePlacement });
       await sensorOrchestrator.startSession(session);
       vibePrompt.startPromptSchedule(session.id);
       setStep('sessions');
@@ -208,12 +280,20 @@ export default function HomeScreen() {
     }
   };
 
+  if (step === 'affinity') {
+    return (
+      <AffinityScreen
+        onDone={async v => { await setDanceAffinity(v); setStep('venue'); }}
+      />
+    );
+  }
+
   if (step === 'venue') {
     return (
       <VenueScreen
         loading={loading}
         onStart={handleStartSession}
-        onSkip={() => handleStartSession('')}
+        onSkip={() => handleStartSession({ venueName: '', eventCode: '', phonePlacement: null })}
       />
     );
   }
@@ -222,7 +302,7 @@ export default function HomeScreen() {
     <SessionsScreen
       pastSessions={pastSessions}
       loading={loading}
-      onStart={() => setStep('venue')}
+      onStart={handleNewSession}
     />
   );
 }
@@ -257,6 +337,17 @@ const s = StyleSheet.create({
   },
   recentRowSelected: { borderColor: A + '40', backgroundColor: A + '12' },
   recentText: { fontSize: 15, color: TXM },
+  placementChip: {
+    flex: 1, alignItems: 'center',
+    backgroundColor: S1, borderWidth: 1, borderColor: S2,
+    borderRadius: 12, paddingVertical: 12,
+  },
+  hint: { fontSize: 11, fontFamily: MONO, color: TXD },
+  affinityBtn: {
+    flex: 1, height: 56, borderRadius: 14, backgroundColor: S1,
+    borderWidth: 1, borderColor: S2, alignItems: 'center', justifyContent: 'center',
+  },
+  affinityNum: { fontFamily: MONO, fontSize: 20, fontWeight: '700', color: TX },
 
   startBtn: {
     width: '100%', height: 58, borderRadius: 18, backgroundColor: A,

@@ -13,11 +13,40 @@ import numpy as np
 from scipy import stats
 from pathlib import Path
 import warnings
+from crowd_sync import attach_crowd_sync
 warnings.filterwarnings('ignore')
 
 DATA_DIR = Path(__file__).parent / 'data'
 OUTPUT_DIR = Path(__file__).parent / 'output'
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+# Signals correlated against ratings. Evidence-ranked additions (see README):
+#   movement_energy — Martella 2015 (accelerometer predicts enjoyment), Witek 2014
+#   crowd_*         — Ellamil 2016, Tarr 2016 (person ↔ person synchrony)
+#   beat_plv / tempo_match — person ↔ music synchrony
+#   pulse_clarity / bpm_in_100_150 / FFT features — music features linked to movement & sync
+SIGNALS = [
+    'avg_db', 'max_db', 'db_variance',
+    'music_detected', 'estimated_bpm', 'bpm_in_100_150', 'bass_presence', 'mid_high_ratio',
+    'sub_bass_energy', 'spectral_centroid', 'spectral_flux', 'crest_factor',
+    'vocal_presence', 'harmonic_noise_ratio', 'pulse_clarity',
+    'accel_magnitude_avg', 'accel_variance', 'gyro_activity_avg',
+    'movement_energy', 'movement_bpm', 'rhythmicity',
+    'beat_plv', 'tempo_match',
+    'crowd_phase_sync', 'crowd_tempo_agreement', 'crowd_sync',
+    'ble_device_count', 'ble_count_delta',
+    'screen_off_ratio',
+    'computed_energy_score', 'computed_density_score',
+    'computed_movement_score', 'computed_music_score', 'computed_vibe_score',
+]
+SESSION_COVARIATES = ['phone_placement', 'dance_affinity', 'event_code', 'app_version', 'os_version']
+
+
+def platform_of(os_version) -> str | float:
+    """'ios' / 'android' from the session's os_version (e.g. 'ios 18.2', 'android 34')."""
+    if not isinstance(os_version, str) or not os_version.strip():
+        return np.nan
+    return os_version.split()[0].lower()
 
 
 def load_data():
@@ -32,8 +61,14 @@ def load_data():
     return windows, ratings, sessions
 
 
-def build_paired_dataset(windows: pd.DataFrame, ratings: pd.DataFrame) -> pd.DataFrame:
-    """For each rating, find the nearest sensor window."""
+def build_paired_dataset(windows: pd.DataFrame, ratings: pd.DataFrame,
+                         sessions: pd.DataFrame | None = None) -> pd.DataFrame:
+    """For each rating, find the nearest sensor window (with crowd metrics attached)."""
+    if sessions is not None:
+        windows = attach_crowd_sync(windows, sessions)
+    if 'estimated_bpm' in windows.columns:
+        bpm = pd.to_numeric(windows['estimated_bpm'], errors='coerce')
+        windows = windows.assign(bpm_in_100_150=np.where(bpm.notna(), ((bpm >= 100) & (bpm <= 150)).astype(float), np.nan))
     paired = []
 
     for _, rating in ratings.iterrows():
@@ -53,20 +88,18 @@ def build_paired_dataset(windows: pd.DataFrame, ratings: pd.DataFrame) -> pd.Dat
             'time_delta_sec': time_diffs.min().total_seconds(),
         }
 
-        for col in [
-            'avg_db', 'max_db', 'db_variance',
-            'music_detected', 'estimated_bpm', 'bass_presence', 'mid_high_ratio',
-            'accel_magnitude_avg', 'accel_variance', 'gyro_activity_avg',
-            'ble_device_count', 'ble_count_delta',
-            'screen_off_ratio',
-            'computed_energy_score', 'computed_density_score',
-            'computed_movement_score', 'computed_music_score', 'computed_vibe_score',
-        ]:
+        for col in SIGNALS:
             row[col] = nearest.get(col, np.nan)
 
         paired.append(row)
 
     df = pd.DataFrame(paired)
+    if sessions is not None and len(df) > 0:
+        covs = [c for c in SESSION_COVARIATES if c in sessions.columns]
+        df = df.merge(sessions[['id'] + covs].rename(columns={'id': 'session_id'}), on='session_id', how='left')
+        if 'os_version' in df.columns:
+            # iPhones and Android phones have different mics/IMUs, so platform is a moderator
+            df['platform'] = df['os_version'].map(platform_of)
 
     # Convert boolean music_detected to int
     if 'music_detected' in df.columns:
@@ -77,15 +110,7 @@ def build_paired_dataset(windows: pd.DataFrame, ratings: pd.DataFrame) -> pd.Dat
 
 def compute_correlations(paired: pd.DataFrame):
     """Compute per-signal Pearson and Spearman correlations with subjective rating."""
-    signals = [
-        'avg_db', 'max_db', 'db_variance',
-        'music_detected', 'estimated_bpm', 'bass_presence', 'mid_high_ratio',
-        'accel_magnitude_avg', 'accel_variance', 'gyro_activity_avg',
-        'ble_device_count', 'ble_count_delta',
-        'screen_off_ratio',
-        'computed_energy_score', 'computed_density_score',
-        'computed_movement_score', 'computed_music_score', 'computed_vibe_score',
-    ]
+    signals = SIGNALS
 
     print("\n" + "=" * 90)
     print("PER-SIGNAL CORRELATION WITH SUBJECTIVE RATING")
@@ -121,7 +146,87 @@ def compute_correlations(paired: pd.DataFrame):
         sig_marker = '***' if spearman_p < 0.001 else ('**' if spearman_p < 0.01 else ('*' if spearman_p < 0.05 else ''))
         print(f"{signal:<32} {pearson_r:>10.3f} {pearson_p:>10.4f} {spearman_r:>10.3f} {spearman_p:>10.4f} {n:>5} {sig_marker}")
 
+    if not results:
+        return pd.DataFrame(columns=['signal', 'pearson_r', 'pearson_p', 'spearman_r', 'spearman_p', 'n'])
     return pd.DataFrame(results).sort_values('spearman_r', ascending=False, key=abs)
+
+
+def within_person(paired: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """Centre rating and signals per device, so people who rate everything high (or dance
+    a lot) don't drive the correlation. Witek 2014 shows large individual differences."""
+    out = paired.copy()
+    for c in ['rating'] + cols:
+        if c in out.columns:
+            vals = pd.to_numeric(out[c], errors='coerce')
+            out[c] = vals - vals.groupby(out['device_id']).transform('mean')
+    return out
+
+
+def _r2(y: np.ndarray, X: np.ndarray) -> float:
+    X1 = np.column_stack([np.ones(len(y)), X])
+    beta, *_ = np.linalg.lstsq(X1, y, rcond=None)
+    resid = y - X1 @ beta
+    ss_tot = ((y - y.mean()) ** 2).sum()
+    return 1 - (resid ** 2).sum() / ss_tot if ss_tot > 0 else np.nan
+
+
+def headline_tests(paired: pd.DataFrame):
+    """The research questions, in evidence order, on within-person centred data:
+    1. movement energy → rating
+    2. crowd sync → rating beyond movement energy (person ↔ person)
+    3. beat locking → rating beyond movement energy (person ↔ music)"""
+    print("\n" + "=" * 60)
+    print("HEADLINE TESTS (within-person)")
+    print("=" * 60)
+    if 'device_id' not in paired.columns or len(paired) == 0:
+        print("  No paired data.")
+        return
+    wp = within_person(paired, ['movement_energy', 'crowd_sync', 'beat_plv'])
+
+    sub = wp[['rating', 'movement_energy']].dropna()
+    if len(sub) >= 5:
+        r, p = stats.spearmanr(sub['rating'], sub['movement_energy'])
+        print(f"\n1. movement_energy → rating:  ρ={r:.3f} (p={p:.4f}, n={len(sub)})")
+    else:
+        print(f"\n1. movement_energy → rating:  insufficient data (n={len(sub)})")
+
+    for i, extra in [(2, 'crowd_sync'), (3, 'beat_plv')]:
+        sub = wp[['rating', 'movement_energy', extra]].dropna()
+        if len(sub) < 8:
+            print(f"{i}. {extra} beyond movement_energy: insufficient data (n={len(sub)})")
+            continue
+        y = sub['rating'].to_numpy(float)
+        base = _r2(y, sub[['movement_energy']].to_numpy(float))
+        full = _r2(y, sub[['movement_energy', extra]].to_numpy(float))
+        r, p = stats.spearmanr(sub['rating'], sub[extra])
+        print(f"{i}. {extra} beyond movement_energy: ΔR²={full - base:+.3f}  "
+              f"(alone ρ={r:.3f}, p={p:.4f}, n={len(sub)})")
+
+
+def moderators(paired: pd.DataFrame):
+    """Does the signal work differently by platform, phone placement or dance affinity?"""
+    print("\n5. Moderators (Spearman ρ with rating):")
+    if 'platform' in paired.columns:
+        counts = paired['platform'].value_counts().to_dict()
+        print(f"   ratings by platform: {counts}")
+    for col in ['movement_energy', 'beat_plv', 'avg_db', 'computed_vibe_score']:
+        if col not in paired.columns:
+            continue
+        for group_col, label in [('platform', 'platform'), ('phone_placement', 'placement')]:
+            if group_col not in paired.columns:
+                continue
+            for value, g in paired.groupby(group_col):
+                sub = g[['rating', col]].dropna()
+                if len(sub) >= 5:
+                    r, _ = stats.spearmanr(sub['rating'], sub[col])
+                    print(f"   {col:<20} {label}={value:<8} ρ={r:.3f} (n={len(sub)})")
+        if col in ('movement_energy', 'beat_plv') and 'dance_affinity' in paired.columns:
+            aff = pd.to_numeric(paired['dance_affinity'], errors='coerce')
+            for label, mask in [('dancers (4–5)', aff >= 4), ('non-dancers (1–3)', aff <= 3)]:
+                sub = paired.loc[mask, ['rating', col]].dropna()
+                if len(sub) >= 5:
+                    r, _ = stats.spearmanr(sub['rating'], sub[col])
+                    print(f"   {col:<20} {label:<18} ρ={r:.3f} (n={len(sub)})")
 
 
 def print_key_findings(paired: pd.DataFrame, results: pd.DataFrame):
@@ -140,9 +245,11 @@ def print_key_findings(paired: pd.DataFrame, results: pd.DataFrame):
     # 2. BPM value add
     with_bpm = paired[paired['estimated_bpm'].notna()]
     without_bpm = paired[paired['estimated_bpm'].isna()]
-    if len(with_bpm) >= 5 and 'computed_energy_score' in paired.columns:
-        r_with, _ = stats.spearmanr(with_bpm['rating'], with_bpm['computed_energy_score'].dropna())
-        print(f"\n2. Energy score (when BPM detected):  ρ={r_with:.3f} (n={len(with_bpm)})")
+    if 'computed_energy_score' in paired.columns:
+        valid = with_bpm[['rating', 'computed_energy_score']].dropna()
+        if len(valid) >= 5:
+            r_with, _ = stats.spearmanr(valid['rating'], valid['computed_energy_score'])
+            print(f"\n2. Energy score (when BPM detected):  ρ={r_with:.3f} (n={len(valid)})")
     if len(without_bpm) >= 5 and 'avg_db' in paired.columns:
         valid = without_bpm[['rating', 'avg_db']].dropna()
         if len(valid) >= 5:
@@ -209,7 +316,7 @@ def main():
     if len(ratings) < 5:
         print(f"\nWARNING: Only {len(ratings)} ratings — need at least 5 for meaningful analysis")
 
-    paired = build_paired_dataset(windows, ratings)
+    paired = build_paired_dataset(windows, ratings, sessions)
     print(f"Paired dataset: {len(paired)} matched window-rating pairs")
 
     results = compute_correlations(paired)
@@ -217,6 +324,8 @@ def main():
 
     print_key_findings(paired, results)
     segment_by_venue_type(paired, sessions)
+    headline_tests(paired)
+    moderators(paired)
     go_no_go_summary(results, paired)
 
     print(f"\nResults saved to {OUTPUT_DIR}/signal_correlations.csv")

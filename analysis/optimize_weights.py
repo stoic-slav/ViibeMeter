@@ -27,37 +27,26 @@ def main():
 
     print("VibeMeter Weight Optimization")
 
+    from correlations import load_data, build_paired_dataset
     try:
-        windows = pd.read_csv(DATA_DIR / 'sensor_windows.csv')
-        ratings = pd.read_csv(DATA_DIR / 'ratings.csv')
-        sessions = pd.read_csv(DATA_DIR / 'sessions.csv')
+        windows, ratings, sessions = load_data()
     except FileNotFoundError:
         print("ERROR: Run fetch_data.py first")
         return
 
-    # Build paired dataset
-    windows['window_start'] = pd.to_datetime(windows['window_start'])
-    ratings['rated_at'] = pd.to_datetime(ratings['rated_at'])
-
-    paired = []
-    for _, rating in ratings.iterrows():
-        sw = windows[windows['session_id'] == rating['session_id']].copy()
-        if len(sw) == 0:
-            continue
-        diff = abs(sw['window_start'] - rating['rated_at'])
-        nearest = sw.loc[diff.idxmin()]
-        row = {'rating': rating['rating'], 'session_id': rating['session_id']}
-        for col in ['avg_db', 'estimated_bpm', 'bass_presence', 'accel_magnitude_avg',
-                    'accel_variance', 'ble_device_count', 'music_detected']:
-            row[col] = nearest.get(col, np.nan)
-        paired.append(row)
-
-    df = pd.DataFrame(paired)
+    df = build_paired_dataset(windows, ratings, sessions)
+    if len(df) == 0:
+        print("No paired window-rating data yet")
+        return
     df['music_detected'] = df['music_detected'].map({True: 1, False: 0, 'True': 1, 'False': 0, 1: 1, 0: 0})
     df['estimated_bpm'] = df['estimated_bpm'].fillna(0)
 
     FEATURES = ['avg_db', 'estimated_bpm', 'bass_presence', 'accel_magnitude_avg',
-                'accel_variance', 'ble_device_count', 'music_detected']
+                'accel_variance', 'ble_device_count', 'music_detected',
+                # Evidence-ranked additions (collect-only until validated)
+                'movement_energy', 'beat_plv', 'pulse_clarity']
+    # Drop features with no data yet so old datasets still run
+    FEATURES = [f for f in FEATURES if f in df.columns and df[f].notna().any()]
 
     X_raw = df[FEATURES].fillna(0)
     y = df['rating']

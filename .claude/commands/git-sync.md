@@ -14,11 +14,11 @@ Otherwise, the diff is the source of truth for the commit message you will write
 
 ### 2. Check for documentation
 
-Look for `README.md` and `CLAUDE.md` in the project root.
+Look for `README.md` and `AGENTS.md` in the project root. `AGENTS.md` is the single agent-facing doc; `CLAUDE.md` is only a thin pointer to it and must not hold project guidance.
 
 - If **neither exists**, create both from scratch based on the current codebase:
   - `README.md` — project overview, signals collected, scoring system, architecture, build instructions, privacy
-  - `CLAUDE.md` — project overview for Claude Code: commands, architecture, data flow, singleton services, scoring system with exact formula weights, storage schema, build quirks, privacy constraints
+  - `AGENTS.md` — guidance for any coding agent: commands, architecture, data flow, singleton services, scoring system with exact formula weights, storage schema, build quirks, privacy constraints, working rules
 - If **only one exists**, create the missing one.
 - If **both exist**, proceed to step 3.
 
