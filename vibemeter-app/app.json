@@ -26,8 +26,7 @@
           "location",
           "audio",
           "bluetooth-central",
-          "fetch",
-          "processing"
+          "fetch"
         ]
       }
     },
