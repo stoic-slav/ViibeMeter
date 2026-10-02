@@ -1,4 +1,6 @@
+import { Platform } from 'react-native';
 import { Accelerometer, DeviceMotion, Gyroscope, Pedometer } from 'expo-sensors';
+import { isSessionServiceRunning, readNativeMotion } from '../../modules/session-service';
 import { MotionMetrics, MotionSample, MovementAxis } from '../types';
 import { SENSOR_CONFIG } from '../config/constants';
 import {
@@ -10,6 +12,8 @@ import {
 
 const LOG_TAG = '[MotionTracker]';
 const G = 9.80665; // m/s² per g
+
+type Vec3 = { x: number; y: number; z: number };
 
 export class MotionTracker {
   private isStationary = false;
@@ -38,43 +42,70 @@ export class MotionTracker {
       const horizontal: { t: number; v: number }[] = [];
       const linearMag: number[] = [];
 
-      let accelSub: { remove: () => void };
-      if (this.deviceMotionAvailable) {
-        DeviceMotion.setUpdateInterval(intervalMs);
-        accelSub = DeviceMotion.addListener(m => {
-          const t = Date.now();
-          const g = m.accelerationIncludingGravity;
-          if (!g) return;
-          // Legacy fields stay in g-units so existing thresholds keep working
-          accelSamples.push({ timestamp: t, accelX: g.x / G, accelY: g.y / G, accelZ: g.z / G, gyroX: 0, gyroY: 0, gyroZ: 0 });
-          const a = m.acceleration;
-          if (!a) return;
-          const gx = g.x - a.x, gy = g.y - a.y, gz = g.z - a.z;
-          const gn = Math.sqrt(gx * gx + gy * gy + gz * gz);
-          if (gn < 1e-3) return;
-          const vert = (a.x * gx + a.y * gy + a.z * gz) / gn;
-          const total = Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
-          vertical.push({ t, v: vert });
-          horizontal.push({ t, v: Math.sqrt(Math.max(0, total * total - vert * vert)) });
-          linearMag.push(total);
-        });
+      // One DeviceMotion-style reading: g includes gravity, a is linear acceleration (m/s²)
+      const addMotion = (t: number, g: Vec3, a: Vec3 | null) => {
+        // Legacy fields stay in g-units so existing thresholds keep working
+        accelSamples.push({ timestamp: t, accelX: g.x / G, accelY: g.y / G, accelZ: g.z / G, gyroX: 0, gyroY: 0, gyroZ: 0 });
+        if (!a) return;
+        const gx = g.x - a.x, gy = g.y - a.y, gz = g.z - a.z;
+        const gn = Math.sqrt(gx * gx + gy * gy + gz * gz);
+        if (gn < 1e-3) return;
+        const vert = (a.x * gx + a.y * gy + a.z * gz) / gn;
+        const total = Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+        vertical.push({ t, v: vert });
+        horizontal.push({ t, v: Math.sqrt(Math.max(0, total * total - vert * vert)) });
+        linearMag.push(total);
+      };
+
+      let cadenceResult: PromiseSettledResult<unknown>[];
+      if (Platform.OS === 'android' && isSessionServiceRunning()) {
+        // Android: expo-sensors stops in the background, so the session service records motion
+        // natively; wait out the sample and read the same span back.
+        cadenceResult = await Promise.allSettled([
+          Promise.resolve(null),
+          new Promise(r => setTimeout(r, SENSOR_CONFIG.MOTION_SAMPLE_DURATION_MS)),
+        ]);
+        const native = readNativeMotion(SENSOR_CONFIG.MOTION_SAMPLE_DURATION_MS / 1000);
+        if (native) {
+          const L = native.linear;
+          if (L.length >= 7) {
+            for (let i = 0; i + 6 < L.length; i += 7) {
+              const a = { x: L[i + 1], y: L[i + 2], z: L[i + 3] };
+              addMotion(L[i], { x: a.x + L[i + 4], y: a.y + L[i + 5], z: a.z + L[i + 6] }, a);
+            }
+          } else {
+            const A = native.accel;
+            for (let i = 0; i + 3 < A.length; i += 4) addMotion(A[i], { x: A[i + 1], y: A[i + 2], z: A[i + 3] }, null);
+          }
+          const W = native.gyro;
+          for (let i = 0; i + 3 < W.length; i += 4) gyroData.push({ x: W[i + 1], y: W[i + 2], z: W[i + 3] });
+        }
       } else {
-        Accelerometer.setUpdateInterval(intervalMs);
-        accelSub = Accelerometer.addListener(data => {
-          accelSamples.push({ timestamp: Date.now(), accelX: data.x, accelY: data.y, accelZ: data.z, gyroX: 0, gyroY: 0, gyroZ: 0 });
+        let accelSub: { remove: () => void };
+        if (this.deviceMotionAvailable) {
+          DeviceMotion.setUpdateInterval(intervalMs);
+          accelSub = DeviceMotion.addListener(m => {
+            const g = m.accelerationIncludingGravity;
+            if (g) addMotion(Date.now(), g, m.acceleration ?? null);
+          });
+        } else {
+          Accelerometer.setUpdateInterval(intervalMs);
+          accelSub = Accelerometer.addListener(data => {
+            accelSamples.push({ timestamp: Date.now(), accelX: data.x, accelY: data.y, accelZ: data.z, gyroX: 0, gyroY: 0, gyroZ: 0 });
+          });
+        }
+        const gyroSub = Gyroscope.addListener(data => {
+          gyroData.push({ x: data.x, y: data.y, z: data.z });
         });
+
+        cadenceResult = await Promise.allSettled([
+          this.sampleCadence(),
+          new Promise(r => setTimeout(r, SENSOR_CONFIG.MOTION_SAMPLE_DURATION_MS)),
+        ]);
+
+        accelSub.remove();
+        gyroSub.remove();
       }
-      const gyroSub = Gyroscope.addListener(data => {
-        gyroData.push({ x: data.x, y: data.y, z: data.z });
-      });
-
-      const cadenceResult = await Promise.allSettled([
-        this.sampleCadence(),
-        new Promise(r => setTimeout(r, SENSOR_CONFIG.MOTION_SAMPLE_DURATION_MS)),
-      ]);
-
-      accelSub.remove();
-      gyroSub.remove();
 
       if (accelSamples.length === 0) {
         console.warn(`${LOG_TAG} No accelerometer data collected`);
@@ -120,7 +151,7 @@ export class MotionTracker {
         this.isStationary = false; this.stationaryStartTime = 0;
       }
 
-      const stepCadence = cadenceResult[0].status === 'fulfilled' ? cadenceResult[0].value : null;
+      const stepCadence = cadenceResult[0].status === 'fulfilled' ? (cadenceResult[0].value as number | null) : null;
 
       return {
         accelMagnitudeAvg, accelMagnitudeMax, accelVariance,

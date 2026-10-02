@@ -1,5 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { AppState, Platform } from 'react-native';
+import { startSessionService, stopSessionService } from '../../modules/session-service';
 import { SensorWindow, Session, VibeScoreBreakdown, SensorReading, LiveDashboardData, TrendDir, AudioMetrics, MotionMetrics, MovementAxis } from '../types';
 import { SENSOR_CONFIG } from '../config/constants';
 import { AudioAnalyzer } from './AudioAnalyzer';
@@ -98,6 +99,11 @@ export class SensorOrchestrator {
     // Open the microphone for the whole session: this is what keeps iOS from suspending
     // the app in the background between captures.
     await this.audioAnalyzer.start();
+    // Android: a foreground service keeps mic, motion and JS timers running with the screen off.
+    // Started after the permission prompts, since its type depends on what was granted.
+    if (Platform.OS === 'android') {
+      startSessionService('ViibeMeter is measuring', 'Session running. Open the app to stop it.');
+    }
     this.startNewWindow();
 
     // Audio + motion run together (beat sync needs them on one clock); others staggered
@@ -124,6 +130,7 @@ export class SensorOrchestrator {
 
     await this.finalizeWindow();
     await this.audioAnalyzer.stop();
+    stopSessionService();
     await syncAll();
 
     this.bleScanner.destroy();
@@ -369,9 +376,10 @@ export class SensorOrchestrator {
   }
 
   private async collectBLESample(): Promise<void> {
-    // iOS does not let apps discover arbitrary nearby devices in the background, so a
-    // locked-phone scan always finds 0. Record no measurement rather than an empty room.
-    if (Platform.OS === 'ios' && AppState.currentState !== 'active') return;
+    // iOS does not let apps discover arbitrary nearby devices in the background, and Android
+    // pauses unfiltered scans with the screen off, so a locked-phone scan finds 0. Record no
+    // measurement rather than an empty room.
+    if (AppState.currentState !== 'active') return;
     try {
       const metrics = await this.bleScanner.scan();
       if (!metrics) return;

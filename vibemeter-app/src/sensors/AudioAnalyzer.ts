@@ -59,10 +59,11 @@ export class AudioAnalyzer {
    * suspend it. Audio stays in a short in-memory ring buffer and is never written to disk.
    */
   async start(): Promise<void> {
-    if (!isAudioCaptureAvailable) return;
     try {
+      // Ask up front on every platform: Android's session service only gets microphone
+      // access in the background if the permission is already granted when it starts.
       const { granted } = await Audio.requestPermissionsAsync();
-      if (!granted) return;
+      if (!granted || !isAudioCaptureAvailable) return;
       await startCapture(CAPTURE_BUFFER_SECONDS);
     } catch (err) {
       console.warn(`${LOG_TAG} Could not start continuous capture:`, err);
