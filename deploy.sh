@@ -29,7 +29,7 @@ echo "→ Installing on device..."
 ios-deploy --bundle "$APP_PATH" --no-wifi 2>&1 | tail -2
 
 echo "→ Launching to foreground..."
-idevicedebug run com.vibemeter.app 2>&1 &
+idevicedebug run com.leogerasimov.vibemeter 2>&1 &
 sleep 1
 
 echo "✓ Done"

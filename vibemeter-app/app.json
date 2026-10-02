@@ -2,7 +2,7 @@
   "expo": {
     "name": "VibeMeter",
     "slug": "vibemeter",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -14,12 +14,14 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.vibemeter.app",
+      "bundleIdentifier": "com.leogerasimov.vibemeter",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "VibeMeter measures ambient sound levels to compute vibe scores. No audio is recorded or stored.",
         "NSLocationWhenInUseUsageDescription": "VibeMeter uses your location to detect when you arrive at and leave venues.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "VibeMeter tracks your location in the background to measure how long you stay at a venue.",
         "NSBluetoothAlwaysUsageDescription": "VibeMeter scans for nearby Bluetooth devices to estimate crowd density. No device identities are stored.",
+        "NSMotionUsageDescription": "VibeMeter measures how much you move and whether it matches the beat. Only summary values are stored.",
+        "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [
           "location",
           "audio",
