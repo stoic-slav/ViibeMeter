@@ -7,8 +7,8 @@ Written at the end of a cloud session so a local (Mac) session can continue with
 Decide whether ViibeMeter is worth building out. The question is whether passive phone-sensor data (mic, motion, BLE) predicts how people rate the vibe at parties and clubs. Beat sync and crowd sync are the owner's central hypothesis: moving in sync with the music, and with each other, signals a high vibe.
 
 ## State
-- **PR:** https://github.com/stoic-slav/ViibeMeter/pull/1, branch `claude/eloquent-lovelace-y31ere`, base `master`.
-- **Built and pushed (not yet run on a real phone):**
+- **Merged:** PR https://github.com/stoic-slav/ViibeMeter/pull/1 was squash-merged into `master` (commit `70ce6ac`). Work from `master`; the old feature branch is finished.
+- **Built and merged (not yet run on a real phone):**
   - gravity-free motion (`DeviceMotion`, vertical/horizontal split) and `movement_energy`;
   - audio and motion captured together each cycle, with `src/processing/BeatSync.ts` producing `beat_plv`, `beat_phase_mean` and `tempo_match`;
   - windows aligned to wall-clock minutes, an optional event code, one-time dance affinity, and per-session phone placement;
@@ -26,8 +26,8 @@ Decide whether ViibeMeter is worth building out. The question is whether passive
 - The old data has no FFT, movement-energy or beat-sync values.
 
 ## Do next, in order
-1. **Get the branch on the Mac and onto the phone.**
-   - `git checkout claude/eloquent-lovelace-y31ere && git pull`
+1. **Get the code on the Mac and onto the phone.**
+   - `git checkout master && git pull`
    - `cd vibemeter-app && npm install`
    - From the repo root, run `bash deploy.sh`. It swaps the JS bundle into the existing Xcode build and needs `ios-deploy`, `idevicedebug` and a native Xcode build already in DerivedData. If `VibeMeter.app` isn't found, do the full `xcodebuild` build from the README first.
    - **Never run `npx expo prebuild --clean`.** It wipes the local iOS build patches (Podfile, `fmt/base.h`, entitlements).
