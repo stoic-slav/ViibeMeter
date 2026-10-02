@@ -36,7 +36,7 @@ Decide whether ViibeMeter is worth building out. The question is whether passive
 ## Supabase
 - Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, eu-west-3. Free tier, pauses when idle.
 - Schema matches every field the app uploads (checked this session).
-- Rows to clean up: the May test data (owner wants it purged) and two simulator sessions from 2 Oct (`SIM TEST`, event code `SIMTEST`, and an "Unknown venue" one). **Ask before deleting.** The owner can run `truncate table public.subjective_ratings, public.sensor_windows, public.sessions;` in the SQL editor.
+- **Purged on 2 Oct 2026** (owner ran `truncate` in the SQL editor; verified 0 rows). A CSV backup of the old rows is in `analysis/data/` on the owner's Mac (gitignored). All data from now on comes from the fixed v0.2.0 pipeline.
 
 ## Do next, in order
 1. **Install from TestFlight** on the owner's iPhone once Apple finishes processing build 1.
