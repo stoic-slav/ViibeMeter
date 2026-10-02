@@ -55,6 +55,9 @@ def main():
         print(f"Unique devices: {sessions['device_id'].nunique()}")
         if 'venue_type' in sessions.columns:
             print(f"Venue types:    {sessions['venue_type'].value_counts().to_dict()}")
+        if 'os_version' in sessions.columns:
+            platforms = sessions['os_version'].dropna().str.split().str[0].str.lower()
+            print(f"Platforms:      {platforms.value_counts().to_dict()}")
         completed = sessions[sessions['ended_at'].notna()]
         print(f"Completed sessions: {len(completed)}")
         if 'event_code' in sessions.columns:

@@ -39,7 +39,14 @@ SIGNALS = [
     'computed_energy_score', 'computed_density_score',
     'computed_movement_score', 'computed_music_score', 'computed_vibe_score',
 ]
-SESSION_COVARIATES = ['phone_placement', 'dance_affinity', 'event_code', 'app_version']
+SESSION_COVARIATES = ['phone_placement', 'dance_affinity', 'event_code', 'app_version', 'os_version']
+
+
+def platform_of(os_version) -> str | float:
+    """'ios' / 'android' from the session's os_version (e.g. 'ios 18.2', 'android 34')."""
+    if not isinstance(os_version, str) or not os_version.strip():
+        return np.nan
+    return os_version.split()[0].lower()
 
 
 def load_data():
@@ -90,6 +97,9 @@ def build_paired_dataset(windows: pd.DataFrame, ratings: pd.DataFrame,
     if sessions is not None and len(df) > 0:
         covs = [c for c in SESSION_COVARIATES if c in sessions.columns]
         df = df.merge(sessions[['id'] + covs].rename(columns={'id': 'session_id'}), on='session_id', how='left')
+        if 'os_version' in df.columns:
+            # iPhones and Android phones have different mics/IMUs, so platform is a moderator
+            df['platform'] = df['os_version'].map(platform_of)
 
     # Convert boolean music_detected to int
     if 'music_detected' in df.columns:
@@ -194,24 +204,29 @@ def headline_tests(paired: pd.DataFrame):
 
 
 def moderators(paired: pd.DataFrame):
-    """Does the movement/sync signal work differently by phone placement or dance affinity?"""
+    """Does the signal work differently by platform, phone placement or dance affinity?"""
     print("\n5. Moderators (Spearman ρ with rating):")
-    for col in ['movement_energy', 'beat_plv']:
+    if 'platform' in paired.columns:
+        counts = paired['platform'].value_counts().to_dict()
+        print(f"   ratings by platform: {counts}")
+    for col in ['movement_energy', 'beat_plv', 'avg_db', 'computed_vibe_score']:
         if col not in paired.columns:
             continue
-        if 'phone_placement' in paired.columns:
-            for place, g in paired.groupby('phone_placement'):
+        for group_col, label in [('platform', 'platform'), ('phone_placement', 'placement')]:
+            if group_col not in paired.columns:
+                continue
+            for value, g in paired.groupby(group_col):
                 sub = g[['rating', col]].dropna()
                 if len(sub) >= 5:
                     r, _ = stats.spearmanr(sub['rating'], sub[col])
-                    print(f"   {col:<16} placement={place:<7} ρ={r:.3f} (n={len(sub)})")
-        if 'dance_affinity' in paired.columns:
+                    print(f"   {col:<20} {label}={value:<8} ρ={r:.3f} (n={len(sub)})")
+        if col in ('movement_energy', 'beat_plv') and 'dance_affinity' in paired.columns:
             aff = pd.to_numeric(paired['dance_affinity'], errors='coerce')
             for label, mask in [('dancers (4–5)', aff >= 4), ('non-dancers (1–3)', aff <= 3)]:
                 sub = paired.loc[mask, ['rating', col]].dropna()
                 if len(sub) >= 5:
                     r, _ = stats.spearmanr(sub['rating'], sub[col])
-                    print(f"   {col:<16} {label:<18} ρ={r:.3f} (n={len(sub)})")
+                    print(f"   {col:<20} {label:<18} ρ={r:.3f} (n={len(sub)})")
 
 
 def print_key_findings(paired: pd.DataFrame, results: pd.DataFrame):
