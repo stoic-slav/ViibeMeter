@@ -31,10 +31,19 @@ def main():
     output_dir = Path(__file__).parent / 'data'
     output_dir.mkdir(exist_ok=True)
 
+    page_size = 1000  # PostgREST caps each response at 1,000 rows by default
+
     def fetch_table(table_name: str) -> pd.DataFrame:
         print(f"Fetching {table_name}...")
-        result = client.table(table_name).select('*').execute()
-        df = pd.DataFrame(result.data)
+        rows, start = [], 0
+        while True:
+            result = (client.table(table_name).select('*')
+                      .order('id').range(start, start + page_size - 1).execute())
+            rows.extend(result.data)
+            if len(result.data) < page_size:
+                break
+            start += page_size
+        df = pd.DataFrame(rows)
         print(f"  → {len(df)} rows")
         return df
 
@@ -69,7 +78,8 @@ def main():
         for col in ['avg_db', 'estimated_bpm', 'accel_magnitude_avg', 'ble_device_count',
                     'music_detected', 'gps_is_at_venue', 'screen_off_ratio',
                     'sub_bass_energy', 'pulse_clarity',
-                    'movement_energy', 'beat_plv', 'tempo_match', 'beat_phase_mean']:
+                    'movement_energy', 'beat_plv', 'tempo_match', 'beat_phase_mean',
+                    'song_isrc', 'song_bpm', 'song_popularity']:
             if col in windows.columns:
                 pct = windows[col].notna().mean() * 100
                 print(f"  {col:<30}: {pct:.1f}%")
