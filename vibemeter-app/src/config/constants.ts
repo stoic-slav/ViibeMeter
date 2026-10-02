@@ -67,6 +67,7 @@ export const SENSOR_CONFIG = {
   BPM_MAX: 200,
   BPM_CONFIDENCE_THRESHOLD: 0.5,
   BPM_TOLERANCE_PCT: 0.05,             // ±5% for consensus check
+  BPM_PCM_MIN_CLARITY: 0.3,            // min normalized onset autocorrelation to report a PCM tempo
 
   // Battery optimization
   STATIONARY_TIMEOUT_MS: 300000,        // stop motion sampling after 5 min stationary

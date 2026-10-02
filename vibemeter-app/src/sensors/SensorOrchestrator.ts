@@ -94,6 +94,9 @@ export class SensorOrchestrator {
     console.log(`${LOG_TAG} Starting sensors for session ${session.id}`);
 
     await this.locationTracker.requestPermissions();
+    // Open the microphone for the whole session: this is what keeps iOS from suspending
+    // the app in the background between captures.
+    await this.audioAnalyzer.start();
     this.startNewWindow();
 
     // Audio + motion run together (beat sync needs them on one clock); others staggered
@@ -119,6 +122,7 @@ export class SensorOrchestrator {
     this.windowTimer = this.uploadTimer = null;
 
     await this.finalizeWindow();
+    await this.audioAnalyzer.stop();
     await syncAll();
 
     this.bleScanner.destroy();

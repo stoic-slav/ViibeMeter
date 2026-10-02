@@ -12,7 +12,9 @@ import {
 import { detectBPM } from '../processing/BPMDetector';
 import { classifyAudio, computeRMS, rmsToDb, dbFullScaleToAmbient } from '../processing/AudioClassifier';
 import AudioRecord from 'react-native-audio-record';
-import { isShazamAvailable, matchFile as shazamMatchFile } from '../../modules/shazam-match';
+import {
+  isAudioCaptureAvailable, startCapture, stopCapture, isCapturing, readRecent, matchRecent,
+} from '../../modules/audio-capture';
 
 const LOG_TAG = '[AudioAnalyzer]';
 const AUDD_TOKEN = process.env.EXPO_PUBLIC_AUDD_TOKEN ?? '';
@@ -20,6 +22,10 @@ const RECOGNITION_MIN_INTERVAL_MS = 30_000;
 // A recognized song is reported only while it was confirmed recently, so a track
 // that ended does not keep tagging later windows.
 const SONG_STALE_MS = 120_000;
+// Rolling in-memory audio buffer on iOS; recognition matches the last few seconds of it
+const CAPTURE_BUFFER_SECONDS = 12;
+const SHAZAM_MATCH_SECONDS = 8;
+const DB_CHUNK_SAMPLES = 2048;
 
 interface RecognizedTrack {
   label: string;               // "Artist – Title", on-device display only
@@ -48,10 +54,31 @@ export class AudioAnalyzer {
   private loggedShazamError = false;
 
   /**
-   * Capture a 5-second audio sample and return computed metrics.
+   * iOS: open the microphone for the whole session. A continuously running audio input
+   * is what keeps the app alive in the background; separate clips with gaps let iOS
+   * suspend it. Audio stays in a short in-memory ring buffer and is never written to disk.
+   */
+  async start(): Promise<void> {
+    if (!isAudioCaptureAvailable) return;
+    try {
+      const { granted } = await Audio.requestPermissionsAsync();
+      if (!granted) return;
+      await startCapture(CAPTURE_BUFFER_SECONDS);
+    } catch (err) {
+      console.warn(`${LOG_TAG} Could not start continuous capture:`, err);
+    }
+  }
+
+  async stop(): Promise<void> {
+    if (!isAudioCaptureAvailable) return;
+    await stopCapture().catch(() => {});
+  }
+
+  /**
+   * Analyze a 5-second slice of audio and return computed metrics.
    * No audio is ever saved to disk permanently — only the metrics object is returned.
-   * iOS: records 16-bit PCM WAV via expo-av, extracts samples after recording.
-   * Android: streams raw PCM via react-native-audio-record for full FFT parity with iOS.
+   * iOS: reads the latest 5 s from the continuous in-memory capture.
+   * Android: streams raw PCM via react-native-audio-record for the same pipeline.
    */
   async analyze(): Promise<AudioMetrics | null> {
     if (this.isRecording) {
@@ -82,55 +109,22 @@ export class AudioAnalyzer {
   // ─── iOS ─────────────────────────────────────────────────────────────────────
 
   private async analyzeIOS(): Promise<AudioMetrics | null> {
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: true,
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: true,
-    });
-
-    const dbSamples: number[] = [];
-    const recording = new Audio.Recording();
-
-    await recording.prepareToRecordAsync({
-      isMeteringEnabled: true,
-      android: Audio.RecordingOptionsPresets.HIGH_QUALITY.android,
-      ios: {
-        extension: '.wav',
-        audioQuality: Audio.IOSAudioQuality.HIGH,
-        sampleRate: SENSOR_CONFIG.AUDIO_SAMPLE_RATE,
-        numberOfChannels: 1,
-        bitRate: 128000,
-        linearPCMBitDepth: 16,
-        linearPCMIsBigEndian: false,
-        linearPCMIsFloat: false,
-      },
-      web: {},
-    });
-
-    // Collect dB metering samples during recording (~10/sec)
-    recording.setOnRecordingStatusUpdate((status) => {
-      if (status.isRecording && status.metering != null) {
-        dbSamples.push(dbFullScaleToAmbient(status.metering));
-      }
-    });
-
-    await recording.startAsync();
-    // Anchor on the shared Date.now() clock so onsets line up with motion samples
-    const recordStartMs = Date.now();
+    if (!isCapturing()) await this.start();
+    // Wait for a fresh 5 s of audio, recorded while motion is sampled in parallel
     await new Promise(r => setTimeout(r, SENSOR_CONFIG.AUDIO_SAMPLE_DURATION_MS));
-    const fileUri = recording.getURI() ?? null;
-    await recording.stopAndUnloadAsync();
-
-    if (dbSamples.length === 0) {
-      console.warn(`${LOG_TAG} No metering samples collected`);
+    const recent = await readRecent(SENSOR_CONFIG.AUDIO_SAMPLE_DURATION_MS / 1000);
+    if (!recent || recent.count < 4096) {
+      console.warn(`${LOG_TAG} No audio from continuous capture`);
       return this.buildFallbackMetrics();
     }
 
-    // Extract raw PCM from the WAV file for FFT and BPM analysis.
-    // (Never spread it into push(): ~220k arguments overflows the JS stack.)
-    const pcmSamples = (fileUri ? await extractPCMFromWAV(fileUri) : null) ?? [];
-
-    return this.analyzePCMSamples(pcmSamples, dbSamples, fileUri, 'audio/wav', recordStartMs);
+    const pcmSamples = decodePCMChunk(recent.pcm);
+    // dB per ~46 ms chunk, the same granularity as the Android path
+    const dbSamples: number[] = [];
+    for (let i = 0; i + DB_CHUNK_SAMPLES <= pcmSamples.length; i += DB_CHUNK_SAMPLES) {
+      dbSamples.push(dbFullScaleToAmbient(rmsToDb(computeRMS(pcmSamples.slice(i, i + DB_CHUNK_SAMPLES)))));
+    }
+    return this.analyzePCMSamples(pcmSamples, dbSamples, null, 'audio/wav', recent.startMs);
   }
 
   // ─── Android ─────────────────────────────────────────────────────────────────
@@ -269,7 +263,7 @@ export class AudioAnalyzer {
   }
 
   // ─── Song recognition ─────────────────────────────────────────────────────────
-  // iOS: ShazamKit (on-device fingerprint, free). Elsewhere: AudD (uploads the clip),
+  // iOS: ShazamKit on the in-memory audio (fingerprint only, free). Elsewhere: AudD (uploads the clip),
   // only when a token is configured. Deezer fills in tempo and popularity by ISRC.
 
   private async attemptRecognition(
@@ -278,16 +272,15 @@ export class AudioAnalyzer {
     avgDb: number,
     fileType: string,
   ): Promise<void> {
-    if (!fileUri) return;
     if (classification === 'silent') return;
     if (avgDb < SENSOR_CONFIG.AUDIO_DB_TALKING) return;
     if (Date.now() - this.lastRecognitionAt < RECOGNITION_MIN_INTERVAL_MS) return;
 
     try {
-      if (isShazamAvailable) {
+      if (isAudioCaptureAvailable) {
         this.lastRecognitionAt = Date.now();
-        await this.recognizeWithShazam(fileUri);
-      } else if (AUDD_TOKEN) {
+        await this.recognizeWithShazam();
+      } else if (AUDD_TOKEN && fileUri) {
         this.lastRecognitionAt = Date.now();
         await this.recognizeWithAudd(fileUri, fileType);
       }
@@ -296,8 +289,8 @@ export class AudioAnalyzer {
     }
   }
 
-  private async recognizeWithShazam(fileUri: string): Promise<void> {
-    const result = await shazamMatchFile(fileUri);
+  private async recognizeWithShazam(): Promise<void> {
+    const result = await matchRecent(SHAZAM_MATCH_SECONDS);
     if (!result) return;
     if (result.error && !this.loggedShazamError) {
       this.loggedShazamError = true;
@@ -410,44 +403,6 @@ function decodePCMChunk(base64: string): number[] {
     return samples;
   } catch {
     return [];
-  }
-}
-
-/**
- * Parse a WAV file (written by expo-av with linearPCMBitDepth:16) and return
- * normalized float32 samples in [-1, 1]. Returns null on any parse error.
- * Used by the iOS path only.
- */
-async function extractPCMFromWAV(fileUri: string): Promise<number[] | null> {
-  try {
-    const b64 = await FileSystem.readAsStringAsync(fileUri, { encoding: 'base64' as any });
-    const binary = atob(b64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-
-    if (bytes.length < 44) return null;
-    const riff = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
-    if (riff !== 'RIFF') return null;
-
-    let offset = 12;
-    while (offset + 8 < bytes.length) {
-      const id = String.fromCharCode(bytes[offset], bytes[offset+1], bytes[offset+2], bytes[offset+3]);
-      const chunkSize = bytes[offset+4] | (bytes[offset+5] << 8) | (bytes[offset+6] << 16) | (bytes[offset+7] << 24);
-      if (id === 'data') {
-        offset += 8;
-        const samples: number[] = [];
-        for (let i = offset; i + 1 < offset + chunkSize && i + 1 < bytes.length; i += 2) {
-          let s = bytes[i] | (bytes[i+1] << 8);
-          if (s >= 32768) s -= 65536;
-          samples.push(s / 32768);
-        }
-        return samples;
-      }
-      offset += 8 + chunkSize;
-    }
-    return null;
-  } catch {
-    return null;
   }
 }
 

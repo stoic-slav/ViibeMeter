@@ -1,7 +1,7 @@
 Pod::Spec.new do |s|
-  s.name           = 'ShazamMatch'
+  s.name           = 'AudioCapture'
   s.version        = '1.0.0'
-  s.summary        = 'Match a recorded audio file against the Shazam catalog with ShazamKit'
+  s.summary        = 'Continuous in-memory microphone capture and ShazamKit matching'
   s.license        = 'MIT'
   s.author         = 'ViibeMeter'
   s.homepage       = 'https://github.com/stoic-slav/ViibeMeter'
@@ -10,7 +10,7 @@ Pod::Spec.new do |s|
   s.static_framework = true
 
   s.dependency 'ExpoModulesCore'
-  s.frameworks = 'ShazamKit', 'AVFoundation'
+  s.frameworks = 'AVFoundation', 'ShazamKit'
 
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
