@@ -44,7 +44,7 @@ eas build --platform ios                          # cloud build for TestFlight
 eas build --platform android --profile preview    # installable Android APK
 ```
 
-**Checks:** there are no test or lint scripts. `npx tsc --noEmit` (from `vibemeter-app/`) is the primary correctness check. For the analysis scripts, from `analysis/`: `python3 crowd_sync.py --selftest` (install deps with `pip install -r requirements.txt`, ideally in a virtualenv).
+**Checks:** there are no test or lint scripts. `npx -p typescript@5.9 tsc --noEmit` (from `vibemeter-app/`) is the primary correctness check; the pinned TypeScript 5.3 cannot parse Expo's `module: preserve`. On this Mac, run `pod install` with `LANG=en_US.UTF-8`. For the analysis scripts, from `analysis/`: `python3 crowd_sync.py --selftest` (install deps with `pip install -r requirements.txt`, ideally in a virtualenv).
 
 ## Environment setup
 Create `vibemeter-app/.env`:
@@ -99,7 +99,9 @@ If a signal is unavailable, its weight redistributes proportionally to present s
 - `beat_plv`, `beat_phase_mean`, `tempo_match` (`src/processing/BeatSync.ts`): how movement peaks land on the audio beat. Audio and motion are recorded at the same time so they share one clock.
 - Crowd sync (`analysis/crowd_sync.py`): computed server-side across devices that share an `event_code`; needs ≥3 devices. Windows are aligned to wall-clock minutes so devices can be compared.
 
-FFT-derived spectral metrics (sub-bass energy, spectral centroid, spectral flux, crest factor, vocal presence, harmonic-to-noise ratio) are computed in `src/processing/FFTProcessor.ts` (Cooley-Tukey) from raw PCM extracted in `AudioAnalyzer.ts`. iOS records WAV via `expo-av`; Android streams PCM via `react-native-audio-record`. Both run the same pipeline.
+**Song recognition:** iOS uses ShazamKit through the local Expo module `modules/shazam-match` (fingerprint only, the ShazamKit App Service must be enabled on the app ID); other platforms fall back to AudD when `EXPO_PUBLIC_AUDD_TOKEN` is set. Deezer's ISRC lookup adds tempo and popularity. Stored per window, collect-only: `song_isrc`, `song_genre`, `song_bpm`, `song_popularity`, `recognition_source`. Temporary audio clips are deleted after each analysis.
+
+FFT-derived spectral metrics (sub-bass energy, spectral centroid, spectral flux, crest factor, vocal presence, harmonic-to-noise ratio) are computed in `src/processing/FFTProcessor.ts` (Cooley-Tukey) from raw PCM extracted in `AudioAnalyzer.ts`. iOS records WAV via `expo-av` and reads it with `expo-file-system/legacy` (the SDK 54 root import throws); Android streams PCM via `react-native-audio-record`. Both run the same pipeline.
 
 ### Storage schema
 Three SQLite tables in `LocalBuffer`, mirrored in Supabase:

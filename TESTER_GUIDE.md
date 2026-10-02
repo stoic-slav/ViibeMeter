@@ -1,39 +1,50 @@
-# VibeMeter — Tester Guide
+# ViibeMeter — Tester Guide
 
-Thanks for helping test VibeMeter! This takes 2 minutes to read. Please read it.
+Thanks for helping test ViibeMeter! This takes 2 minutes to read. Please read it.
 
 ---
 
 ## What this app does
 
-VibeMeter measures the "vibe" of a venue using your phone's sensors:
-- **Sound level** (not recorded — just how loud it is)
-- **Music detection** (is there music playing? what tempo?)
-- **Movement** (are you dancing, walking, or standing still?)
-- **Crowd density** (how many Bluetooth devices are nearby?)
+ViibeMeter measures the "vibe" of a venue using your phone's sensors:
+- **Sound** (how loud it is, the tempo, how strong the bass is). Audio is analysed on the phone and never saved.
+- **Song** playing (recognised on iPhone with Apple's ShazamKit)
+- **Movement** (are you dancing, walking or standing still, and are you moving on the beat?)
+- **Crowd density** (how many Bluetooth devices are nearby)
 
-Every ~5 minutes it asks you: "How's the vibe?" on a 1–5 scale.
+Every ~5 minutes it asks you "How's the vibe?" on a 1–5 scale.
 
-The experiment tests whether the sensor measurements match your honest ratings.
+The experiment tests whether the sensor measurements match your honest ratings, and whether people moving in sync with the music and with each other means a better vibe.
+
+---
+
+## Install
+
+- **iPhone:** open the TestFlight invite link (or scan the QR code) → install **TestFlight** from the App Store if asked → tap **Install** next to ViibeMeter.
+- **Android:** open the APK download link on your phone → allow "install from unknown sources" when asked → install.
+
+The first time you open it, allow **microphone, motion, Bluetooth, location and notifications**. Each one feeds a signal; the app still works if you refuse one, it just measures less.
 
 ---
 
 ## How to use it
 
-**When you arrive somewhere:**
-1. Open VibeMeter
-2. Tap **"Start Session"**
-3. Optionally type the venue name (e.g. "Bar Delirium") and pick the venue type
-4. Put your phone back in your pocket
+**When you arrive:**
+1. Open ViibeMeter and tap **Start Session**.
+2. The first time only, answer how much you enjoy dancing (1–5).
+3. Type the venue name.
+4. Pick where the phone will be: **Pocket** is best, so keep it there all night if you can.
+5. Enter the **event code** if the organiser gave you one (e.g. `DISCO42`). Everyone at the same event must use the same code; that is what lets us measure crowd sync.
+6. Tap **Start Session** and put the phone in your pocket.
 
 **While you're out:**
-- You'll get a notification: "How's the vibe?" → tap your honest answer (takes 2 seconds)
-- You can ignore a prompt if you're busy — just catch the next one
+- When "How's the vibe?" appears, tap your honest answer (2 seconds).
+- Missed one? No problem, the next comes in 5 minutes.
+- Keep the app running. Locking the screen is fine; force-closing it stops the measurement.
 
 **When you leave:**
-1. Open VibeMeter
-2. Tap **"End Session"**
-3. Check the Session Summary to see how well the sensors matched your experience
+1. Open ViibeMeter and tap **Stop**.
+2. Look at the Summary to see how the sensors read your night.
 
 ---
 
@@ -41,53 +52,53 @@ The experiment tests whether the sensor measurements match your honest ratings.
 
 | Rating | Label | When to use |
 |--------|-------|-------------|
-| 💀 | Dead | Place is empty, quiet, nobody is having fun |
-| 😐 | Meh | Mediocre — a bit flat, nothing special |
+| 💀 | Dead | Empty, quiet, nobody is having fun |
+| 😐 | Meh | A bit flat, nothing special |
 | 🙂 | Decent | Good atmosphere, enjoying it |
-| 🔥 | Great | Excellent vibe, really buzzing |
-| 🤯 | Peak | Best night out energy — this is it |
+| 🔥 | Great | Really buzzing |
+| 🤯 | Peak | Best-night-out energy |
 
-**The most important thing: be honest.** Don't rate what you think the app wants to see. Rate what you actually feel. Bad honest ratings are more valuable than good fake ones.
+**Be honest.** Rate what you actually feel, not what you think the app wants. Bad honest ratings are worth more than good fake ones.
 
 ---
 
-## What to test at
-
-Try to use it at a variety of places across 2–3 weekends:
+## Where to test
 
 | Venue type | Examples |
 |------------|---------|
-| Bars | Quiet pub, loud sports bar, cocktail bar |
-| Clubs | Anything with a DJ |
+| Clubs | Anything with a DJ (best signal) |
+| Bars | Quiet pub, loud bar, cocktail bar |
 | House parties | Friend's place, garden party |
 | Concerts | Any live music |
-| Restaurants | Bonus: should score low — useful as a control |
+| Restaurants | Should score low, useful as a control |
 
 ---
 
 ## Privacy
 
-- The app **does not record audio** — it only measures the sound level (dB), like a decibel meter
-- The app **does not store your GPS location** — it only checks if you're still at the venue
-- The app **does not store Bluetooth device IDs** — it only counts how many devices are nearby
-- You are identified by a random anonymous device ID (no name, email, or phone number)
+- **No audio is stored or uploaded.** Each ~5-second clip is analysed on the phone and deleted. Song recognition sends Apple only an irreversible fingerprint.
+- **No GPS coordinates are stored.** Location is only used on the phone to check you are still at the venue.
+- **No Bluetooth device IDs are stored.** Only the number of nearby devices.
+- You are identified by a **random anonymous ID**, shown at the bottom of the home screen. No name, email or phone number.
 
-You can see exactly what the app collected in the Session Summary after each outing.
+Full policy: [docs/PRIVACY.md](docs/PRIVACY.md). To delete your data, send us your anonymous ID.
 
 ---
 
 ## Troubleshooting
 
-**"I forgot to end my session"** — Open the app and end it. The dwell time will still be roughly correct.
+**"I forgot to stop my session"** — Open the app and stop it. Dwell time will still be roughly right.
 
-**"I missed the rating notification"** — Don't worry, you'll get another one in 5 minutes.
+**"I missed the rating notification"** — Another one comes in 5 minutes.
 
-**"The app seems to drain my battery"** — Target is under 5% per hour. If it's more, let us know.
+**"Battery drain"** — Target is under 5% per hour. If it's more, tell us.
 
-**"The vibe score looks wrong"** — That's actually useful data! Rate honestly and it shows up in the analysis as a divergence. Don't try to "correct" the sensor score.
+**"The vibe score looks wrong"** — That's useful data! Rate honestly; the gap between your rating and the score is exactly what we study.
+
+**"TestFlight says the build expired"** — Builds last 90 days. Open TestFlight and install the newest one.
 
 ---
 
-Questions? DM or message the group chat.
+Questions? Message the group chat.
 
-Thanks — you're helping build something genuinely new.
+Thanks, you're helping build something genuinely new.

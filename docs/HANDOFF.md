@@ -1,52 +1,57 @@
-# Handoff: continue ViibeMeter work in a local session
+# Handoff: continue ViibeMeter work
 
-Written at the end of a cloud session so a local (Mac) session can continue without the chat history.
+Updated 2 October 2026 at the end of a local (Mac) session, so the next session can continue without the chat history.
 **How the owner works:** they want Claude to drive end to end and give only minimal direction and oversight. Do the work, verify it, and report outcomes plainly, including failures. Ask only when a decision is genuinely theirs.
 
 ## Goal
 Decide whether ViibeMeter is worth building out. The question is whether passive phone-sensor data (mic, motion, BLE) predicts how people rate the vibe at parties and clubs. Beat sync and crowd sync are the owner's central hypothesis: moving in sync with the music, and with each other, signals a high vibe.
 
 ## State
-- **Merged:** PR https://github.com/stoic-slav/ViibeMeter/pull/1 was squash-merged into `master` (commit `70ce6ac`). Work from `master`; the old feature branch is finished.
-- **Built and merged (not yet run on a real phone):**
-  - gravity-free motion (`DeviceMotion`, vertical/horizontal split) and `movement_energy`;
-  - audio and motion captured together each cycle, with `src/processing/BeatSync.ts` producing `beat_plv`, `beat_phase_mean` and `tempo_match`;
-  - windows aligned to wall-clock minutes, an optional event code, one-time dance affinity, and per-session phone placement;
-  - fixes for uploads that dropped the 6 FFT metrics and for SQLite column migrations that never applied;
-  - Android 12+ Bluetooth runtime permission, and a failed BLE scan now recorded as missing rather than 0 devices;
-  - `analysis/crowd_sync.py`, within-person correlations, headline tests and moderators by platform, placement and dance affinity.
-- **Beat sync, movement energy and crowd sync are collect-only.** They are not in the composite score until real data validates them.
-- **Checks that passed:** `npx tsc --noEmit`, BeatSync and `crowd_sync.py --selftest` on synthetic data, and the analysis end to end on synthetic data.
-- **Not verified:** anything on a real iPhone or Android phone. The first job is to run the four tests below.
+
+### Distribution (new this session)
+- **Apple Developer Program is active** (individual, team `APRS7H5DD6`). The owner's iPhone is company-managed: **Developer Mode is off and must stay off**, so the only install route is **TestFlight**, which the company allows.
+- **Bundle ID is now `com.leogerasimov.vibemeter`.** `com.vibemeter.app` was unavailable to our team. Do not change it again: it is tied to the App Store Connect record, certificates and TestFlight group. Android package is still `com.vibemeter.app` (no Play listing yet).
+- **App Store Connect app:** name **ViibeMeter** (renamed by the owner), ASC app id `6818585201` (pinned in `eas.json`). TestFlight internal group "Team (Expo)" contains the owner.
+- **ShazamKit App Service is enabled** on the app ID (owner did it in the developer portal).
+- **EAS:** Expo account `stoicslav`, project `@stoicslav/vibemeter`. Supabase URL and anon key are EAS env vars (preview and production). `EXPO_PUBLIC_AUDD_TOKEN` is local `.env` only, so cloud builds have no AudD (fine: iOS uses ShazamKit).
+- **iOS build 1 (v0.2.0)** built on EAS (`05e8db2d-…`) and was queued for TestFlight submission (`dd503dd5-…`). It contains commits up to `6701245` (audio fix + ShazamKit) but not the rename to ViibeMeter or the on-screen anonymous ID.
+- **Android preview APK** (`faa6cbd2-…`) was queued on the EAS free tier for over an hour. It was uploaded before `.npmrc` was committed, so if it fails at `npm install`, rerun `eas build -p android --profile preview`.
+
+### Code changes this session
+- **Critical iOS fix:** in Expo SDK 54, `readAsStringAsync` from the root `expo-file-system` import always throws, so iOS never read the PCM. Every iOS window had FFT metrics of 0, no beat grid, and no beat sync. `AudioAnalyzer.ts` now imports `expo-file-system/legacy`. A follow-up stack overflow (`push(...220k samples)`) was also fixed. Verified in the simulator: PCM BPM and dB now come through.
+- **Old Supabase data is affected by this bug.** The ~150 May windows have no valid FFT or beat data from iOS.
+- Temporary WAV clips are now deleted after each analysis (they used to pile up in the cache).
+- **ShazamKit:** local Expo module `vibemeter-app/modules/shazam-match` (Swift) matches the recorded clip. Only the fingerprint leaves the device. Deezer `track/isrc:` lookup adds tempo and popularity rank. AudD remains the fallback on Android when a token is set. Simulator returned ShazamKit error 202 before the App Service was enabled; unverified on a device.
+- New collect-only window columns: `song_isrc`, `song_genre`, `song_bpm`, `song_popularity`, `recognition_source` (SQLite migration + Supabase migration `20261002163648_song_descriptors.sql`, applied).
+- `app.json`: `NSMotionUsageDescription`, `ITSAppUsesNonExemptEncryption=false`, version 0.2.0, name ViibeMeter, honest microphone prompt. `eas.json`: remote app versioning with auto-increment.
+- Home screen shows the anonymous device ID (needed for deletion requests in the privacy policy).
+- `analysis/fetch_data.py` paginates past the 1,000-row cap (verified against live data: 29 sessions, 164 windows, 16 ratings).
+- `docs/PRIVACY.md` (privacy policy) and a rewritten `TESTER_GUIDE.md`.
+
+### Local build notes
+- `pod install` needs `LANG=en_US.UTF-8` on this Mac (Ruby 4 encoding error otherwise).
+- The pinned TypeScript 5.3.3 cannot parse Expo's `module: preserve`. Type-check with `npx -p typescript@5.9 tsc --noEmit`.
+- The simulator build lives in `ios/build/sim`. The simulator uses the Mac's microphone, so the audio pipeline can be tested there; motion and BLE cannot.
 
 ## Supabase
-- **Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, region eu-west-3.** It was paused and has been restored. Free-tier projects pause again when idle.
-- The sync_signals migration (`20261002000000_sync_signals.sql`) is applied. The two earlier dashboard-only migrations are now committed to the repo.
-- **Existing rows are probably not real field data** (27 sessions, 149 windows, 16 ratings from 3 iPhones, May 17–23). The owner said purging is wanted. Deletes through the MCP SQL tool timed out repeatedly (probably an approval prompt). The owner can run `truncate table public.subjective_ratings, public.sensor_windows, public.sessions;` in the Supabase SQL editor. Do not spend long on it. A pre-purge backup exists only in the old cloud container.
-- The old data has no FFT, movement-energy or beat-sync values.
+- Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, eu-west-3. Free tier, pauses when idle.
+- Schema matches every field the app uploads (checked this session).
+- Rows to clean up: the May test data (owner wants it purged) and two simulator sessions from 2 Oct (`SIM TEST`, event code `SIMTEST`, and an "Unknown venue" one). **Ask before deleting.** The owner can run `truncate table public.subjective_ratings, public.sensor_windows, public.sessions;` in the SQL editor.
 
 ## Do next, in order
-1. **Get the code on the Mac and onto the phone.**
-   - `git checkout master && git pull`
-   - `cd vibemeter-app && npm install`
-   - From the repo root, run `bash deploy.sh`. It swaps the JS bundle into the existing Xcode build and needs `ios-deploy`, `idevicedebug` and a native Xcode build already in DerivedData. If `VibeMeter.app` isn't found, do the full `xcodebuild` build from the README first.
-   - **Never run `npx expo prebuild --clean`.** It wipes the local iOS build patches (Podfile, `fmt/base.h`, entitlements).
-2. **Run the four device tests** (steady ~120 BPM track played aloud from a speaker, phone in pocket, event code `TEST1`):
-   - on beat for 2–3 min → Beat Sync should go above ~0.65;
-   - off beat → about 0.3 or below;
-   - standing still → low movement energy, "NO BEAT" or low sync;
-   - keep the session going about 6 min → data reaches Supabase.
-3. **Verify uploads in Supabase** (`execute_sql`): `movement_energy`, `beat_plv`, `beat_phase_mean`, `tempo_match`, `pulse_clarity` and the FFT columns are non-null, and sessions carry `event_code`, `phone_placement` and `dance_affinity`. Fix whatever is off.
-4. **Check Android** on one phone with the same tests (`eas build --platform android --profile preview`). Check that Bluetooth crowd counts appear on Android 12+, and whether long screen-off sessions get killed (it may need a foreground service).
-5. **Apple Developer account** ($99/yr) is the owner's step: it enables TestFlight public links. After step 2 passes, walk them through `eas build --platform ios`, `eas submit`, a TestFlight group, and the Apple review (first build, ~1 day). Add a feedback email and a short privacy page.
-6. **Big-event data collection:** 10–20 pre-recruited testers on iPhone and Android, all entering the same event code. That is the only way to get crowd sync (≥3 devices) and most of the ~150 labelled ratings needed.
-7. **Analysis:** `fetch_data.py` reads at most 1,000 rows per table (needs pagination once data grows). Then run `correlations.py` and `crowd_sync.py`.
+1. **Install from TestFlight** on the owner's iPhone once Apple finishes processing build 1.
+2. **Run the four device tests** (steady ~120 BPM song from a speaker, phone in pocket, event code `TEST1`): on beat 2–3 min → Beat Sync above ~0.65; off beat → ~0.3 or below; standing still → low movement energy; keep going ~6 min so data reaches Supabase. Also check the song shows on the Music tab (ShazamKit).
+3. **Verify uploads in Supabase:** `movement_energy`, `beat_plv`, `beat_phase_mean`, `tempo_match`, `pulse_clarity`, FFT columns and song columns non-null; sessions carry `event_code`, `phone_placement`, `dance_affinity`.
+4. **Ship build 2** (`eas build -p ios --profile production --auto-submit`) with the rename and anonymous ID once the tests pass, plus any fixes.
+5. **Publish the privacy policy:** fill in the contact email in `docs/PRIVACY.md`, push, and use the GitHub URL in App Store Connect. Needed before external TestFlight (public link) testing, which also needs a feedback email and Apple beta review (~1 day).
+6. **Android** on a friend's phone: same tests, BLE counts on Android 12+, and whether long screen-off sessions get killed (may need a foreground service).
+7. **Big-event data collection:** 10–20 pre-recruited testers on one event code (crowd sync needs ≥3 devices; target ~150 labelled ratings).
+8. **Analysis:** `fetch_data.py`, then `correlations.py` and `crowd_sync.py`.
 
 ## Known caveats
-- Motion now runs 6.5 s alongside every audio recording, so battery use is a bit higher.
-- `app.json` has no `NSMotionUsageDescription`. The pedometer call is wrapped in try/catch, so it fails quietly if iOS denies it. This is unchecked.
-- Android is untested in the field. All existing data is from iPhones.
-- `app_version` is `0.2.0`, so data from the new motion pipeline can be told apart from old data.
+- Motion runs 6.5 s alongside every audio recording, so battery use is a bit higher.
+- Android is untested in the field.
+- `expo-av` and `expo-background-fetch` are deprecated in SDK 54 (warnings only). Migrating to `expo-audio` / `expo-background-task` is future work.
 
 ## Research basis (why these signals)
 Ranked by how directly each is tied to enjoyment. No paper proves any signal predicts a vibe rating, which is the gap this app tests.
@@ -58,4 +63,4 @@ Ranked by how directly each is tied to enjoyment. No paper proves any signal pre
 - **Not building:** audio entropy (poor predictor in Witek 2014), raw 3-axis magnitude as a rhythm source (worst in Ellamil 2016), syncopation estimation.
 
 ## Phase 2 backlog (lower evidence)
-Hi-hat spectral flux (6.4–12.8 kHz) in `FFTProcessor.ts`, song popularity from Deezer rank via AudD (if AudD returns it), and whether to add beat sync to the composite score after validation.
+Hi-hat spectral flux (6.4–12.8 kHz) in `FFTProcessor.ts`, whether track popularity (now collected) relates to ratings, and whether to add beat sync to the composite score after validation.

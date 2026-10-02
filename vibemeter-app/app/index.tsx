@@ -10,6 +10,7 @@ import { vibePrompt } from '../src/notifications/VibePrompt';
 import { getRecentVenues } from '../src/storage/LocalBuffer';
 import { getDanceAffinity, setDanceAffinity } from '../src/storage/UserProfile';
 import { PhonePlacement } from '../src/types';
+import { getDeviceId } from '../src/storage/DeviceIdentity';
 
 type StartOptions = { venueName: string; eventCode: string; phonePlacement: PhonePlacement | null };
 
@@ -76,6 +77,8 @@ function SessionsScreen({ onStart, pastSessions, loading }: {
   loading: boolean;
 }) {
   const router = useRouter();
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+  useEffect(() => { getDeviceId().then(setDeviceId).catch(() => {}); }, []);
   return (
     <View style={s.container}>
       <View style={s.header}>
@@ -126,6 +129,12 @@ function SessionsScreen({ onStart, pastSessions, loading }: {
         >
           <Text style={s.startBtnText}>▶  START SESSION</Text>
         </TouchableOpacity>
+        {deviceId && (
+          // Shown so testers can quote it when asking for their data to be deleted
+          <Text selectable style={{ marginTop: 10, textAlign: 'center', fontFamily: MONO, fontSize: 9, color: TXD }}>
+            anonymous id · {deviceId}
+          </Text>
+        )}
       </View>
     </View>
   );
