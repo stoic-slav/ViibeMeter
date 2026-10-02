@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+> **Also read `AGENTS.md`** (rules for any agent) and **`docs/HANDOFF.md`** (current state and ordered next steps) before starting work.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
