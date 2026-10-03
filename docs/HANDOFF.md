@@ -15,7 +15,7 @@ Decide whether ViibeMeter is worth building out. The question is whether passive
 - **EAS:** Expo account `stoicslav`, project `@stoicslav/vibemeter`. The Supabase URL and anon key are EAS env vars. `EXPO_PUBLIC_AUDD_TOKEN` is local `.env` only, so cloud builds have no AudD.
 - **Upload route:** `eas submit` sat in the free-tier queue for hours, so builds are downloaded (`ViibeMeter.ipa`, gitignored) and the owner uploads them with **Transporter** on the Mac.
 - **iOS builds:** 1 (rejected by Apple: background mode `processing`, ITMS-90771), 2 (fixed), 3 (continuous background capture, BPM rewrite), 4 (dB calibration, no fake BLE zeros), 5 (Shazam runs above 40 dB), **6 = beat sync from song tempo, dB offset 110**, **7 = bass-only beat finding while moving, `beat_phase_clock`, movement BPM capped at 180, real `app_version` on sessions** (3 Oct). Build numbers auto-increment remotely.
-- **Android:** preview APK builds on EAS (`eas build -p android --profile preview`). The build with the new foreground service is `944bd7ce-…` (3 Oct). No Android device has run any build yet; the owner will share the APK link with friends.
+- **Android:** preview APK builds on EAS (`eas build -p android --profile preview`). Current APK: build `efa72d11-…` (3 Oct, includes iOS builds 6–7 changes and the foreground service): https://expo.dev/artifacts/eas/bOCrGo8fjtvXuYClCdhvkKh6VVLi102jVpqIran2rFI.apk No Android device has run any build yet; the owner will share the APK link with friends.
 
 ### Audio pipeline (iOS), changed 2–3 Oct
 - **Continuous capture:** local Expo module `vibemeter-app/modules/audio-capture` (Swift; replaces the earlier `shazam-match`). `AVAudioEngine` input tap into a 12 s in-memory ring buffer (Int16, 44.1 kHz mono); nothing is written to disk. Session category `.playAndRecord`, mode `.measurement` (no automatic gain), `.mixWithOthers`. It restarts itself after interruptions, route changes and media-server resets.
@@ -70,7 +70,7 @@ Owner's plan: 1 min still, ~3 min dancing on the beat, ~2 min deliberately off t
 ## Do next, in order
 1. **Retest on build 7** (owner; build 6 can be skipped): same protocol, pocket, about 10 minutes. Check that the on-beat minutes now have beat PLV above the off-beat ones, and that dB is close to the Watch reading.
 2. If PLV still does not separate on-beat from off-beat, look at movement peak detection (`findMovementPeaks`) and the movement axis choice next.
-3. **Android on a friend's phone:** install the APK from build `944bd7ce-…`, run a locked 10-minute session and check that windows are continuous and motion is non-zero. If the service fails to start, look for `SessionService` in logcat. Calibrate the Android dB offset too.
+3. **Android on a friend's phone:** install the current APK (see Distribution), run a locked 10-minute session and check that windows are continuous and motion is non-zero. If the service fails to start, look for `SessionService` in logcat. Calibrate the Android dB offset too.
 4. **Pilot at a real venue with ≥3 phones** on one event code (crowd sync), ratings every 5 minutes. Invite testers in App Store Connect (internal) or set up external TestFlight (needs the privacy URL, a feedback email and Apple beta review).
 5. **Analysis:** `fetch_data.py`, then `correlations.py` and `crowd_sync.py`.
 6. Optional: store ~10 s sub-window rows for beat sync and movement (discussed with the owner, not requested yet).
