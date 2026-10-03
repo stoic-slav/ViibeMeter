@@ -14,7 +14,7 @@ Decide whether ViibeMeter is worth building out. The question is whether passive
 - **App Store Connect:** app **ViibeMeter**, ASC app id `6818585201` (pinned in `eas.json`). The TestFlight internal group "Team (Expo)" contains the owner. ShazamKit App Service is enabled on the app ID.
 - **EAS:** Expo account `stoicslav`, project `@stoicslav/vibemeter`. The Supabase URL and anon key are EAS env vars. `EXPO_PUBLIC_AUDD_TOKEN` is local `.env` only, so cloud builds have no AudD.
 - **Upload route:** `eas submit` sat in the free-tier queue for hours, so builds are downloaded (`ViibeMeter.ipa`, gitignored) and the owner uploads them with **Transporter** on the Mac.
-- **iOS builds:** 1 (rejected by Apple: background mode `processing`, ITMS-90771), 2 (fixed), 3 (continuous background capture, BPM rewrite), 4 (dB calibration, no fake BLE zeros), 5 (Shazam runs above 40 dB), **6 = beat sync from song tempo, dB offset 110** (building 3 Oct). Build numbers auto-increment remotely.
+- **iOS builds:** 1 (rejected by Apple: background mode `processing`, ITMS-90771), 2 (fixed), 3 (continuous background capture, BPM rewrite), 4 (dB calibration, no fake BLE zeros), 5 (Shazam runs above 40 dB), **6 = beat sync from song tempo, dB offset 110**, **7 = bass-only beat finding while moving, `beat_phase_clock`, movement BPM capped at 180, real `app_version` on sessions** (3 Oct). Build numbers auto-increment remotely.
 - **Android:** preview APK builds on EAS (`eas build -p android --profile preview`). The build with the new foreground service is `944bd7ce-…` (3 Oct). No Android device has run any build yet; the owner will share the APK link with friends.
 
 ### Audio pipeline (iOS), changed 2–3 Oct
@@ -45,7 +45,13 @@ Owner's plan: 1 min still, ~3 min dancing on the beat, ~2 min deliberately off t
 - **Works:** 6 continuous windows with the screen off; **Shazam matched every window** (ISRC `USSM19902991`, Pop, Deezer BPM 117); music detected in every window; movement energy tracks the plan (1.7 still → 3.6–5.5 dancing); movement BPM 120 in the main on-beat minute.
 - **Failed:** the on-beat minutes (09:14, 09:15) had **no beat PLV**. The PCM beat grid fell below the 0.3 clarity bar, most likely because the pocket muffles the mic and dancing adds fabric noise. The off-beat minute got PLV 0.60 from few cycles, so it is not meaningful.
 - **Fixed in build 6:** beat sync falls back to the recognised song's tempo (PLV needs only the beat period; `beat_phase_mean` stays null without a grid). A known tempo also narrows the PCM search and lowers its clarity bar to 0.1. `pulse_clarity` now stores only PCM clarity (it used to mix in the metering estimate). iOS dB offset set to 110: app read 66–72 dB with offset 120, against ~50–60 on the Watch.
-- Movement BPM sometimes reads 200–231 (implausible for body movement); consider capping the movement tempo search at ~180.
+- Movement BPM sometimes read 200–231 (implausible); capped at 180 in build 7.
+
+### Build 7 (3 Oct): rustle-robust beat phase
+- **Bass-only onsets while moving** (`detectBPM(..., bassOnly)`, set from the previous motion sample's classification). Synthetic test with heavy high-frequency rustle: clarity 0.99 bass-only against 0.61–0.77 full band.
+- **Motion-gated audio suppression was considered and rejected:** when someone dances on the beat, cutting audio at movement peaks removes the real beats and biases the phase away from the movement.
+- **`beat_phase_clock`** (new column, Supabase migration `20261003120000_beat_phase_clock.sql`, applied): movement phase against a wall-clock grid at the song tempo, for crowd sync without microphone timing. `crowd_sync.py` reports `crowd_phase_sync_clock` and `crowd_sync_clock` alongside the heard-beat versions (selftest extended and passing). Synthetic check: two phones moving together but capturing 3.3 s apart gave 2.12 and 2.13 rad.
+- Sessions now upload the real `app_version`, e.g. `0.2.0 (7)` (`expo-application`), so analysis can tell calibrations and algorithm versions apart. Earlier rows all say `0.2.0`.
 
 ### Earlier changes (2 Oct)
 - iOS PCM read fixed (`expo-file-system/legacy`; SDK 54 root import throws). Old May data has no valid iOS FFT or beat data.
@@ -62,7 +68,7 @@ Owner's plan: 1 min still, ~3 min dancing on the beat, ~2 min deliberately off t
 - **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
 ## Do next, in order
-1. **Retest on build 6** (owner): same protocol, pocket, about 10 minutes. Check that the on-beat minutes now have beat PLV above the off-beat ones, and that dB is close to the Watch reading.
+1. **Retest on build 7** (owner; build 6 can be skipped): same protocol, pocket, about 10 minutes. Check that the on-beat minutes now have beat PLV above the off-beat ones, and that dB is close to the Watch reading.
 2. If PLV still does not separate on-beat from off-beat, look at movement peak detection (`findMovementPeaks`) and the movement axis choice next.
 3. **Android on a friend's phone:** install the APK from build `944bd7ce-…`, run a locked 10-minute session and check that windows are continuous and motion is non-zero. If the service fails to start, look for `SessionService` in logcat. Calibrate the Android dB offset too.
 4. **Pilot at a real venue with ≥3 phones** on one event code (crowd sync), ratings every 5 minutes. Invite testers in App Store Connect (internal) or set up external TestFlight (needs the privacy URL, a feedback email and Apple beta review).

@@ -5,6 +5,10 @@ import {
   getUnsyncedRatings, markRatingsSynced,
 } from './LocalBuffer';
 import { SENSOR_CONFIG } from '../config/constants';
+import * as Application from 'expo-application';
+
+// e.g. "0.2.0 (7)". The build number tells analysis which calibration and algorithms produced a row.
+const APP_VERSION = `${Application.nativeApplicationVersion ?? '?'} (${Application.nativeBuildVersion ?? '?'})`;
 
 const LOG_TAG = '[SupabaseSync]';
 
@@ -41,7 +45,7 @@ export async function syncSessions(): Promise<void> {
     // Deliberately NOT including venue_latitude/longitude to protect privacy
     device_model: r.device_model,
     os_version: r.os_version,
-    app_version: '0.2.0',
+    app_version: APP_VERSION,
     event_code: r.event_code ?? null,
     phone_placement: r.phone_placement ?? null,
     dance_affinity: r.dance_affinity ?? null,
@@ -99,6 +103,7 @@ export async function syncSensorWindows(): Promise<void> {
     movement_axis: r.movement_axis ?? null,
     beat_plv: r.beat_plv ?? null,
     beat_phase_mean: r.beat_phase_mean ?? null,
+    beat_phase_clock: r.beat_phase_clock ?? null,
     tempo_match: r.tempo_match ?? null,
     song_isrc: r.song_isrc ?? null,
     song_genre: r.song_genre ?? null,

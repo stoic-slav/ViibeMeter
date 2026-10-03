@@ -23,6 +23,7 @@ export interface TimedSample {
 export interface BeatSyncResult {
   plv: number;          // 0–1 phase-locking value
   phaseMean: number | null; // radians, (-π, π]; null when no audio beat grid was available
+  clockPhase: number | null; // radians: movement phase against the wall clock at the song tempo
   tempoMatch: number;   // 0–1 graded tempo agreement at the best harmonic
   harmonic: number;     // movement BPM ≈ harmonic × music BPM
   peakCount: number;    // movement peaks used
@@ -104,6 +105,12 @@ export function findMovementPeaks(series: TimedSample[], minGapMs: number): numb
  * rotates every phase by the same amount. So with the tempo known (e.g. from song recognition)
  * PLV can be computed without an audio beat grid; only phaseMean needs the grid.
  *
+ * clockPhase folds the same movement peaks onto a grid anchored at the Unix epoch, with the
+ * period of the recognised song. Every phone hearing that song uses the same number, so the
+ * phases are comparable across phones (crowd sync) without relying on the audio at all.
+ * Fabric rustle cannot bias it, because no microphone timing goes in. It does depend on the
+ * phones' clocks agreeing (network time, typically within tens of ms).
+ *
  * @param movement      movement signal (e.g. vertical linear acceleration), ms timestamps
  * @param onsetTimesMs  absolute audio beat times (ms, same clock as movement); may be empty
  * @param musicBpm      tempo of the music in this capture
@@ -114,6 +121,7 @@ export function computeBeatSync(
   onsetTimesMs: number[],
   musicBpm: number | null,
   movementBpm: number | null,
+  clockBpm: number | null = null,
 ): BeatSyncResult | null {
   if (!musicBpm || musicBpm <= 0) return null;
   const { tempoMatch, harmonic } = computeTempoMatch(movementBpm, musicBpm);
@@ -135,9 +143,22 @@ export function computeBeatSync(
   c /= peaks.length;
   s /= peaks.length;
 
+  let clockPhase: number | null = null;
+  if (clockBpm && clockBpm > 0) {
+    const clockCycleMs = 60000 / clockBpm / harmonic;
+    let cc = 0, cs = 0;
+    for (const t of peaks) {
+      const phi = (2 * Math.PI * (t % clockCycleMs)) / clockCycleMs;
+      cc += Math.cos(phi);
+      cs += Math.sin(phi);
+    }
+    clockPhase = Math.atan2(cs, cc);
+  }
+
   return {
     plv: Math.min(1, Math.sqrt(c * c + s * s)),
     phaseMean: ref != null ? Math.atan2(s, c) : null,
+    clockPhase,
     tempoMatch,
     harmonic,
     peakCount: peaks.length,
@@ -149,11 +170,17 @@ export function computeBeatSync(
  * mean PLV, PLV-weighted circular mean phase, mean tempo match.
  */
 export function aggregateBeatSync(results: BeatSyncResult[]): {
-  plv: number | null; phaseMean: number | null; tempoMatch: number | null;
+  plv: number | null; phaseMean: number | null; clockPhase: number | null; tempoMatch: number | null;
 } {
-  if (results.length === 0) return { plv: null, phaseMean: null, tempoMatch: null };
+  if (results.length === 0) return { plv: null, phaseMean: null, clockPhase: null, tempoMatch: null };
   let c = 0, s = 0, plvSum = 0, phasedPlvSum = 0, tmSum = 0;
+  let kc = 0, ks = 0, clockPlvSum = 0;
   for (const r of results) {
+    if (r.clockPhase != null) {
+      kc += r.plv * Math.cos(r.clockPhase);
+      ks += r.plv * Math.sin(r.clockPhase);
+      clockPlvSum += r.plv;
+    }
     if (r.phaseMean != null) {
       c += r.plv * Math.cos(r.phaseMean);
       s += r.plv * Math.sin(r.phaseMean);
@@ -165,6 +192,7 @@ export function aggregateBeatSync(results: BeatSyncResult[]): {
   return {
     plv: plvSum / results.length,
     phaseMean: phasedPlvSum > 0 ? Math.atan2(s, c) : null,
+    clockPhase: clockPlvSum > 0 ? Math.atan2(ks, kc) : null,
     tempoMatch: tmSum / results.length,
   };
 }

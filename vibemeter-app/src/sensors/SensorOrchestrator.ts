@@ -288,7 +288,7 @@ export class SensorOrchestrator {
     const musicBpm = audio?.beatBpm ?? audio?.recognizedBpm ?? null;
     if (audio && motion && musicBpm != null) {
       const onsets = audio.beatBpm != null ? audio.beatOnsetTimesMs : [];
-      const sync = computeBeatSync(motion.movementSeries, onsets, musicBpm, motion.movementBpm);
+      const sync = computeBeatSync(motion.movementSeries, onsets, musicBpm, motion.movementBpm, audio.recognizedBpm);
       if (sync) {
         this.beatResults.push(sync);
         this.lastBeatSync = sync;
@@ -360,6 +360,7 @@ export class SensorOrchestrator {
   }
 
   private applyMotionMetrics(metrics: MotionMetrics): void {
+    this.audioAnalyzer.setPhoneMoving(metrics.movementClassification !== 'stationary');
     this.currentWindow.accelMagnitudeAvg = metrics.accelMagnitudeAvg;
     this.currentWindow.accelMagnitudeMax = metrics.accelMagnitudeMax;
     this.currentWindow.accelVariance = metrics.accelVariance;
@@ -465,7 +466,7 @@ export class SensorOrchestrator {
 
   private aggregateRhythmMetrics(): Pick<SensorWindow,
     'movementEnergy' | 'movementBpm' | 'rhythmicity' | 'movementAxis' |
-    'beatPlv' | 'beatPhaseMean' | 'tempoMatch' | 'pulseClarity'> {
+    'beatPlv' | 'beatPhaseMean' | 'beatPhaseClock' | 'tempoMatch' | 'pulseClarity'> {
     const beat = aggregateBeatSync(this.beatResults);
     return {
       movementEnergy: mean(this.energyValues),
@@ -474,6 +475,7 @@ export class SensorOrchestrator {
       movementAxis: mode(this.axisValues),
       beatPlv: beat.plv,
       beatPhaseMean: beat.phaseMean,
+      beatPhaseClock: beat.clockPhase,
       tempoMatch: beat.tempoMatch,
       pulseClarity: mean(this.pulseClarityValues),
     };

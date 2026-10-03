@@ -97,7 +97,10 @@ If a signal is unavailable, its weight redistributes proportionally to present s
 **Collect-only signals** (stored and uploaded, not in the composite):
 - `movement_energy`: RMS of gravity-removed acceleration (`MotionTracker.ts`, using `DeviceMotion`).
 - `beat_plv`, `beat_phase_mean`, `tempo_match` (`src/processing/BeatSync.ts`): how movement peaks land on the audio beat. Audio and motion are recorded at the same time so they share one clock.
-- Crowd sync (`analysis/crowd_sync.py`): computed server-side across devices that share an `event_code`; needs ≥3 devices. Windows are aligned to wall-clock minutes so devices can be compared.
+- `beat_phase_clock` (`BeatSync.ts`): the same movement peaks folded onto a wall-clock grid at the recognised song's tempo. It uses no microphone timing, so a phone's own fabric rustle (which lands on the wearer's steps) cannot bias it, and it is comparable across phones if their clocks agree.
+- Crowd sync (`analysis/crowd_sync.py`): computed server-side across devices that share an `event_code`; needs ≥3 devices. Windows are aligned to wall-clock minutes so devices can be compared. Reports both the heard-beat version (`crowd_phase_sync`, from `beat_phase_mean`) and the clock version (`crowd_phase_sync_clock`); the analysis decides which holds up.
+
+**Beat sync robustness (phone in a pocket):** PLV needs only the beat period, so when the audio beat grid fails it falls back to the recognised song's tempo (`beat_phase_mean` is then null). A known song tempo also narrows the PCM tempo search. While the phone is moving, beats are found from the bass band only (rustle is mostly higher). Do not gate audio frames out at movement peaks: when someone dances on the beat that removes the real beats and biases the phase.
 
 **Song recognition:** iOS uses ShazamKit on the in-memory audio buffer (fingerprint only; the ShazamKit App Service must be enabled on the app ID), at most every 30 s when the room is above `SHAZAM_MIN_DB`. Android falls back to AudD when `EXPO_PUBLIC_AUDD_TOKEN` is set (louder rooms only, since it is paid and uploads the clip). Deezer's ISRC lookup adds tempo and popularity. Stored per window, collect-only: `song_isrc`, `song_genre`, `song_bpm`, `song_popularity`, `recognition_source`. Android's temporary WAV clips are deleted after each analysis.
 

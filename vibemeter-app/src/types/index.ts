@@ -36,7 +36,8 @@ export interface SensorWindow {
 
   // Beat sync (person ↔ music) — collect-only, not in composite score
   beatPlv: number | null;             // 0–1 phase-locking of movement peaks to the beat
-  beatPhaseMean: number | null;       // radians: where in the beat movement lands (crowd sync input)
+  beatPhaseMean: number | null;       // radians: where in the heard beat movement lands
+  beatPhaseClock: number | null;      // radians: movement phase vs wall clock at the song tempo (crowd sync)
   tempoMatch: number | null;          // 0–1 graded movement-vs-music tempo agreement
   pulseClarity: number | null;        // 0–1 audio beat clarity (onset-interval agreement)
 

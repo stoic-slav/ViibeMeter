@@ -47,6 +47,8 @@ interface PendingAuddTrack {
 
 export class AudioAnalyzer {
   private isRecording = false;
+  // Set from the latest motion sample; while moving, beat finding uses the bass band only
+  private phoneMoving = false;
   private lastRecognitionAt = 0;
   private track: RecognizedTrack | null = null;
   private pendingAudd: PendingAuddTrack | null = null;
@@ -70,7 +72,12 @@ export class AudioAnalyzer {
     }
   }
 
+  setPhoneMoving(moving: boolean): void {
+    this.phoneMoving = moving;
+  }
+
   async stop(): Promise<void> {
+    this.phoneMoving = false;
     if (!isAudioCaptureAvailable) return;
     await stopCapture().catch(() => {});
   }
@@ -201,7 +208,7 @@ export class AudioAnalyzer {
     if (pcmSamples.length >= 4096) {
       // A recognised song's tempo narrows the search, so the beat grid survives a muffled mic
       const knownBpm = this.track && Date.now() - this.track.confirmedAt <= SONG_STALE_MS ? this.track.bpm : null;
-      const pcmBpm = detectBPM(pcmSamples, SENSOR_CONFIG.AUDIO_SAMPLE_RATE, knownBpm);
+      const pcmBpm = detectBPM(pcmSamples, SENSOR_CONFIG.AUDIO_SAMPLE_RATE, knownBpm, this.phoneMoving);
       pulseClarity = pcmBpm.confidence;
       if (pcmBpm.bpm != null) {
         bpmResult = pcmBpm;

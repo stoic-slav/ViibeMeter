@@ -37,8 +37,16 @@ const KNOWN_TEMPO_RANGE = 0.04;  // ±4% around a recognised song's tempo
  * @param knownBpm - tempo of the recognised song, if any. The period search then stays within
  *   ±KNOWN_TEMPO_RANGE of it and a lower clarity is accepted, since only the beat phase has
  *   to be found. Helps when the mic is muffled or picks up handling noise (phone in a pocket).
+ * @param bassOnly - use only the bass band (below LOW_BAND_HZ) for the onset envelope. Set while
+ *   the phone is moving: fabric rustle is mostly above it, the kick drum below, and clothing
+ *   passes low frequencies better than high ones.
  */
-export function detectBPM(samples: number[], sampleRate: number, knownBpm: number | null = null): BPMResult {
+export function detectBPM(
+  samples: number[],
+  sampleRate: number,
+  knownBpm: number | null = null,
+  bassOnly = false,
+): BPMResult {
   if (samples.length < FRAME_SIZE * 2) {
     return { bpm: null, confidence: 0, onsetCount: 0, onsetTimes: [] };
   }
@@ -84,7 +92,7 @@ export function detectBPM(samples: number[], sampleRate: number, knownBpm: numbe
   // energy, then summed so neither band dominates
   const envFull = normalize(onsetEnvelope(fluxFull));
   const envLow = normalize(onsetEnvelope(fluxLow));
-  const env = envFull.map((v, i) => v + envLow[i]);
+  const env = bassOnly ? envLow : envFull.map((v, i) => v + envLow[i]);
   const onsetCount = countPeaks(env);
 
   // Zero-mean copy for the autocorrelation, so steady noise does not look periodic

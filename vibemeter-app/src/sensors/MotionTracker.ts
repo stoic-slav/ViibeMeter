@@ -14,6 +14,7 @@ const LOG_TAG = '[MotionTracker]';
 const G = 9.80665; // m/s² per g
 
 type Vec3 = { x: number; y: number; z: number };
+const MAX_MOVEMENT_BPM = 180;
 
 export class MotionTracker {
   private isStationary = false;
@@ -202,7 +203,8 @@ function computeMovementRhythm(
   const r0 = centered.reduce((s, v) => s + v * v, 0);
   if (r0 < 0.001) return { movementBpm: null, rhythmicity: 0 };
 
-  const minLag = Math.max(2, Math.round((sampleRateHz * 60) / 240));
+  // Body movement above ~180 per minute is jitter or a footstep harmonic, not a dance tempo
+  const minLag = Math.max(2, Math.round((sampleRateHz * 60) / MAX_MOVEMENT_BPM));
   const maxLag = Math.min(magnitudes.length - 2, Math.round((sampleRateHz * 60) / 30));
 
   let bestLag = minLag;

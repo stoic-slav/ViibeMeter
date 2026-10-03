@@ -17,6 +17,13 @@ Metrics per (event_code, minute):
   crowd_tempo_agreement  share of devices whose movement tempo (folded to one octave) is within
                          ±5% of the median — works even when the audio beat is not detected.
   crowd_sync             crowd_phase_sync × mean(beat_plv): locked to the music AND to each other.
+  crowd_phase_sync_clock same as crowd_phase_sync but from beat_phase_clock: movement phase
+                         against a wall-clock grid at the recognised song tempo. Uses no
+                         microphone timing, so a phone's own fabric rustle (which lands on the
+                         wearer's steps) cannot pull it towards that phone's movement. Needs the
+                         phones' clocks to agree (network time) and the same song_bpm; only
+                         devices on the minute's most common song_bpm are used.
+  crowd_sync_clock       crowd_phase_sync_clock × mean(beat_plv).
 
 Usage:
   python3 crowd_sync.py              (run fetch_data.py first)
@@ -54,6 +61,8 @@ def _crowd_metrics(group: pd.DataFrame) -> pd.Series:
         'crowd_tempo_agreement': np.nan,
         'crowd_sync': np.nan,
         'crowd_mean_plv': np.nan,
+        'crowd_phase_sync_clock': np.nan,
+        'crowd_sync_clock': np.nan,
     }
     if n_devices < MIN_DEVICES:
         return pd.Series(out)
@@ -64,6 +73,9 @@ def _crowd_metrics(group: pd.DataFrame) -> pd.Series:
         phase_sin=('beat_phase_mean', lambda p: np.sin(p).mean()),
         beat_plv=('beat_plv', 'mean'),
         movement_bpm=('movement_bpm', 'mean'),
+        clock_cos=('beat_phase_clock', lambda p: np.cos(p).mean()),
+        clock_sin=('beat_phase_clock', lambda p: np.sin(p).mean()),
+        song_bpm=('song_bpm', 'median'),
     )
 
     phased = per_device.dropna(subset=['phase_cos', 'phase_sin', 'beat_plv'])
@@ -73,6 +85,15 @@ def _crowd_metrics(group: pd.DataFrame) -> pd.Series:
         mean_plv = float(phased['beat_plv'].mean())
         out.update(crowd_phase_sync=phase_sync, crowd_mean_plv=mean_plv,
                    crowd_sync=phase_sync * mean_plv)
+
+    clocked = per_device.dropna(subset=['clock_cos', 'clock_sin', 'beat_plv', 'song_bpm'])
+    if len(clocked) >= MIN_DEVICES:
+        clocked = clocked[clocked['song_bpm'] == clocked['song_bpm'].mode().iloc[0]]
+    if len(clocked) >= MIN_DEVICES:
+        angles = np.arctan2(clocked['clock_sin'], clocked['clock_cos'])
+        clock_sync = float(np.abs(np.exp(1j * angles).mean()))
+        out.update(crowd_phase_sync_clock=clock_sync,
+                   crowd_sync_clock=clock_sync * float(clocked['beat_plv'].mean()))
 
     tempos = per_device['movement_bpm'].map(fold_tempo).dropna()
     if len(tempos) >= MIN_DEVICES:
@@ -91,7 +112,7 @@ def compute_crowd_sync(windows: pd.DataFrame, sessions: pd.DataFrame) -> pd.Data
     w = w[w['event_code'].notna() & (w['event_code'].astype(str).str.len() > 0)].copy()
     if w.empty:
         return pd.DataFrame()
-    for col in ['beat_phase_mean', 'beat_plv', 'movement_bpm']:
+    for col in ['beat_phase_mean', 'beat_phase_clock', 'beat_plv', 'movement_bpm', 'song_bpm']:
         if col not in w.columns:
             w[col] = np.nan
     w['minute'] = pd.to_datetime(w['window_start'], utc=True).dt.floor('min')
@@ -106,7 +127,8 @@ def attach_crowd_sync(windows: pd.DataFrame, sessions: pd.DataFrame) -> pd.DataF
     """Add crowd metrics to every window row (NaN when the window has no qualifying crowd)."""
     crowd = compute_crowd_sync(windows, sessions)
     out = windows.copy()
-    crowd_cols = ['crowd_phase_sync', 'crowd_tempo_agreement', 'crowd_sync', 'n_devices']
+    crowd_cols = ['crowd_phase_sync', 'crowd_tempo_agreement', 'crowd_sync',
+                  'crowd_phase_sync_clock', 'crowd_sync_clock', 'n_devices']
     if crowd.empty or 'event_code' not in sessions.columns:
         for c in crowd_cols:
             out[c] = np.nan
@@ -129,7 +151,7 @@ def peak_moments(crowd: pd.DataFrame, top_fraction: float = 0.1) -> pd.DataFrame
 
 # ── Synthetic self-test ───────────────────────────────────────────────────────
 
-def _synthetic(phases, plvs, bpms, event='TEST', minute='2026-10-02T21:00:00Z'):
+def _synthetic(phases, plvs, bpms, event='TEST', minute='2026-10-02T21:00:00Z', clock=None, song_bpm=None):
     sessions = pd.DataFrame({
         'id': [f's{i}' for i in range(len(phases))],
         'device_id': [f'd{i}' for i in range(len(phases))],
@@ -142,6 +164,8 @@ def _synthetic(phases, plvs, bpms, event='TEST', minute='2026-10-02T21:00:00Z'):
         'beat_phase_mean': phases,
         'beat_plv': plvs,
         'movement_bpm': bpms,
+        'beat_phase_clock': clock if clock is not None else [np.nan] * len(phases),
+        'song_bpm': song_bpm if song_bpm is not None else [np.nan] * len(phases),
     })
     return windows, sessions
 
@@ -162,6 +186,17 @@ def selftest():
         sims.append(compute_crowd_sync(w, s).iloc[0]['crowd_phase_sync'])
     print(f"random phases (n=4) → mean crowd_phase_sync={np.mean(sims):.3f}  (chance level for 4 devices ≈ 0.44)")
     assert np.mean(sims) < 0.6
+
+    # Clock phase: aligned devices on the same song sync; a device on another song is left out
+    w, s = _synthetic([0.0] * 4, [0.8] * 4, [117] * 4,
+                      clock=[2.0, 2.1, 1.9, -1.0], song_bpm=[117, 117, 117, 128])
+    r = compute_crowd_sync(w, s).iloc[0]
+    assert r['crowd_phase_sync_clock'] > 0.99, r
+    assert abs(r['crowd_sync_clock'] - r['crowd_phase_sync_clock'] * 0.8) < 1e-9
+    print(f"clock phases        → crowd_phase_sync_clock={r['crowd_phase_sync_clock']:.3f} (other-song device excluded)")
+    w, s = _synthetic([0.0] * 4, [0.8] * 4, [117] * 4, clock=[0.0, 1.6, 3.1, -1.6], song_bpm=[117] * 4)
+    assert compute_crowd_sync(w, s).iloc[0]['crowd_phase_sync_clock'] < 0.05
+    print("spread clock phases → crowd_phase_sync_clock≈0")
 
     w, s = _synthetic([1.0, 1.0], [0.9, 0.9], [120, 120])
     r = compute_crowd_sync(w, s).iloc[0]
