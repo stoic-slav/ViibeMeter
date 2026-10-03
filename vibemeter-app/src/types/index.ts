@@ -47,6 +47,10 @@ export interface SensorWindow {
   songBpm: number | null;             // metadata tempo (Deezer / Apple Music)
   songPopularity: number | null;      // Deezer rank (higher = more popular)
   recognitionSource: RecognitionSource | null;
+  // When this playback of the track began (ms, wall clock), from ShazamKit's match offset.
+  // Phones hearing the same speakers get the same value: the basis for automatic grouping.
+  songStartMs: number | null;
+  songStartSpreadMs: number | null;   // max − min of this window's estimates (accuracy check)
 
   // Density
   bleDeviceCount: number | null;
@@ -181,6 +185,7 @@ export interface AudioMetrics {
   recognizedIsrc: string | null;
   trackPopularity: number | null;
   recognitionSource: RecognitionSource | null;
+  songMatch: { isrc: string; trackStartMs: number } | null; // fresh ShazamKit match this cycle
   audioEvent: AudioEvent | null;
 }
 

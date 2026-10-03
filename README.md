@@ -72,7 +72,7 @@ If yes — there's a novel primitive here worth building a product around. If no
 | Crowd phase sync | `beat_phase_mean` across co-located devices | Are people hitting the beat at the same moment as each other? | **Collect-only** — strongest causal evidence for synchrony (Tarr 2016: bonding), measured with phones in a real club (Ellamil 2016); not yet proven for enjoyment ratings |
 | Crowd tempo agreement | `movement_bpm` across devices | Share of devices moving at the same tempo (half/double time folded) | **Collect-only** — works even when the audio beat is missed |
 
-**How it works:** testers at the same event type the same **event code** when starting a session. Windows are aligned to wall-clock minutes, so every phone's window for 21:14 has the same `window_start`. Each phone measures the phase of its movement relative to the beat *it hears* and uploads one number per minute (`beat_phase_mean`), so device clock offsets cancel and no raw data leaves the phone. For each event-minute with ≥3 devices:
+**How it works:** phones at the same event share a **group code** (one person shows a QR code, friends scan it), or are grouped automatically from the music they hear (`analysis/auto_groups.py`). Windows are aligned to wall-clock minutes, so every phone's window for 21:14 has the same `window_start`. Each phone measures the phase of its movement relative to the beat *it hears* and uploads one number per minute (`beat_phase_mean`), so device clock offsets cancel and no raw data leaves the phone. For each event-minute with ≥3 devices:
 ```
 crowd_phase_sync      = |mean over devices of e^(i · beat_phase_mean)|
 crowd_tempo_agreement = fraction of devices within ±5% of the median (octave-folded) movement BPM
@@ -127,7 +127,7 @@ If a signal is unavailable its weight redistributes proportionally to present si
 ### Data Flow
 
 ```
-Session start → SensorOrchestrator (audio + motion captured together each cycle; BLE, GPS staggered)
+Session start → SensorOrchestrator (audio + motion captured together each cycle; BLE staggered)
   → beat sync computed from each overlapping audio/motion capture
   → 4 parallel collectors on timers
   → every wall-clock minute: SensorWindow aggregated + scored by VibeScoreEngine
@@ -158,7 +158,7 @@ Each device generates a random anonymous UUID on first launch (stored in iOS Sec
 ## Privacy
 
 - No audio ever recorded or stored — only computed metrics (dB level, BPM, classification)
-- No GPS coordinates stored server-side — only session-level venue name and dwell time
+- No location used at all (since build 8); only an optional venue name and dwell time
 - No Bluetooth device identities — only device count
 - All raw sensor data stays on-device; only aggregated 1-minute windows are uploaded
 - Users identified by anonymous device ID only

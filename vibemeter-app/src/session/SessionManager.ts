@@ -2,7 +2,8 @@ import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import * as Crypto from 'expo-crypto';
 import { Session, VenueType, PhonePlacement } from '../types';
-import { saveSession, updateSessionEnd, getSessions } from '../storage/LocalBuffer';
+import { saveSession, updateSessionEnd, getSessions, updateSessionEventCode } from '../storage/LocalBuffer';
+import { generateGroupCode } from './GroupCode';
 import { getDeviceId } from '../storage/DeviceIdentity';
 import { getDanceAffinity } from '../storage/UserProfile';
 import { syncSessions } from '../storage/SupabaseSync';
@@ -45,7 +46,8 @@ export class SessionManager {
       venueLongitude: null,
       deviceModel: Device.modelName ?? Platform.OS,
       osVersion: `${Platform.OS} ${Platform.Version}`,
-      eventCode: normalizeEventCode(options.eventCode),
+      // Every session gets a group code; friends join it by scanning its QR code
+      eventCode: normalizeEventCode(options.eventCode) ?? generateGroupCode(),
       phonePlacement: options.phonePlacement ?? null,
       danceAffinity,
     };
@@ -86,6 +88,15 @@ export class SessionManager {
     syncSessions().catch(err => console.warn(`${LOG_TAG} Sync error:`, err));
 
     return ended;
+  }
+
+  /** Move the running session into another group (after scanning a friend's code). */
+  async setEventCode(code: string): Promise<void> {
+    const normalized = normalizeEventCode(code);
+    if (!this.activeSession || !normalized) return;
+    this.activeSession = { ...this.activeSession, eventCode: normalized };
+    await updateSessionEventCode(this.activeSession.id, normalized);
+    syncSessions().catch(err => console.warn(`${LOG_TAG} Sync error:`, err));
   }
 
   async getPastSessions(): Promise<any[]> {

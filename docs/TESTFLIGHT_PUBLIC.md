@@ -15,7 +15,7 @@ Left sidebar → **Test Information**. Fill in and **Save**:
 | Privacy Policy URL | `https://github.com/stoic-slav/ViibeMeter/blob/master/docs/PRIVACY.md` |
 
 **Beta App Description:**
-> ViibeMeter is a research app that measures the "vibe" at parties, bars and clubs from your phone's sensors. During a session it listens to the music (tempo, loudness, song recognition), measures how you move and whether you move on the beat, and asks you every 5 minutes to rate the vibe. No audio, location or Bluetooth identities are stored or uploaded; only summary numbers are. We use the data to test whether sensors can predict how people rate a night out.
+> ViibeMeter is a research app that measures the "vibe" at parties, bars and clubs from your phone's sensors. During a session it listens to the music (tempo, loudness, song recognition), measures how you move and whether you move on the beat, and asks you every 5 minutes to rate the vibe. No audio or Bluetooth identities are stored or uploaded, and the app does not use location; only summary numbers are. We use the data to test whether sensors can predict how people rate a night out.
 
 **Beta App Review Information:**
 
@@ -29,7 +29,7 @@ Left sidebar → **Test Information**. Fill in and **Save**:
 **Review Notes:**
 > No account is needed. Tap Start Session, answer the one-time dance question, enter any venue name, choose where the phone is, and start. Play any music nearby.
 >
-> Background modes: a session measures continuously for the length of a night out, usually with the phone locked in a pocket. The microphone stays on during the session (audio background mode) to measure loudness, tempo and beat timing. Audio is analysed on the device in a few-second in-memory buffer and never stored or uploaded; song recognition uses ShazamKit, which sends only a fingerprint. Location (background) detects arrival and departure at the venue; coordinates never leave the phone. Bluetooth counts nearby devices to estimate crowd size; no identifiers are stored. The session ends when the user taps Stop, which turns all sensors off.
+> Background modes: a session measures continuously for the length of a night out, usually with the phone locked in a pocket. The microphone stays on during the session (audio background mode) to measure loudness, tempo and beat timing. Audio is analysed on the device in a few-second in-memory buffer and never stored or uploaded; song recognition uses ShazamKit, which sends only a fingerprint. Bluetooth counts nearby devices to estimate crowd size; no identifiers are stored. The app does not use location. The camera is used only to scan a friend's group QR code (tap GROUP on the meter screen, then Scan). The session ends when the user taps Stop, which turns all sensors off.
 
 ## 2. External group with a public link
 1. Left sidebar → **External Testing** → **+** (Add group) → name it `Public`.
@@ -38,7 +38,7 @@ Left sidebar → **Test Information**. Fill in and **Save**:
 4. Copy the link (`https://testflight.apple.com/join/…`) and send it to testers with `TESTER_GUIDE.md`.
 
 **What to Test:**
-> Start a session when you arrive somewhere with music, keep the phone in your pocket, and leave it running with the screen locked. Answer the "How's the vibe?" prompts (every 5 minutes). Tap Stop when you leave. If your group was given an event code, enter it at the start. Tell us if the session stops on its own, if a prompt never appears, or if the battery drain feels too high.
+> Start a session when you arrive somewhere with music, keep the phone in your pocket, and leave it running with the screen locked. Answer the "How's the vibe?" prompts (every 5 minutes). Tap Stop when you leave. With friends, one of you taps GROUP on the meter screen and the others scan the QR code. Tell us if the session stops on its own, if a prompt never appears, or if the battery drain feels too high.
 
 ## Notes
 - Internal testers (people added as App Store Connect users) get builds without review; external and public-link testers need the review above.

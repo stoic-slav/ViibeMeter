@@ -11,6 +11,7 @@ import {
 import { sensorOrchestrator } from '../src/sensors/SensorOrchestrator';
 import { sessionManager } from '../src/session/SessionManager';
 import { vibePrompt } from '../src/notifications/VibePrompt';
+import { GroupSheet } from '../src/components/GroupQR';
 
 /* ── Design tokens ─────────────────────────────────────────── */
 const A   = '#00E8A0';
@@ -788,6 +789,14 @@ export default function MeterScreen() {
   const [vibeReadings, setVibeReadings] = useState<SensorReading[]>([]);
   const [infoModal, setInfoModal] = useState<{ label: string; info: string } | null>(null);
   const [stopping, setStopping] = useState(false);
+  const [showGroup, setShowGroup] = useState(false);
+  const [groupCode, setGroupCode] = useState<string | null>(null);
+  const openGroup = () => { setGroupCode(sessionManager.currentSession?.eventCode ?? null); setShowGroup(true); };
+  const joinGroup = async (code: string) => {
+    await sessionManager.setEventCode(code);
+    setGroupCode(sessionManager.currentSession?.eventCode ?? code);
+    Alert.alert('Joined group', `This session is now in group ${code}.`);
+  };
 
   const isActive = sessionManager.isSessionActive;
 
@@ -912,6 +921,11 @@ export default function MeterScreen() {
           <Text style={{ fontSize: 12, color: TXD }}>Start session from Home</Text>
         )}
         {isActive && (
+          <TouchableOpacity style={[s.stopBtn, { borderColor: A + '50', backgroundColor: A + '12' }]} onPress={openGroup} activeOpacity={0.75}>
+            <Text style={[s.stopBtnText, { color: A }]}>GROUP</Text>
+          </TouchableOpacity>
+        )}
+        {isActive && (
           <TouchableOpacity
             style={s.stopBtn}
             onPress={handleStop}
@@ -936,6 +950,8 @@ export default function MeterScreen() {
       <View style={{ flex: 1 }}>
         {PANELS[tab]}
       </View>
+
+      <GroupSheet visible={showGroup} code={groupCode} onClose={() => setShowGroup(false)} onJoin={joinGroup} />
 
       {/* Info modal */}
       {infoModal && (

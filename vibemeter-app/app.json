@@ -16,14 +16,11 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.leogerasimov.vibemeter",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "ViibeMeter analyses short sound clips on your phone to score the vibe. Clips are deleted right away; no audio is stored or uploaded.",
-        "NSLocationWhenInUseUsageDescription": "ViibeMeter uses your location to detect when you arrive at and leave venues.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "ViibeMeter tracks your location in the background to measure how long you stay at a venue.",
+        "NSMicrophoneUsageDescription": "ViibeMeter analyses the sound around you on your phone, a few seconds at a time, to measure the music and the vibe. No audio is stored or uploaded.",
         "NSBluetoothAlwaysUsageDescription": "ViibeMeter scans for nearby Bluetooth devices to estimate crowd density. No device identities are stored.",
         "NSMotionUsageDescription": "ViibeMeter measures how much you move and whether it matches the beat. Only summary values are stored.",
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [
-          "location",
           "audio",
           "bluetooth-central",
           "fetch"
@@ -39,14 +36,13 @@
       "permissions": [
         "RECORD_AUDIO",
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION",
         "BLUETOOTH",
         "BLUETOOTH_ADMIN",
         "BLUETOOTH_SCAN",
-        "BLUETOOTH_CONNECT",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "BLUETOOTH_CONNECT"
+      ],
+      "blockedPermissions": [
+        "android.permission.ACCESS_BACKGROUND_LOCATION"
       ]
     },
     "web": {
@@ -64,12 +60,6 @@
       ],
       "expo-secure-store",
       [
-        "expo-location",
-        {
-          "locationAlwaysAndWhenInUsePermission": "ViibeMeter tracks your location in the background to measure how long you stay at a venue."
-        }
-      ],
-      [
         "expo-notifications",
         {
           "icon": "./assets/icon.png",
@@ -80,7 +70,14 @@
         "react-native-ble-plx",
         {
           "isBackgroundEnabled": true,
-          "neverForLocation": false
+          "neverForLocation": true
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "ViibeMeter uses the camera only to scan a friend's group QR code. No photos or video are taken.",
+          "recordAudioAndroid": false
         }
       ]
     ],

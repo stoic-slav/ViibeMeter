@@ -11,6 +11,8 @@ import { getRecentVenues } from '../src/storage/LocalBuffer';
 import { getDanceAffinity, setDanceAffinity } from '../src/storage/UserProfile';
 import { PhonePlacement } from '../src/types';
 import { getDeviceId } from '../src/storage/DeviceIdentity';
+import { GroupScanner } from '../src/components/GroupQR';
+import { getPendingGroupCode, onPendingGroupCode, setPendingGroupCode, parseGroupCode } from '../src/session/GroupCode';
 
 type StartOptions = { venueName: string; eventCode: string; phonePlacement: PhonePlacement | null };
 
@@ -175,9 +177,19 @@ function VenueScreen({ onStart, onSkip, loading }: {
   loading: boolean;
 }) {
   const [name, setName] = useState('');
-  const [eventCode, setEventCode] = useState('');
-  const [placement, setPlacement] = useState<PhonePlacement | null>(null);
-  const start = (venueName: string) => onStart({ venueName, eventCode, phonePlacement: placement });
+  // Group: joined by scanning a friend's QR (in-app, or the Camera app deep link), or typed
+  const [joinedCode, setJoinedCode] = useState<string | null>(getPendingGroupCode());
+  const [typing, setTyping] = useState(false);
+  const [typedCode, setTypedCode] = useState('');
+  const [scanning, setScanning] = useState(false);
+  useEffect(() => onPendingGroupCode(setJoinedCode), []);
+  const eventCode = joinedCode ?? parseGroupCode(typedCode) ?? '';
+  // Pocket is the recommended placement, so it is preselected
+  const [placement, setPlacement] = useState<PhonePlacement | null>('pocket');
+  const start = (venueName: string) => {
+    setPendingGroupCode(null);
+    onStart({ venueName, eventCode, phonePlacement: placement });
+  };
   const [recentVenues, setRecentVenues] = useState<string[]>([]);
   useEffect(() => { getRecentVenues(3).then(setRecentVenues); }, []);
   return (
@@ -187,14 +199,13 @@ function VenueScreen({ onStart, onSkip, loading }: {
         <Text style={s.title}>New Session</Text>
       </View>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20 }}>
-        <Text style={s.formLabel}>WHERE ARE YOU?</Text>
+        <Text style={s.formLabel}>WHERE ARE YOU? (OPTIONAL)</Text>
         <TextInput
           style={[s.input, name.length > 0 && { borderColor: A + '55' }]}
           placeholder="Venue name…"
           placeholderTextColor={TXD}
           value={name}
           onChangeText={setName}
-          autoFocus
           returnKeyType="go"
           onSubmitEditing={() => start(name)}
         />
@@ -211,18 +222,43 @@ function VenueScreen({ onStart, onSkip, loading }: {
           ))}
         </View>
 
-        <Text style={[s.formLabel, { marginTop: 20 }]}>EVENT CODE (OPTIONAL)</Text>
-        <TextInput
-          style={[s.input, eventCode.length > 0 && { borderColor: A + '55' }]}
-          placeholder="Same code as your group, e.g. DISCO42"
-          placeholderTextColor={TXD}
-          value={eventCode}
-          onChangeText={setEventCode}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          maxLength={32}
+        <Text style={[s.formLabel, { marginTop: 20 }]}>WITH FRIENDS? (OPTIONAL)</Text>
+        {joinedCode ? (
+          <View style={[s.recentRow, s.recentRowSelected, { flexDirection: 'row', justifyContent: 'space-between' }]}>
+            <Text style={[s.recentText, { color: A }]}>✓ Joined group {joinedCode}</Text>
+            <TouchableOpacity onPress={() => setPendingGroupCode(null)}>
+              <Text style={{ fontFamily: MONO, fontSize: 11, color: TXD }}>leave</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity style={s.recentRow} onPress={() => setScanning(true)}>
+            <Text style={s.recentText}>📷  Scan a friend's group QR</Text>
+          </TouchableOpacity>
+        )}
+        {!joinedCode && (typing ? (
+          <TextInput
+            style={[s.input, { marginTop: 8 }, typedCode.length > 0 && { borderColor: A + '55' }]}
+            placeholder="Group code, e.g. G-7KQ3XM"
+            placeholderTextColor={TXD}
+            value={typedCode}
+            onChangeText={setTypedCode}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            maxLength={32}
+          />
+        ) : (
+          <TouchableOpacity onPress={() => setTyping(true)} style={{ paddingVertical: 8 }}>
+            <Text style={{ fontFamily: MONO, fontSize: 11, color: TXD }}>or type a code</Text>
+          </TouchableOpacity>
+        ))}
+        <Text style={[s.hint, { marginTop: 6 }]}>
+          Not needed: you get your own group, and friends can scan it from the meter screen. Groups let us measure how in sync the crowd is.
+        </Text>
+        <GroupScanner
+          visible={scanning}
+          onClose={() => setScanning(false)}
+          onCode={c => { setScanning(false); setPendingGroupCode(c); }}
         />
-        <Text style={[s.hint, { marginTop: 6 }]}>Lets us measure how in sync the crowd is.</Text>
 
         {recentVenues.length > 0 && <Text style={[s.formLabel, { marginTop: 20 }]}>RECENT</Text>}
         <View style={{ gap: 8 }}>

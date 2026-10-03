@@ -23,7 +23,7 @@ The experiment tests whether the sensor measurements match your honest ratings, 
 - **iPhone:** open the TestFlight invite link (or scan the QR code) → install **TestFlight** from the App Store if asked → tap **Install** next to ViibeMeter.
 - **Android:** open the APK download link on your phone → allow "install from unknown sources" when asked → install.
 
-The first time you open it, allow **microphone, motion, Bluetooth, location and notifications**. Each one feeds a signal; the app still works if you refuse one, it just measures less.
+The first time you open it, allow **microphone, motion, Bluetooth and notifications**. Each one feeds a signal; the app still works if you refuse one, it just measures less.
 
 ---
 
@@ -32,9 +32,9 @@ The first time you open it, allow **microphone, motion, Bluetooth, location and 
 **When you arrive:**
 1. Open ViibeMeter and tap **Start Session**.
 2. The first time only, answer how much you enjoy dancing (1–5).
-3. Type the venue name.
-4. Pick where the phone will be: **Pocket** is best, so keep it there all night if you can.
-5. Enter the **event code** if the organiser gave you one (e.g. `DISCO42`). Everyone at the same event must use the same code; that is what lets us measure crowd sync.
+3. Optional: type the venue name.
+4. Where the phone will be: **Pocket** is preselected and best, so keep it there all night if you can.
+5. With friends? One person starts a session and taps **GROUP** on the meter screen to show a QR code. Everyone else scans it, either with the phone's Camera app or with **Scan a friend's group QR** in ViibeMeter. You can also scan after starting. If you forget, that's fine: the app can often work out who was together from the music.
 6. Tap **Start Session** and put the phone in your pocket.
 
 **While you're out:**
@@ -78,7 +78,7 @@ The first time you open it, allow **microphone, motion, Bluetooth, location and 
 ## Privacy
 
 - **No audio is stored or uploaded.** Sound is analysed on the phone a few seconds at a time and then discarded. Song recognition sends Apple only an irreversible fingerprint.
-- **No GPS coordinates are stored.** Location is only used on the phone to check you are still at the venue.
+- **No location is used.** The app never reads GPS. The camera is used only to scan a group QR code.
 - **No Bluetooth device IDs are stored.** Only the number of nearby devices.
 - You are identified by a **random anonymous ID**, shown at the bottom of the home screen. No name, email or phone number.
 

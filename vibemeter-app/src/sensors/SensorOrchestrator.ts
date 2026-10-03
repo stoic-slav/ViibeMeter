@@ -6,7 +6,6 @@ import { SENSOR_CONFIG } from '../config/constants';
 import { AudioAnalyzer } from './AudioAnalyzer';
 import { MotionTracker } from './MotionTracker';
 import { BLEScanner } from './BLEScanner';
-import { LocationTracker } from './LocationTracker';
 import { computeVibeScore } from '../processing/VibeScoreEngine';
 import { computeBeatSync, computeTempoMatch, aggregateBeatSync, BeatSyncResult } from '../processing/BeatSync';
 import { saveSensorWindow, deleteOldSyncedWindows } from '../storage/LocalBuffer';
@@ -25,7 +24,6 @@ export class SensorOrchestrator {
   private audioAnalyzer = new AudioAnalyzer();
   private motionTracker = new MotionTracker();
   private bleScanner = new BLEScanner();
-  private locationTracker = new LocationTracker();
 
   private currentSession: Session | null = null;
   private currentWindow: Partial<SensorWindow> = {};
@@ -33,7 +31,6 @@ export class SensorOrchestrator {
 
   private audioTimer: ReturnType<typeof setTimeout> | null = null;
   private bleTimer: ReturnType<typeof setTimeout> | null = null;
-  private locationTimer: ReturnType<typeof setTimeout> | null = null;
   private windowTimer: ReturnType<typeof setTimeout> | null = null;
   private uploadTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -56,6 +53,7 @@ export class SensorOrchestrator {
   private axisValues: MovementAxis[] = [];
   private pulseClarityValues: number[] = [];
   private windowSong: Pick<SensorWindow, 'songIsrc' | 'songGenre' | 'songBpm' | 'songPopularity' | 'recognitionSource'> = emptySong();
+  private songStarts: { isrc: string; trackStartMs: number }[] = [];
   private lastBeatSync: BeatSyncResult | null = null;
   private cycleCount = 0;
 
@@ -95,7 +93,6 @@ export class SensorOrchestrator {
 
     console.log(`${LOG_TAG} Starting sensors for session ${session.id}`);
 
-    await this.locationTracker.requestPermissions();
     // Open the microphone for the whole session: this is what keeps iOS from suspending
     // the app in the background between captures.
     await this.audioAnalyzer.start();
@@ -109,7 +106,6 @@ export class SensorOrchestrator {
     // Audio + motion run together (beat sync needs them on one clock); others staggered
     this.audioTimer  = setTimeout(() => this.scheduleRhythm(),   0);
     this.bleTimer    = setTimeout(() => this.scheduleBLE(),     600);
-    this.locationTimer = setTimeout(() => this.scheduleLocation(), 900);
 
     this.scheduleWindowBoundary();
     this.uploadTimer = setInterval(() => this.runUpload(), SENSOR_CONFIG.UPLOAD_BATCH_INTERVAL_MS);
@@ -120,12 +116,12 @@ export class SensorOrchestrator {
 
     this.isRunning = false;
 
-    [this.audioTimer, this.bleTimer, this.locationTimer, this.windowTimer].forEach(t => {
+    [this.audioTimer, this.bleTimer, this.windowTimer].forEach(t => {
       if (t) clearTimeout(t);
     });
     if (this.uploadTimer) clearInterval(this.uploadTimer);
 
-    this.audioTimer = this.bleTimer = this.locationTimer = null;
+    this.audioTimer = this.bleTimer = null;
     this.windowTimer = this.uploadTimer = null;
 
     await this.finalizeWindow();
@@ -146,7 +142,6 @@ export class SensorOrchestrator {
     await Promise.allSettled([
       this.collectRhythmCycle(),
       this.collectBLESample(),
-      this.collectLocationSample(),
     ]);
   }
 
@@ -175,6 +170,7 @@ export class SensorOrchestrator {
     this.axisValues = [];
     this.pulseClarityValues = [];
     this.windowSong = emptySong();
+    this.songStarts = [];
   }
 
   /** Fire finalizeWindow at each wall-clock minute boundary (recomputed every time to avoid drift). */
@@ -307,15 +303,6 @@ export class SensorOrchestrator {
     });
   }
 
-  private scheduleLocation(): void {
-    if (!this.isRunning) return;
-    this.collectLocationSample().then(() => {
-      if (this.isRunning) {
-        this.locationTimer = setTimeout(() => this.scheduleLocation(), SENSOR_CONFIG.GPS_CHECK_INTERVAL_MS);
-      }
-    });
-  }
-
   private applyAudioMetrics(metrics: AudioMetrics): void {
     const dbValues = this.currentWindow.avgDb
       ? [this.currentWindow.avgDb, metrics.avgDb]
@@ -338,6 +325,7 @@ export class SensorOrchestrator {
     this.currentWindow.vocalPresence = metrics.vocalPresence;
     this.currentWindow.harmonicNoiseRatio = metrics.harmonicNoiseRatio;
     if (metrics.pulseClarity != null) this.pulseClarityValues.push(metrics.pulseClarity);
+    if (metrics.songMatch) this.songStarts.push(metrics.songMatch);
     // Latest recognized track in the window wins
     if (metrics.recognitionSource) {
       this.windowSong = {
@@ -402,16 +390,6 @@ export class SensorOrchestrator {
     }
   }
 
-  private async collectLocationSample(): Promise<void> {
-    try {
-      const metrics = await this.locationTracker.check();
-      this.currentWindow.gpsIsAtVenue = metrics.gpsIsAtVenue;
-      this.currentWindow.gpsAccuracyMeters = metrics.gpsAccuracyMeters;
-    } catch (err) {
-      console.warn(`${LOG_TAG} Location collection error:`, err);
-    }
-  }
-
   private emitPreviewUpdate(): void {
     if (!this.onVibeUpdate || !this.currentSession || !this.windowStartTime) return;
     const breakdown = computeVibeScore(this.currentWindow);
@@ -449,6 +427,7 @@ export class SensorOrchestrator {
       movementClassification: this.currentWindow.movementClassification ?? null,
       ...this.aggregateRhythmMetrics(),
       ...this.windowSong,
+      ...this.aggregateSongStart(),
       bleDeviceCount: this.currentWindow.bleDeviceCount ?? null,
       bleCountDelta: this.currentWindow.bleCountDelta ?? null,
       bleCountTrend: this.currentWindow.bleCountTrend ?? null,
@@ -461,6 +440,18 @@ export class SensorOrchestrator {
       computedMovementScore: breakdown.movementScore,
       computedMusicScore: breakdown.musicScore,
       computedVibeScore: breakdown.compositeVibeScore,
+    };
+  }
+
+  /** Median track start of this window's matches of its song, and how far the estimates spread. */
+  private aggregateSongStart(): Pick<SensorWindow, 'songStartMs' | 'songStartSpreadMs'> {
+    const starts = this.songStarts
+      .filter(m => m.isrc === this.windowSong.songIsrc)
+      .map(m => m.trackStartMs);
+    if (starts.length === 0) return { songStartMs: null, songStartSpreadMs: null };
+    return {
+      songStartMs: Math.round(median(starts)!),
+      songStartSpreadMs: starts.length > 1 ? Math.max(...starts) - Math.min(...starts) : null,
     };
   }
 

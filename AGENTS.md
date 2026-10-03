@@ -11,10 +11,10 @@ Instructions for any AI coding agent working in this repository. This is the sin
 They want the agent to drive the work end to end and give only minimal direction and oversight. Do the work, verify it, and report outcomes faithfully, including failures. Ask only when a decision is genuinely theirs: spending money, deleting data, anything outward-facing.
 
 ## Project overview
-ViibeMeter is an iOS/Android app that passively measures "vibe" at venues using phone sensors (microphone, accelerometer/gyroscope, BLE, GPS) and uploads aggregated metrics to Supabase. It is a research MVP for validating whether passive sensor data correlates with subjective crowd-energy ratings. The central hypothesis is that people moving in sync with the music, and with each other, signals a high vibe.
+ViibeMeter is an iOS/Android app that passively measures "vibe" at venues using phone sensors (microphone, accelerometer/gyroscope, BLE) and uploads aggregated metrics to Supabase. It is a research MVP for validating whether passive sensor data correlates with subjective crowd-energy ratings. The central hypothesis is that people moving in sync with the music, and with each other, signals a high vibe.
 
 ## Working rules
-- **Privacy:** never store raw audio, BLE device identifiers or GPS coordinates. Only aggregated per-window metrics (dB levels, BPM, device counts, movement stats, beat-sync scalars) are stored and uploaded. Do not add raw data storage.
+- **Privacy:** never store raw audio, BLE device identifiers or GPS coordinates (the app does not use location at all since build 8; keep it that way unless the owner decides otherwise). Only aggregated per-window metrics (dB levels, BPM, device counts, movement stats, beat-sync scalars) are stored and uploaded. Do not add raw data storage.
 - **Do not run `npx expo prebuild --clean`.** It wipes the local iOS build patches (see "iOS build quirks").
 - **Beat sync, movement energy and crowd sync are collect-only.** Do not add them to the composite vibe score until the analysis validates them.
 - **Singleton services:** do not re-instantiate them (see "Architecture").
@@ -59,7 +59,7 @@ Analysis scripts need `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` in the environme
 
 ### Data flow
 ```
-Session start → SensorOrchestrator (audio + motion captured together each cycle; BLE, location staggered)
+Session start → SensorOrchestrator (audio + motion captured together each cycle; BLE staggered)
   → BeatSync compares movement peaks with the audio beat grid from the same capture
   → At each wall-clock minute: SensorWindow aggregated + scored by VibeScoreEngine
   → Window written to SQLite (LocalBuffer, synced=0)
@@ -75,7 +75,7 @@ All core services are singletons. Do not re-instantiate them:
 | Service | Purpose |
 |---------|---------|
 | `SensorOrchestrator` | Coordinates all sensors; exposes `setVibeUpdateCallback()` for UI |
-| `SessionManager` | Session lifecycle: start (with event code and phone placement), end, dwell time |
+| `SessionManager` | Session lifecycle: start (with group code and phone placement), end, dwell time, `setEventCode` to join a group mid-session |
 | `LocalBuffer` | SQLite CRUD for sessions, windows, ratings (tables use a `synced` flag) |
 | `SupabaseSync` | Retry-aware batch upload (3 attempts, retry delays) |
 | `DeviceIdentity` | Persistent anonymous UUID via Expo SecureStore |
@@ -108,7 +108,11 @@ FFT-derived spectral metrics (sub-bass energy, spectral centroid, spectral flux,
 
 ### Local native modules (`vibemeter-app/modules/`, autolinked)
 - `audio-capture` (iOS, Swift): `AVAudioEngine` capture for the whole session into a 12 s in-memory ring buffer, plus ShazamKit matching. The continuously open mic, with `UIBackgroundModes: audio`, is what keeps iOS from suspending the app with the screen locked. Never write this audio to disk.
-- `session-service` (Android, Kotlin): a `microphone|location` foreground service with an ongoing notification, a headless JS task (`ViibeMeterSession`, registered in `index.ts`) that keeps JS timers running in the background, and native motion capture into an in-memory buffer, because `expo-sensors` stops in the background. `MotionTracker` reads that buffer while the service runs.
+- `session-service` (Android, Kotlin): a `microphone` foreground service with an ongoing notification, a headless JS task (`ViibeMeterSession`, registered in `index.ts`) that keeps JS timers running in the background, and native motion capture into an in-memory buffer, because `expo-sensors` stops in the background. `MotionTracker` reads that buffer while the service runs.
+
+### Grouping phones at the same event
+- **Group codes** (`event_code` column, `src/session/GroupCode.ts`): every session gets a random code (`G-XXXXXX`). Friends join it by scanning its QR (meter screen → GROUP) with the in-app scanner (`expo-camera`) or the phone's Camera app (deep link `vibemeter://join?code=…`, handled by `app/join.tsx`). A shared code is a definite "together" label; different codes do not mean apart.
+- **Automatic grouping** (`analysis/auto_groups.py`): phones that heard the same playback of the same track (`song_isrc`, and `song_started_at` within 1.5 s, from ShazamKit's match offset) were together. It needs ≥2 shared playbacks, uses time-decayed evidence so people can move between venues, and never merges phones with evidence of being apart. `crowd_sync.py --auto` groups by it instead of codes. Goal: no codes at all once validated against code-labelled data.
 
 **Background limits:** neither platform allows useful BLE discovery with the screen off, so BLE scans are skipped while the app is not active (no measurement rather than a fake 0).
 
@@ -136,6 +140,7 @@ These patches were applied to fix build issues. Do not revert:
 Python scripts in `analysis/` query Supabase and run statistical analysis:
 - `fetch_data.py`: pulls sessions, sensor windows and ratings to CSV (paginated).
 - `correlations.py`: per-signal Pearson/Spearman, within-person correlations, headline tests (movement energy; crowd sync and beat lock beyond movement energy), moderators by platform, placement and dance affinity.
-- `crowd_sync.py`: per event-code and minute crowd phase sync, tempo agreement and combined crowd sync.
+- `crowd_sync.py`: per group and minute crowd phase sync (heard-beat and clock versions), tempo agreement and combined crowd sync. `--auto` groups by music instead of group codes.
+- `auto_groups.py`: automatic grouping of phones from shared song playbacks; validation against group codes; `--selftest` runs synthetic venues.
 - `optimize_weights.py`: Ridge and Random Forest weight analysis.
 - `monitoring_queries.sql`: data quality checks.

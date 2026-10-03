@@ -54,6 +54,8 @@ export class AudioAnalyzer {
   private pendingAudd: PendingAuddTrack | null = null;
   private deezerCache = new Map<string, { bpm: number | null; rank: number | null }>();
   private loggedShazamError = false;
+  // Start time of the current playback of the track, from a match made during this analyze() call
+  private freshMatch: { isrc: string; trackStartMs: number } | null = null;
 
   /**
    * iOS: open the microphone for the whole session. A continuously running audio input
@@ -102,6 +104,7 @@ export class AudioAnalyzer {
       }
 
       this.isRecording = true;
+      this.freshMatch = null;
 
       return Platform.OS === 'android'
         ? await this.analyzeAndroid()
@@ -272,6 +275,7 @@ export class AudioAnalyzer {
       recognizedIsrc: track?.isrc ?? null,
       trackPopularity: track?.popularity ?? null,
       recognitionSource: track?.source ?? null,
+      songMatch: this.freshMatch,
     };
   }
 
@@ -315,6 +319,9 @@ export class AudioAnalyzer {
     if (!result.matched) return;
 
     const isrc = result.isrc ?? null;
+    if (isrc && typeof result.trackStartMs === 'number' && Number.isFinite(result.trackStartMs)) {
+      this.freshMatch = { isrc, trackStartMs: result.trackStartMs };
+    }
     const deezer = isrc ? await this.lookupDeezer(isrc) : null;
     // A single ShazamKit match is reliable, so no second confirmation is needed
     this.track = {
@@ -394,7 +401,7 @@ export class AudioAnalyzer {
       crestFactor: 0, vocalPresence: 0, harmonicNoiseRatio: 0,
       beatBpm: null, beatOnsetTimesMs: [],
       clapCount: 0, audioEvent: null, recognizedSong: null, recognizedGenre: null,
-      recognizedIsrc: null, trackPopularity: null, recognitionSource: null,
+      recognizedIsrc: null, trackPopularity: null, recognitionSource: null, songMatch: null,
     };
   }
 }

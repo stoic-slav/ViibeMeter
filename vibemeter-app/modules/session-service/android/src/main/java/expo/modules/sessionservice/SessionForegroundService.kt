@@ -21,8 +21,8 @@ import com.facebook.react.jstasks.HeadlessJsTaskConfig
 /**
  * Keeps a measuring session alive with the screen off.
  *
- * - Foreground service (microphone + location): Android only lets an app use the mic and
- *   location in the background while one is running, and shows its ongoing notification.
+ * - Foreground service (microphone): Android only lets an app use the mic in the background
+ *   while one is running, and shows its ongoing notification.
  * - Headless JS task: React Native pauses JS timers when the app leaves the foreground unless
  *   a headless task is active, which would stop the sensor loop.
  * - Motion sensors: expo-sensors stops listening when the activity goes to the background, so
@@ -76,13 +76,9 @@ class SessionForegroundService : HeadlessJsTaskService(), SensorEventListener {
     )
     return try {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        var type = 0
-        if (granted(Manifest.permission.RECORD_AUDIO)) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-        if (granted(Manifest.permission.ACCESS_FINE_LOCATION) || granted(Manifest.permission.ACCESS_COARSE_LOCATION)) {
-          type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-        }
-        if (type == 0) return false
-        startForeground(NOTIFICATION_ID, notification, type)
+        // Without the mic permission there is nothing to keep alive in the background
+        if (!granted(Manifest.permission.RECORD_AUDIO)) return false
+        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
       } else {
         startForeground(NOTIFICATION_ID, notification)
       }

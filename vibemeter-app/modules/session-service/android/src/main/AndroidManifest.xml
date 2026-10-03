@@ -1,7 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
   <uses-permission android:name="android.permission.WAKE_LOCK" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -9,6 +8,6 @@
     <service
       android:name="expo.modules.sessionservice.SessionForegroundService"
       android:exported="false"
-      android:foregroundServiceType="microphone|location" />
+      android:foregroundServiceType="microphone" />
   </application>
 </manifest>

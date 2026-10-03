@@ -14,6 +14,9 @@ export interface ShazamMatchResult {
   isrc?: string | null;
   genres?: string[];
   appleMusicID?: string | null;
+  matchOffset?: number;   // s into the track where the matched audio starts
+  queryStartMs?: number;  // wall-clock time of the matched audio's first sample
+  trackStartMs?: number;  // wall-clock time this playback of the track began
   error?: string;
 }
 

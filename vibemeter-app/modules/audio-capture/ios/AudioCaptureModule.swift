@@ -211,7 +211,7 @@ public class AudioCaptureModule: Module {
   // MARK: - ShazamKit
 
   private func matchRecent(seconds: Double, promise: Promise) {
-    let (samples, _) = copyRecent(seconds: seconds)
+    let (samples, queryStartMs) = copyRecent(seconds: seconds)
     guard samples.count > Int(AudioCaptureModule.sampleRate * 2),
           let format = AVAudioFormat(standardFormatWithSampleRate: AudioCaptureModule.sampleRate, channels: 1),
           let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)),
@@ -235,7 +235,7 @@ public class AudioCaptureModule: Module {
     }
 
     let id = UUID()
-    let delegate = MatchDelegate { [weak self] result in
+    let delegate = MatchDelegate(queryStartMs: queryStartMs) { [weak self] result in
       promise.resolve(result)
       self?.lock.lock()
       self?.inFlight.removeValue(forKey: id)
@@ -252,9 +252,11 @@ public class AudioCaptureModule: Module {
 
 private final class MatchDelegate: NSObject, SHSessionDelegate {
   private let onDone: ([String: Any]) -> Void
+  private let queryStartMs: Double
   private var finished = false
 
-  init(onDone: @escaping ([String: Any]) -> Void) {
+  init(queryStartMs: Double, onDone: @escaping ([String: Any]) -> Void) {
+    self.queryStartMs = queryStartMs
     self.onDone = onDone
   }
 
@@ -276,6 +278,12 @@ private final class MatchDelegate: NSObject, SHSessionDelegate {
       "isrc": item.isrc ?? NSNull(),
       "genres": item.genres,
       "appleMusicID": item.appleMusicID ?? NSNull(),
+      // matchOffset: position in the track (s) where the query audio starts. Subtracting it from
+      // the query's wall-clock start gives when this playback of the track began, which is the
+      // same for every phone hearing the same speakers.
+      "matchOffset": item.matchOffset,
+      "queryStartMs": queryStartMs,
+      "trackStartMs": queryStartMs - item.matchOffset * 1000,
     ])
   }
 

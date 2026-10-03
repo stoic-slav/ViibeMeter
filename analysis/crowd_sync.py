@@ -26,7 +26,8 @@ Metrics per (event_code, minute):
   crowd_sync_clock       crowd_phase_sync_clock × mean(beat_plv).
 
 Usage:
-  python3 crowd_sync.py              (run fetch_data.py first)
+  python3 crowd_sync.py              (run fetch_data.py first; groups by group code)
+  python3 crowd_sync.py --auto       (groups by the music instead, see auto_groups.py)
   python3 crowd_sync.py --selftest   (synthetic checks, no data needed)
 """
 
@@ -103,11 +104,28 @@ def _crowd_metrics(group: pd.DataFrame) -> pd.Series:
     return pd.Series(out)
 
 
-def compute_crowd_sync(windows: pd.DataFrame, sessions: pd.DataFrame) -> pd.DataFrame:
-    """Return one row per (event_code, minute) with crowd metrics (NaN below MIN_DEVICES)."""
-    cols = ['id', 'device_id', 'event_code']
-    if 'event_code' not in sessions.columns:
-        return pd.DataFrame()
+def compute_crowd_sync(windows: pd.DataFrame, sessions: pd.DataFrame, group_by: str = 'event_code') -> pd.DataFrame:
+    """Return one row per (group, minute) with crowd metrics (NaN below MIN_DEVICES).
+
+    group_by='event_code' groups by the shared group code (QR or typed); group_by='auto' groups
+    by the automatic music-based grouping (auto_groups.py), which needs no code at all. The
+    group id is reported in the event_code column either way.
+    """
+    if group_by == 'auto':
+        from auto_groups import auto_groups
+        groups = auto_groups(windows, sessions)
+        if groups.empty:
+            return pd.DataFrame()
+        sessions = sessions.drop(columns=['event_code'], errors='ignore')
+        windows = windows.copy()
+        windows['minute'] = pd.to_datetime(windows['window_start'], utc=True, format='ISO8601').dt.floor('min')
+        windows = windows.merge(groups[['session_id', 'minute', 'auto_group']], on=['session_id', 'minute'], how='left')
+        windows = windows.rename(columns={'auto_group': 'event_code'}).drop(columns=['minute'])
+        cols = ['id', 'device_id']
+    else:
+        cols = ['id', 'device_id', 'event_code']
+        if 'event_code' not in sessions.columns:
+            return pd.DataFrame()
     w = windows.merge(sessions[cols].rename(columns={'id': 'session_id'}), on='session_id', how='inner')
     w = w[w['event_code'].notna() & (w['event_code'].astype(str).str.len() > 0)].copy()
     if w.empty:
@@ -115,7 +133,7 @@ def compute_crowd_sync(windows: pd.DataFrame, sessions: pd.DataFrame) -> pd.Data
     for col in ['beat_phase_mean', 'beat_phase_clock', 'beat_plv', 'movement_bpm', 'song_bpm']:
         if col not in w.columns:
             w[col] = np.nan
-    w['minute'] = pd.to_datetime(w['window_start'], utc=True).dt.floor('min')
+    w['minute'] = pd.to_datetime(w['window_start'], utc=True, format='ISO8601').dt.floor('min')
     crowd = (w.groupby(['event_code', 'minute'])
                .apply(_crowd_metrics, include_groups=False)
                .reset_index())
@@ -135,7 +153,7 @@ def attach_crowd_sync(windows: pd.DataFrame, sessions: pd.DataFrame) -> pd.DataF
         return out
     out = out.merge(sessions[['id', 'event_code']].rename(columns={'id': 'session_id'}),
                     on='session_id', how='left')
-    out['minute'] = pd.to_datetime(out['window_start'], utc=True).dt.floor('min')
+    out['minute'] = pd.to_datetime(out['window_start'], utc=True, format='ISO8601').dt.floor('min')
     out = out.merge(crowd[['event_code', 'minute'] + crowd_cols], on=['event_code', 'minute'], how='left')
     return out.drop(columns=['minute'])
 
@@ -207,6 +225,21 @@ def selftest():
     attached = attach_crowd_sync(w, s)
     assert attached['crowd_sync'].notna().all()
     print("attach_crowd_sync   → crowd metrics joined to every window")
+
+    # Automatic grouping end to end: 3 phones hearing the same two playbacks, no shared code
+    t0 = pd.Timestamp('2026-10-10T22:00:00Z')
+    rows = []
+    for i in range(3):
+        for m, (isrc, start) in enumerate([('X1', t0), ('X1', t0), ('X2', t0 + pd.Timedelta(minutes=2))] * 2):
+            rows.append({'id': f'w{i}-{m}', 'session_id': f's{i}', 'window_start': (t0 + pd.Timedelta(minutes=m)).isoformat(),
+                         'song_isrc': isrc, 'song_started_at': (start + pd.Timedelta(seconds=0.2 * i)).isoformat(),
+                         'beat_phase_mean': 1.0, 'beat_plv': 0.8, 'movement_bpm': 120})
+    w = pd.DataFrame(rows)
+    s = pd.DataFrame({'id': ['s0', 's1', 's2'], 'device_id': ['d0', 'd1', 'd2'], 'event_code': ['G-A', 'G-B', 'G-C']})
+    assert compute_crowd_sync(w, s).dropna(subset=['crowd_sync']).empty  # codes differ: no crowd
+    auto = compute_crowd_sync(w, s, group_by='auto').dropna(subset=['crowd_sync'])
+    assert len(auto) > 0 and (auto['n_devices'] == 3).all(), auto
+    print(f"group_by='auto'     → {len(auto)} crowd minutes from the music alone (codes all differ)")
     print("selftest OK")
 
 
@@ -219,7 +252,9 @@ def main():
         return
 
     OUTPUT_DIR.mkdir(exist_ok=True)
-    crowd = compute_crowd_sync(windows, sessions)
+    group_by = 'auto' if '--auto' in sys.argv else 'event_code'
+    crowd = compute_crowd_sync(windows, sessions, group_by=group_by)
+    print(f"Grouping phones by: {'music (automatic)' if group_by == 'auto' else 'group code'}")
     if crowd.empty:
         print("No sessions with an event code yet — crowd sync needs ≥3 testers entering the same code.")
         return
