@@ -14,7 +14,7 @@ Decide whether ViibeMeter is worth building out. The question is whether passive
 - **App Store Connect:** app **ViibeMeter**, ASC app id `6818585201` (pinned in `eas.json`). The TestFlight internal group "Team (Expo)" contains the owner. ShazamKit App Service is enabled on the app ID.
 - **EAS:** Expo account `stoicslav`, project `@stoicslav/vibemeter`. The Supabase URL and anon key are EAS env vars. `EXPO_PUBLIC_AUDD_TOKEN` is local `.env` only, so cloud builds have no AudD.
 - **Upload route:** `eas submit` sat in the free-tier queue for hours, so builds are downloaded (`ViibeMeter.ipa`, gitignored) and the owner uploads them with **Transporter** on the Mac.
-- **iOS builds:** 1 (rejected by Apple: background mode `processing`, ITMS-90771), 2 (fixed), 3 (continuous background capture, BPM rewrite), 4 (dB calibration, no fake BLE zeros), **5 = current on the owner's iPhone** (Shazam runs above 40 dB). Build numbers auto-increment remotely.
+- **iOS builds:** 1 (rejected by Apple: background mode `processing`, ITMS-90771), 2 (fixed), 3 (continuous background capture, BPM rewrite), 4 (dB calibration, no fake BLE zeros), 5 (Shazam runs above 40 dB), **6 = beat sync from song tempo, dB offset 110** (building 3 Oct). Build numbers auto-increment remotely.
 - **Android:** preview APK builds on EAS (`eas build -p android --profile preview`). The build with the new foreground service is `944bd7ce-…` (3 Oct). No Android device has run any build yet; the owner will share the APK link with friends.
 
 ### Audio pipeline (iOS), changed 2–3 Oct
@@ -40,6 +40,13 @@ iOS cannot discover arbitrary nearby devices in the background, and Android paus
 - Window 1: BPM 117 (song is ~117), pulse clarity 0.21. Window 2: beat PLV 0.82, tempo match 0.71, movement BPM 60, classified "dancing".
 - dB 34 (pre-calibration), so music was not detected and Shazam did not run. BLE 0 (background; now skipped).
 
+### Device test 3 (build 5, 3 Oct, session `a75445e4`, pocket, Billie Jean via AirPlay to a HomePod, ~5 min)
+Owner's plan: 1 min still, ~3 min dancing on the beat, ~2 min deliberately off the beat. Watch not checked (owner estimates 50–60 dB).
+- **Works:** 6 continuous windows with the screen off; **Shazam matched every window** (ISRC `USSM19902991`, Pop, Deezer BPM 117); music detected in every window; movement energy tracks the plan (1.7 still → 3.6–5.5 dancing); movement BPM 120 in the main on-beat minute.
+- **Failed:** the on-beat minutes (09:14, 09:15) had **no beat PLV**. The PCM beat grid fell below the 0.3 clarity bar, most likely because the pocket muffles the mic and dancing adds fabric noise. The off-beat minute got PLV 0.60 from few cycles, so it is not meaningful.
+- **Fixed in build 6:** beat sync falls back to the recognised song's tempo (PLV needs only the beat period; `beat_phase_mean` stays null without a grid). A known tempo also narrows the PCM search and lowers its clarity bar to 0.1. `pulse_clarity` now stores only PCM clarity (it used to mix in the metering estimate). iOS dB offset set to 110: app read 66–72 dB with offset 120, against ~50–60 on the Watch.
+- Movement BPM sometimes reads 200–231 (implausible for body movement); consider capping the movement tempo search at ~180.
+
 ### Earlier changes (2 Oct)
 - iOS PCM read fixed (`expo-file-system/legacy`; SDK 54 root import throws). Old May data has no valid iOS FFT or beat data.
 - Collect-only song columns `song_isrc`, `song_genre`, `song_bpm`, `song_popularity`, `recognition_source` (SQLite migration and Supabase migration `20261002163648_song_descriptors.sql`, applied).
@@ -55,8 +62,8 @@ iOS cannot discover arbitrary nearby devices in the background, and Android paus
 - **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
 ## Do next, in order
-1. **10-minute validation test on build 5** (owner): music out loud, phone locked, a few minutes on beat, one off beat, one still; note the Apple Watch dB once. Then check every window: continuity, dB, `music_detected`, song columns (Shazam), BPM, beat PLV.
-2. **Set `IOS_RAW_MIC_DBFS_OFFSET`** from the Watch-versus-app comparison and ship the next iOS build.
+1. **Retest on build 6** (owner): same protocol, pocket, about 10 minutes. Check that the on-beat minutes now have beat PLV above the off-beat ones, and that dB is close to the Watch reading.
+2. If PLV still does not separate on-beat from off-beat, look at movement peak detection (`findMovementPeaks`) and the movement axis choice next.
 3. **Android on a friend's phone:** install the APK from build `944bd7ce-…`, run a locked 10-minute session and check that windows are continuous and motion is non-zero. If the service fails to start, look for `SessionService` in logcat. Calibrate the Android dB offset too.
 4. **Pilot at a real venue with ≥3 phones** on one event code (crowd sync), ratings every 5 minutes. Invite testers in App Store Connect (internal) or set up external TestFlight (needs the privacy URL, a feedback email and Apple beta review).
 5. **Analysis:** `fetch_data.py`, then `correlations.py` and `crowd_sync.py`.
