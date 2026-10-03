@@ -162,6 +162,7 @@ export interface AudioMetrics {
   estimatedBpm: number | null;
   recognizedBpm: number | null;
   bpmConfidence: number;
+  pulseClarity: number | null;      // PCM onset-autocorrelation clarity (null without PCM)
   audioClassification: AudioClassification;
   bassPresence: number;
   midHighRatio: number;

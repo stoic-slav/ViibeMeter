@@ -22,7 +22,7 @@ export interface TimedSample {
 
 export interface BeatSyncResult {
   plv: number;          // 0–1 phase-locking value
-  phaseMean: number;    // radians, (-π, π]
+  phaseMean: number | null; // radians, (-π, π]; null when no audio beat grid was available
   tempoMatch: number;   // 0–1 graded tempo agreement at the best harmonic
   harmonic: number;     // movement BPM ≈ harmonic × music BPM
   peakCount: number;    // movement peaks used
@@ -100,8 +100,12 @@ export function findMovementPeaks(series: TimedSample[], minGapMs: number): numb
 /**
  * Compute beat sync for one capture where audio and motion overlap in time.
  *
+ * PLV depends only on the beat period, not on where the beat falls: a wrong grid offset just
+ * rotates every phase by the same amount. So with the tempo known (e.g. from song recognition)
+ * PLV can be computed without an audio beat grid; only phaseMean needs the grid.
+ *
  * @param movement      movement signal (e.g. vertical linear acceleration), ms timestamps
- * @param onsetTimesMs  absolute audio onset times (ms, same clock as movement)
+ * @param onsetTimesMs  absolute audio beat times (ms, same clock as movement); may be empty
  * @param musicBpm      tempo of the music in this capture
  * @param movementBpm   dominant movement tempo (null if movement is not rhythmic)
  */
@@ -116,7 +120,6 @@ export function computeBeatSync(
 
   const beatPeriodMs = 60000 / musicBpm;
   const ref = beatReference(onsetTimesMs, beatPeriodMs);
-  if (ref == null) return null;
 
   // Movement cycles at harmonic × beat rate; fold peaks onto that period.
   const cyclePeriodMs = beatPeriodMs / harmonic;
@@ -125,7 +128,7 @@ export function computeBeatSync(
 
   let c = 0, s = 0;
   for (const t of peaks) {
-    const phi = (2 * Math.PI * (t - ref)) / cyclePeriodMs;
+    const phi = (2 * Math.PI * (t - (ref ?? 0))) / cyclePeriodMs;
     c += Math.cos(phi);
     s += Math.sin(phi);
   }
@@ -134,7 +137,7 @@ export function computeBeatSync(
 
   return {
     plv: Math.min(1, Math.sqrt(c * c + s * s)),
-    phaseMean: Math.atan2(s, c),
+    phaseMean: ref != null ? Math.atan2(s, c) : null,
     tempoMatch,
     harmonic,
     peakCount: peaks.length,
@@ -149,16 +152,19 @@ export function aggregateBeatSync(results: BeatSyncResult[]): {
   plv: number | null; phaseMean: number | null; tempoMatch: number | null;
 } {
   if (results.length === 0) return { plv: null, phaseMean: null, tempoMatch: null };
-  let c = 0, s = 0, plvSum = 0, tmSum = 0;
+  let c = 0, s = 0, plvSum = 0, phasedPlvSum = 0, tmSum = 0;
   for (const r of results) {
-    c += r.plv * Math.cos(r.phaseMean);
-    s += r.plv * Math.sin(r.phaseMean);
+    if (r.phaseMean != null) {
+      c += r.plv * Math.cos(r.phaseMean);
+      s += r.plv * Math.sin(r.phaseMean);
+      phasedPlvSum += r.plv;
+    }
     plvSum += r.plv;
     tmSum += r.tempoMatch;
   }
   return {
     plv: plvSum / results.length,
-    phaseMean: plvSum > 0 ? Math.atan2(s, c) : null,
+    phaseMean: phasedPlvSum > 0 ? Math.atan2(s, c) : null,
     tempoMatch: tmSum / results.length,
   };
 }

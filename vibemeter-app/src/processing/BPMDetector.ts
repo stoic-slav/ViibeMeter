@@ -28,13 +28,17 @@ const TEMPO_PRIOR_BPM = 120;
 const TEMPO_PRIOR_OCTAVES = 1.0; // std-dev of the log2 tempo prior
 const HALF_LAG_RATIO = 0.6;      // double-tempo preference threshold
 const LOW_BAND_HZ = 200;
+const KNOWN_TEMPO_RANGE = 0.04;  // ±4% around a recognised song's tempo
 
 /**
  * Detect BPM from a sequence of PCM audio samples.
  * @param samples - Raw PCM samples (normalized -1.0 to 1.0)
  * @param sampleRate - e.g. 44100
+ * @param knownBpm - tempo of the recognised song, if any. The period search then stays within
+ *   ±KNOWN_TEMPO_RANGE of it and a lower clarity is accepted, since only the beat phase has
+ *   to be found. Helps when the mic is muffled or picks up handling noise (phone in a pocket).
  */
-export function detectBPM(samples: number[], sampleRate: number): BPMResult {
+export function detectBPM(samples: number[], sampleRate: number, knownBpm: number | null = null): BPMResult {
   if (samples.length < FRAME_SIZE * 2) {
     return { bpm: null, confidence: 0, onsetCount: 0, onsetTimes: [] };
   }
@@ -103,7 +107,16 @@ export function detectBPM(samples: number[], sampleRate: number): BPMResult {
   }
 
   let bestLag = -1, bestScore = -Infinity;
-  for (let lag = minLag; lag <= maxLag; lag++) {
+  const known = knownBpm != null && knownBpm >= SENSOR_CONFIG.BPM_MIN && knownBpm <= SENSOR_CONFIG.BPM_MAX;
+  if (known) {
+    const target = 60 / (knownBpm! * hopDuration);
+    const lo = Math.max(minLag, Math.floor(target * (1 - KNOWN_TEMPO_RANGE)));
+    const hi = Math.min(maxLag, Math.ceil(target * (1 + KNOWN_TEMPO_RANGE)));
+    for (let lag = lo; lag <= hi; lag++) {
+      if (acf[lag] > bestScore) { bestScore = acf[lag]; bestLag = lag; }
+    }
+  }
+  for (let lag = minLag; !known && lag <= maxLag; lag++) {
     if (!(acf[lag] >= acf[lag - 1] && acf[lag] >= acf[lag + 1])) continue; // local maxima only
     const bpm = 60 / (lag * hopDuration);
     const prior = Math.exp(-0.5 * (Math.log2(bpm / TEMPO_PRIOR_BPM) / TEMPO_PRIOR_OCTAVES) ** 2);
@@ -115,7 +128,7 @@ export function detectBPM(samples: number[], sampleRate: number): BPMResult {
   // Alternating kick/snare repeats every two beats, so the full pattern can out-score
   // the beat. Prefer the double tempo when its correlation is nearly as strong.
   const halfLag = Math.round(bestLag / 2);
-  if (halfLag >= minLag) {
+  if (!known && halfLag >= minLag) {
     let h = halfLag;
     for (const cand of [halfLag - 1, halfLag + 1]) if (cand >= minLag && acf[cand] > acf[h]) h = cand;
     if (acf[h] >= HALF_LAG_RATIO * acf[bestLag]) bestLag = h;
@@ -129,7 +142,8 @@ export function detectBPM(samples: number[], sampleRate: number): BPMResult {
   const bpm = 60 / (periodHops * hopDuration);
   const confidence = Math.max(0, Math.min(1, b));
 
-  if (confidence < SENSOR_CONFIG.BPM_PCM_MIN_CLARITY || bpm < SENSOR_CONFIG.BPM_MIN || bpm > SENSOR_CONFIG.BPM_MAX) {
+  const minClarity = known ? SENSOR_CONFIG.BPM_KNOWN_TEMPO_MIN_CLARITY : SENSOR_CONFIG.BPM_PCM_MIN_CLARITY;
+  if (confidence < minClarity || bpm < SENSOR_CONFIG.BPM_MIN || bpm > SENSOR_CONFIG.BPM_MAX) {
     return { bpm: null, confidence, onsetCount, onsetTimes: [] };
   }
 

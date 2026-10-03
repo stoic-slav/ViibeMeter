@@ -283,8 +283,12 @@ export class SensorOrchestrator {
     if (motion) this.applyMotionMetrics(motion);
 
     this.lastBeatSync = null;
-    if (audio && motion && audio.beatBpm != null) {
-      const sync = computeBeatSync(motion.movementSeries, audio.beatOnsetTimesMs, audio.beatBpm, motion.movementBpm);
+    // Tempo from the audio beat grid, else from the recognised song: PLV needs only the period,
+    // so a muffled mic (phone in a pocket while dancing) still yields beat sync.
+    const musicBpm = audio?.beatBpm ?? audio?.recognizedBpm ?? null;
+    if (audio && motion && musicBpm != null) {
+      const onsets = audio.beatBpm != null ? audio.beatOnsetTimesMs : [];
+      const sync = computeBeatSync(motion.movementSeries, onsets, musicBpm, motion.movementBpm);
       if (sync) {
         this.beatResults.push(sync);
         this.lastBeatSync = sync;
@@ -333,7 +337,7 @@ export class SensorOrchestrator {
     this.currentWindow.crestFactor = metrics.crestFactor;
     this.currentWindow.vocalPresence = metrics.vocalPresence;
     this.currentWindow.harmonicNoiseRatio = metrics.harmonicNoiseRatio;
-    if (metrics.avgDb > 0) this.pulseClarityValues.push(metrics.bpmConfidence);
+    if (metrics.pulseClarity != null) this.pulseClarityValues.push(metrics.pulseClarity);
     // Latest recognized track in the window wins
     if (metrics.recognitionSource) {
       this.windowSong = {

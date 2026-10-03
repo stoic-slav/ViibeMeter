@@ -197,8 +197,12 @@ export class AudioAnalyzer {
     let beatBpm: number | null = null;
     let beatOnsetTimesMs: number[] = [];
 
+    let pulseClarity: number | null = null;
     if (pcmSamples.length >= 4096) {
-      const pcmBpm = detectBPM(pcmSamples, SENSOR_CONFIG.AUDIO_SAMPLE_RATE);
+      // A recognised song's tempo narrows the search, so the beat grid survives a muffled mic
+      const knownBpm = this.track && Date.now() - this.track.confirmedAt <= SONG_STALE_MS ? this.track.bpm : null;
+      const pcmBpm = detectBPM(pcmSamples, SENSOR_CONFIG.AUDIO_SAMPLE_RATE, knownBpm);
+      pulseClarity = pcmBpm.confidence;
       if (pcmBpm.bpm != null) {
         bpmResult = pcmBpm;
         beatBpm = pcmBpm.bpm;
@@ -242,6 +246,7 @@ export class AudioAnalyzer {
       estimatedBpm: bpmResult.bpm,
       recognizedBpm: track?.bpm ?? null,
       bpmConfidence: bpmResult.confidence,
+      pulseClarity,
       audioClassification,
       bassPresence,
       midHighRatio,
@@ -376,7 +381,7 @@ export class AudioAnalyzer {
   private buildFallbackMetrics(): AudioMetrics {
     return {
       avgDb: 0, maxDb: 0, dbVariance: 0, musicDetected: false,
-      estimatedBpm: null, recognizedBpm: null, bpmConfidence: 0, audioClassification: 'silent',
+      estimatedBpm: null, recognizedBpm: null, bpmConfidence: 0, pulseClarity: null, audioClassification: 'silent',
       bassPresence: 0, midHighRatio: 0,
       subBassEnergy: 0, spectralCentroid: 0, spectralFlux: 0,
       crestFactor: 0, vocalPresence: 0, harmonicNoiseRatio: 0,
