@@ -87,8 +87,9 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, eu-west-3. Free tier, pauses when idle.
 - **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
-### Next build (13, code done 4 Oct): app renamed "Viibe Check", new icon, vibrating prompt
-- **Name:** display name and all user-facing text say "Viibe Check" (app.json `name`, permission strings, home wordmark, tab title, Android session notification, group sheet, privacy page, tester guide, TestFlight text). Unchanged: bundle ID `com.leogerasimov.vibemeter`, Android package, repo and URLs, the internal `ViibeMeterSession` task name. **The owner must also rename the app in App Store Connect** (App Information → Name).
+### Build 13 (4 Oct): app renamed "Viibe Check", new icon, vibrating prompt
+- **Status:** built on EAS (`01842212-…`), uploaded via Transporter. App Store Connect name changed to "Viibe Check". **Submitted for Beta App Review on 4 Oct** in the external group `Public` (Test Information and review notes filled from `docs/TESTFLIGHT_PUBLIC.md`, no sign-in). After approval: enable the Public Link in that group and share it with `TESTER_GUIDE.md`.
+- **Name:** display name and all user-facing text say "Viibe Check" (app.json `name`, permission strings, home wordmark, tab title, Android session notification, group sheet, privacy page, tester guide, TestFlight text). Unchanged: bundle ID `com.leogerasimov.vibemeter`, Android package, repo and URLs, the internal `ViibeMeterSession` task name. Done in App Store Connect too.
 - **Icon:** designed in Figma (https://www.figma.com/design/PwDGNebtd9RSCSB3uAPAWt). "Viibe" over "Check" in Outfit SemiBold, white on pure black; the V is a green check with a dark-green outline, and the dots of the two i's are flames. The flame and check are original vector drawings, not Apple emoji (Apple's emoji artwork is not licensed for app icons). `assets/icon.png` is flattened to RGB because App Store icons must not have alpha. `assets/adaptive-icon.png` holds the icon at 78% on transparency for Android's mask, with a #000000 background. `splash-icon.png` is the same artwork.
 - **Vibration:** the vibe-check notification plays the default sound on iOS (iOS only vibrates with a sound; in silent mode it only vibrates), and Android uses a new `vibe-check` channel with a vibration pattern (the old silent `vibe-prompt` channel is deleted).
 
@@ -110,10 +111,10 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - Migration files renamed to the versions Supabase recorded.
 
 ## Do next, in order
-1. **Retest on build 10** (owner) with songs Deezer lacks a tempo for: check `song_bpm_source = learned`, beat PLV present in dancing minutes, and higher on beat than off beat. Also tap GROUP and check the QR scans with the Camera app: same protocol, pocket, about 10 minutes. Check that the on-beat minutes now have beat PLV above the off-beat ones, and that dB is close to the Watch reading.
+1. **Device test of build 13** (owner): lock-screen rating buttons and vibration, tapping the notification opens the sheet, both ratings reach Supabase with the right `rating_source`. Also **retest beat sync** with songs Deezer lacks a tempo for: check `song_bpm_source = learned`, beat PLV present in dancing minutes, and higher on beat than off beat. Also tap GROUP and check the QR scans with the Camera app: same protocol, pocket, about 10 minutes. Check that the on-beat minutes now have beat PLV above the off-beat ones, and that dB is close to the Watch reading.
 2. If PLV still does not separate on-beat from off-beat, look at movement peak detection (`findMovementPeaks`) and the movement axis choice next.
 3. **Android on a friend's phone:** install the current APK (see Distribution), run a locked 10-minute session and check that windows are continuous and motion is non-zero. If the service fails to start, look for `SessionService` in logcat. Calibrate the Android dB offset too.
-4. **Pilot at a real venue with ≥3 phones** on one event code (crowd sync), ratings every 5 minutes. Invite testers in App Store Connect (internal) or set up external TestFlight (needs the privacy URL, a feedback email and Apple beta review).
+4. **Pilot at a real venue with ≥3 phones** on one event code (crowd sync), ratings every 5 minutes. Testers install through the public TestFlight link once build 13 is approved (group `Public`).
 5. **Analysis:** `fetch_data.py`, then `correlations.py` and `crowd_sync.py`.
 6. **Validation night for automatic grouping:** 3–5 phones in one room, plus one phone in another room playing the same playlist 1 minute later. Then run `auto_groups.py` (and `validate_by_source`) and `crowd_sync.py --auto`.
 
