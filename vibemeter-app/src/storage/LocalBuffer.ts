@@ -129,6 +129,7 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
     ['sensor_windows', 'beat_phase_clock', 'REAL'],
     ['sensor_windows', 'song_start_ms', 'REAL'],
     ['sensor_windows', 'song_start_spread_ms', 'REAL'],
+    ['sensor_windows', 'song_bpm_source', 'TEXT'],
     // session covariates for crowd sync
     ['sessions', 'event_code', 'TEXT'],
     ['sessions', 'phone_placement', 'TEXT'],
@@ -218,12 +219,12 @@ export async function saveSensorWindow(w: SensorWindow): Promise<void> {
        movement_energy, movement_bpm, rhythmicity, movement_axis,
        beat_plv, beat_phase_mean, beat_phase_clock, tempo_match, pulse_clarity,
        song_isrc, song_genre, song_bpm, song_popularity, recognition_source,
-       song_start_ms, song_start_spread_ms,
+       song_start_ms, song_start_spread_ms, song_bpm_source,
        ble_device_count, ble_count_delta, ble_count_trend,
        gps_is_at_venue, gps_accuracy_meters, screen_off_ratio, camera_activations,
        computed_energy_score, computed_density_score, computed_movement_score,
        computed_music_score, computed_vibe_score)
-     VALUES (${Array(52).fill('?').join(',')})`,
+     VALUES (${Array(53).fill('?').join(',')})`,
     [
       w.id, w.sessionId, w.windowStart.getTime(), w.windowEnd.getTime(),
       w.avgDb, w.maxDb, w.dbVariance,
@@ -235,7 +236,7 @@ export async function saveSensorWindow(w: SensorWindow): Promise<void> {
       w.movementEnergy, w.movementBpm, w.rhythmicity, w.movementAxis,
       w.beatPlv, w.beatPhaseMean, w.beatPhaseClock, w.tempoMatch, w.pulseClarity,
       w.songIsrc, w.songGenre, w.songBpm, w.songPopularity, w.recognitionSource,
-      w.songStartMs, w.songStartSpreadMs,
+      w.songStartMs, w.songStartSpreadMs, w.songBpmSource,
       w.bleDeviceCount, w.bleCountDelta, w.bleCountTrend,
       w.gpsIsAtVenue == null ? null : (w.gpsIsAtVenue ? 1 : 0),
       w.gpsAccuracyMeters, w.screenOffRatio, w.cameraActivations,

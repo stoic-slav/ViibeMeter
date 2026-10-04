@@ -52,7 +52,7 @@ export const SENSOR_CONFIG = {
 
   // Audio classification dB thresholds
   // iOS capture runs in measurement mode (no automatic gain): dBFS + this ≈ dB SPL.
-  // Set from Apple Watch Noise readings next to an iPhone (3 Oct 2026); other models may differ.
+  // Confirmed 4 Oct 2026: app ~60 dB vs Apple Watch Noise ~60 dB (iPhone, pocket). Other models may differ.
   IOS_RAW_MIC_DBFS_OFFSET: 110,
   AUDIO_DB_SILENT: 30,
   AUDIO_DB_TALKING: 55,
@@ -73,6 +73,8 @@ export const SENSOR_CONFIG = {
   BPM_TOLERANCE_PCT: 0.05,             // ±5% for consensus check
   BPM_PCM_MIN_CLARITY: 0.3,            // min normalized onset autocorrelation to report a PCM tempo
   BPM_KNOWN_TEMPO_MIN_CLARITY: 0.1,    // lower bar when the song's tempo is known from recognition
+  BPM_SONG_MIN_CLARITY: 0.12,          // mean clarity over a song's clips needed to learn its tempo
+  BPM_SONG_MIN_CLIPS: 3,               // clips of one song before its tempo is learned
 
   // Battery optimization
   STATIONARY_TIMEOUT_MS: 300000,        // stop motion sampling after 5 min stationary

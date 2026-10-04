@@ -44,7 +44,8 @@ export interface SensorWindow {
   // Recognized track (collect-only). No title/artist is stored, only these descriptors.
   songIsrc: string | null;            // ISRC of the track playing (same song across devices)
   songGenre: string | null;
-  songBpm: number | null;             // metadata tempo (Deezer / Apple Music)
+  songBpm: number | null;             // song tempo: Deezer's, or learned from the song's clips
+  songBpmSource: 'deezer' | 'learned' | null;
   songPopularity: number | null;      // Deezer rank (higher = more popular)
   recognitionSource: RecognitionSource | null;
   // When this playback of the track began (ms, wall clock), from ShazamKit's match offset.
@@ -185,7 +186,8 @@ export interface AudioMetrics {
   recognizedIsrc: string | null;
   trackPopularity: number | null;
   recognitionSource: RecognitionSource | null;
-  songMatch: { isrc: string; trackStartMs: number } | null; // fresh ShazamKit match this cycle
+  songMatch: { isrc: string; trackStartMs: number; rawStartMs: number } | null; // fresh ShazamKit match this cycle
+  songBpmSource: 'deezer' | 'learned' | null;
   audioEvent: AudioEvent | null;
 }
 

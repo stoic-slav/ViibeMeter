@@ -47,6 +47,7 @@ START_TOLERANCE_S = 1.5       # same playback if the start times agree within th
 MIN_SHARED_PLAYBACKS = 2      # distinct shared playbacks needed to link two phones
 EVIDENCE_WINDOW_MIN = 20      # evidence counts for minutes within this distance
 EVIDENCE_DECAY_MIN = 4        # …weighted by exp(−Δt / this), so the nearest evidence dominates
+REPEAT_WINDOW = pd.Timedelta(minutes=8)  # same-song estimate clusters this close are one playback
 
 
 def playbacks(windows: pd.DataFrame, sessions: pd.DataFrame) -> pd.DataFrame:
@@ -65,13 +66,24 @@ def playbacks(windows: pd.DataFrame, sessions: pd.DataFrame) -> pd.DataFrame:
     # A playback spans several windows: merge a session's estimates of the same isrc that agree
     rows = []
     for (sid, isrc), g in w.sort_values('start_s').groupby(['session_id', 'song_isrc']):
-        cluster = [g.iloc[0]]
+        clusters, cluster = [], [g.iloc[0]]
         for _, r in g.iloc[1:].iterrows():
             if r['start_s'] - cluster[-1]['start_s'] <= START_TOLERANCE_S:
                 cluster.append(r)
             else:
-                rows.append(_merge(cluster)); cluster = [r]
-        rows.append(_merge(cluster))
+                clusters.append(cluster); cluster = [r]
+        clusters.append(cluster)
+        # ShazamKit sometimes matches a repeated chorus, giving a start 30–80 s off. Such a
+        # cluster overlaps a bigger one of the same song in time: keep only the bigger one.
+        # (A song genuinely played again later is far away in time and is kept.)
+        kept = []
+        for c in sorted(clusters, key=lambda c: -len(c)):
+            span = (min(r['minute'] for r in c), max(r['minute'] for r in c))
+            clash = any(span[0] - REPEAT_WINDOW <= k_end and k_start <= span[1] + REPEAT_WINDOW
+                        for k_start, k_end, _ in kept)
+            if not clash:
+                kept.append((span[0], span[1], c))
+        rows.extend(_merge(c) for _, _, c in kept)
     return pd.DataFrame(rows)
 
 
@@ -99,14 +111,14 @@ def pair_evidence(pb: pd.DataFrame) -> pd.DataFrame:
             if abs(x['start_s'] - y['start_s']) <= START_TOLERANCE_S:
                 a, b = sorted([x['session_id'], y['session_id']])
                 out.append({'a': a, 'b': b, 'minute': min(x['minute'], y['minute']), 'kind': 'together'})
-    # Apart: both recognised something in the same minute, but not the same playback
+    # Apart: in the same minute both recognised a song, and the songs differ. The same song with
+    # different starts is not counted: it can be a mis-matched repeat on one phone.
     for minute, g in pb.groupby('minute'):
         recs = g.to_dict('records')
         for x, y in combinations(recs, 2):
             if x['device_id'] == y['device_id'] or x['session_id'] == y['session_id']:
                 continue
-            same = x['isrc'] == y['isrc'] and abs(x['start_s'] - y['start_s']) <= START_TOLERANCE_S
-            if not same:
+            if x['isrc'] != y['isrc']:
                 a, b = sorted([x['session_id'], y['session_id']])
                 out.append({'a': a, 'b': b, 'minute': minute, 'kind': 'apart'})
     return pd.DataFrame(out)
@@ -193,6 +205,9 @@ def validate_against_codes(groups: pd.DataFrame, sessions: pd.DataFrame) -> dict
 
 # ── Synthetic self-test ───────────────────────────────────────────────────────
 
+OUTLIER_RATE = 0.15  # share of start estimates off by a chorus (4 Oct device test: 3 of ~15)
+
+
 def _simulate(seed=1):
     """Three venues; A and B share part of a playlist (same hits, different start times);
     one phone walks from venue A to venue B halfway through; 40% of minutes unrecognised."""
@@ -223,7 +238,10 @@ def _simulate(seed=1):
                 for isrc, start, dur in venues[venue]:
                     if start <= minute + pd.Timedelta(seconds=30) < start + pd.Timedelta(seconds=dur):
                         row['song_isrc'] = isrc
-                        row['song_started_at'] = (start + pd.Timedelta(seconds=float(rng.normal(0, 0.3)))).isoformat()
+                        jitter = float(rng.normal(0, 0.3))
+                        if rng.random() < OUTLIER_RATE:  # matched a repeated chorus
+                            jitter += float(rng.choice([-1, 1]) * rng.uniform(30, 80))
+                        row['song_started_at'] = (start + pd.Timedelta(seconds=jitter)).isoformat()
             windows.append(row)
     return pd.DataFrame(windows), pd.DataFrame(sessions), pd.DataFrame(truth)
 

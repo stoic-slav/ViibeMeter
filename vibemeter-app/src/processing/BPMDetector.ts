@@ -20,6 +20,10 @@ export interface BPMResult {
   confidence: number;  // 0.0 to 1.0: normalized autocorrelation at the beat period (pulse clarity)
   onsetCount: number;
   onsetTimes: number[]; // beat grid, seconds from the start of the sample buffer
+  // Onset autocorrelation by lag (index = lag in hops, length TEMPO_CURVE_LENGTH). Clips at the
+  // standard sample rate share the lag axis, so summing this over several clips of the same song
+  // gives that song's tempo even when each clip alone is too noisy (see tempoFromAccumulated).
+  tempoCurve?: number[];
 }
 
 const HOP_SIZE = 512;   // samples between frames
@@ -29,6 +33,11 @@ const TEMPO_PRIOR_OCTAVES = 1.0; // std-dev of the log2 tempo prior
 const HALF_LAG_RATIO = 0.6;      // double-tempo preference threshold
 const LOW_BAND_HZ = 200;
 const KNOWN_TEMPO_RANGE = 0.04;  // ±4% around a recognised song's tempo
+const STD_HOP_S = HOP_SIZE / SENSOR_CONFIG.AUDIO_SAMPLE_RATE;
+const STD_MIN_LAG = Math.max(2, Math.floor(60 / (SENSOR_CONFIG.BPM_MAX * STD_HOP_S)));
+const STD_MAX_LAG = Math.ceil(60 / (SENSOR_CONFIG.BPM_MIN * STD_HOP_S));
+export const TEMPO_CURVE_LENGTH = STD_MAX_LAG + 2;
+const DANCE_RANGE: [number, number] = [80, 160]; // fold a learned tempo into this range when plausible
 
 /**
  * Detect BPM from a sequence of PCM audio samples.
@@ -114,6 +123,11 @@ export function detectBPM(
     acf[lag] = (s / energy) * (env.length / (env.length - lag));
   }
 
+  // Only clips at the standard sample rate share the lag axis used for accumulation
+  const tempoCurve = sampleRate === SENSOR_CONFIG.AUDIO_SAMPLE_RATE
+    ? Array.from({ length: TEMPO_CURVE_LENGTH }, (_, i) => acf[i] ?? 0)
+    : undefined;
+
   let bestLag = -1, bestScore = -Infinity;
   const known = knownBpm != null && knownBpm >= SENSOR_CONFIG.BPM_MIN && knownBpm <= SENSOR_CONFIG.BPM_MAX;
   if (known) {
@@ -131,7 +145,7 @@ export function detectBPM(
     const score = acf[lag] * prior;
     if (score > bestScore) { bestScore = score; bestLag = lag; }
   }
-  if (bestLag < 0) return { bpm: null, confidence: 0, onsetCount, onsetTimes: [] };
+  if (bestLag < 0) return { bpm: null, confidence: 0, onsetCount, onsetTimes: [], tempoCurve };
 
   // Alternating kick/snare repeats every two beats, so the full pattern can out-score
   // the beat. Prefer the double tempo when its correlation is nearly as strong.
@@ -152,7 +166,7 @@ export function detectBPM(
 
   const minClarity = known ? SENSOR_CONFIG.BPM_KNOWN_TEMPO_MIN_CLARITY : SENSOR_CONFIG.BPM_PCM_MIN_CLARITY;
   if (confidence < minClarity || bpm < SENSOR_CONFIG.BPM_MIN || bpm > SENSOR_CONFIG.BPM_MAX) {
-    return { bpm: null, confidence, onsetCount, onsetTimes: [] };
+    return { bpm: null, confidence, onsetCount, onsetTimes: [], tempoCurve };
   }
 
   // Beat phase: the grid offset that collects the most onset energy
@@ -170,7 +184,48 @@ export function detectBPM(
   const onsetTimes: number[] = [];
   for (let t = bestPhase; t < env.length; t += periodHops) onsetTimes.push(frameTime(t));
 
-  return { bpm: Math.round(bpm), confidence, onsetCount, onsetTimes };
+  return { bpm: Math.round(bpm), confidence, onsetCount, onsetTimes, tempoCurve };
+}
+
+/**
+ * Tempo from the summed tempo curves of `count` clips of one song, with the same peak picking
+ * as detectBPM (tempo prior, double-tempo check, parabolic interpolation) on the mean curve.
+ * A result below 80 or from 160 BPM is folded into that range when the folded tempo correlates
+ * at least half as well, since dance music almost always sits there.
+ * Returns null until the mean peak reaches BPM_SONG_MIN_CLARITY.
+ */
+export function tempoFromAccumulated(sum: number[], count: number): { bpm: number; clarity: number } | null {
+  if (count <= 0 || sum.length !== TEMPO_CURVE_LENGTH) return null;
+  const acf = sum.map(v => v / count);
+  const bpmAt = (lag: number) => 60 / (lag * STD_HOP_S);
+  let best = -1, bestScore = -Infinity;
+  for (let lag = STD_MIN_LAG; lag <= STD_MAX_LAG; lag++) {
+    if (!(acf[lag] >= acf[lag - 1] && acf[lag] >= acf[lag + 1])) continue;
+    const prior = Math.exp(-0.5 * (Math.log2(bpmAt(lag) / TEMPO_PRIOR_BPM) / TEMPO_PRIOR_OCTAVES) ** 2);
+    if (acf[lag] * prior > bestScore) { bestScore = acf[lag] * prior; best = lag; }
+  }
+  if (best < 0) return null;
+  const strongestNear = (lag: number) => {
+    let k = Math.round(lag);
+    for (const c of [k - 1, k + 1]) if (c >= STD_MIN_LAG && c <= STD_MAX_LAG && acf[c] > acf[k]) k = c;
+    return k;
+  };
+  const half = strongestNear(best / 2);
+  if (half >= STD_MIN_LAG && acf[half] >= HALF_LAG_RATIO * acf[best]) best = half;
+  // Fold into the dance range
+  const b0 = bpmAt(best);
+  if (b0 < DANCE_RANGE[0] && best / 2 >= STD_MIN_LAG) {
+    const k = strongestNear(best / 2);
+    if (acf[k] >= 0.5 * acf[best]) best = k;
+  } else if (b0 >= DANCE_RANGE[1] && best * 2 <= STD_MAX_LAG) {
+    const k = strongestNear(best * 2);
+    if (acf[k] >= 0.5 * acf[best]) best = k;
+  }
+  const a = acf[best - 1], b = acf[best], c = acf[best + 1];
+  const denom = a - 2 * b + c;
+  const off = denom !== 0 ? Math.max(-0.5, Math.min(0.5, 0.5 * (a - c) / denom)) : 0;
+  if (b < SENSOR_CONFIG.BPM_SONG_MIN_CLARITY) return null;
+  return { bpm: bpmAt(best + off), clarity: b };
 }
 
 function onsetEnvelope(flux: number[]): number[] {

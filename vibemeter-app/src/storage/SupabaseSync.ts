@@ -112,6 +112,7 @@ export async function syncSensorWindows(): Promise<void> {
     recognition_source: r.recognition_source ?? null,
     song_started_at: r.song_start_ms != null ? new Date(r.song_start_ms).toISOString() : null,
     song_start_spread_ms: r.song_start_spread_ms ?? null,
+    song_bpm_source: r.song_bpm_source ?? null,
     ble_device_count: r.ble_device_count,
     ble_count_delta: r.ble_count_delta,
     ble_count_trend: r.ble_count_trend,

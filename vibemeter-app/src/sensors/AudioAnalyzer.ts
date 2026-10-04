@@ -9,7 +9,7 @@ import {
   spectralCentroid as fftSpectralCentroid, subBassRatio, vocalPresence as fftVocalPresence,
   harmonicNoiseRatio as fftHNR, computeSpectralFlux, crestFactor as fftCrestFactor,
 } from '../processing/FFTProcessor';
-import { detectBPM } from '../processing/BPMDetector';
+import { detectBPM, tempoFromAccumulated, TEMPO_CURVE_LENGTH } from '../processing/BPMDetector';
 import { classifyAudio, computeRMS, rmsToDb, dbFullScaleToAmbient } from '../processing/AudioClassifier';
 import AudioRecord from 'react-native-audio-record';
 import {
@@ -26,6 +26,10 @@ const SONG_STALE_MS = 120_000;
 const CAPTURE_BUFFER_SECONDS = 12;
 const SHAZAM_MATCH_SECONDS = 8;
 const DB_CHUNK_SAMPLES = 2048;
+// Song start estimates within this agree (same playback); further apart = matched a repeat
+const START_AGREE_MS = 1500;
+const MAX_PENDING_CURVES = 6;
+const LEARNED_TEMPO_STABLE = 0.02; // learned tempo is used once it moves less than 2% per clip
 
 interface RecognizedTrack {
   label: string;               // "Artist – Title", on-device display only
@@ -55,7 +59,15 @@ export class AudioAnalyzer {
   private deezerCache = new Map<string, { bpm: number | null; rank: number | null }>();
   private loggedShazamError = false;
   // Start time of the current playback of the track, from a match made during this analyze() call
-  private freshMatch: { isrc: string; trackStartMs: number } | null = null;
+  private freshMatch: { isrc: string; trackStartMs: number; rawStartMs: number } | null = null;
+  // Every start estimate for the current playback. ShazamKit sometimes matches a repeated
+  // chorus, giving a start 30–80 s off; the value most estimates agree on is the real one.
+  private playbackStarts: { isrc: string; estimates: number[]; lastQueryMs: number; notBeforeMs: number } | null = null;
+  // Song tempo learned from the summed onset autocorrelation of the song's clips, for songs
+  // without a Deezer tempo. Clips wait in `pendingCurves` until a match confirms which song
+  // they belong to, so a song change does not mix two tempos.
+  private songTempo: { isrc: string; sum: number[]; count: number; last: number | null; stable: number | null } | null = null;
+  private pendingCurves: number[][] = [];
 
   /**
    * iOS: open the microphone for the whole session. A continuously running audio input
@@ -210,9 +222,13 @@ export class AudioAnalyzer {
     let pulseClarity: number | null = null;
     if (pcmSamples.length >= 4096) {
       // A recognised song's tempo narrows the search, so the beat grid survives a muffled mic
-      const knownBpm = this.track && Date.now() - this.track.confirmedAt <= SONG_STALE_MS ? this.track.bpm : null;
+      const knownBpm = this.currentSongBpm()?.bpm ?? null;
       const pcmBpm = detectBPM(pcmSamples, SENSOR_CONFIG.AUDIO_SAMPLE_RATE, knownBpm, this.phoneMoving);
       pulseClarity = pcmBpm.confidence;
+      if (pcmBpm.tempoCurve) {
+        this.pendingCurves.push(pcmBpm.tempoCurve);
+        if (this.pendingCurves.length > MAX_PENDING_CURVES) this.pendingCurves.shift();
+      }
       if (pcmBpm.bpm != null) {
         bpmResult = pcmBpm;
         beatBpm = pcmBpm.bpm;
@@ -235,7 +251,9 @@ export class AudioAnalyzer {
       spectralFlux = computeSpectralFlux(pcmSamples, SENSOR_CONFIG.AUDIO_SAMPLE_RATE);
     }
 
-    const musicDetected = detectMusicFromMetering(avgDb, dbVariance, bpmResult.confidence);
+    // A song recognised in the last two minutes is music, however quiet the room
+    const songPlaying = this.track != null && Date.now() - this.track.confirmedAt <= SONG_STALE_MS;
+    const musicDetected = songPlaying || detectMusicFromMetering(avgDb, dbVariance, bpmResult.confidence);
     const audioClassification = classifyAudio(avgDb, musicDetected);
     const audioEvent = classifyAudioEvent(dbSamples, clapCount, avgDb, dbVariance, musicDetected);
 
@@ -247,6 +265,7 @@ export class AudioAnalyzer {
     }
 
     const track = this.track && Date.now() - this.track.confirmedAt <= SONG_STALE_MS ? this.track : null;
+    const songBpm = this.currentSongBpm();
 
     return {
       avgDb,
@@ -254,7 +273,8 @@ export class AudioAnalyzer {
       dbVariance,
       musicDetected,
       estimatedBpm: bpmResult.bpm,
-      recognizedBpm: track?.bpm ?? null,
+      recognizedBpm: songBpm?.bpm ?? null,
+      songBpmSource: songBpm?.source ?? null,
       bpmConfidence: bpmResult.confidence,
       pulseClarity,
       audioClassification,
@@ -320,8 +340,10 @@ export class AudioAnalyzer {
 
     const isrc = result.isrc ?? null;
     if (isrc && typeof result.trackStartMs === 'number' && Number.isFinite(result.trackStartMs)) {
-      this.freshMatch = { isrc, trackStartMs: result.trackStartMs };
+      const queryMs = typeof result.queryStartMs === 'number' ? result.queryStartMs : Date.now();
+      this.freshMatch = { isrc, trackStartMs: this.addStartEstimate(isrc, result.trackStartMs, queryMs), rawStartMs: result.trackStartMs };
     }
+    if (isrc) this.commitTempoCurves(isrc);
     const deezer = isrc ? await this.lookupDeezer(isrc) : null;
     // A single ShazamKit match is reliable, so no second confirmation is needed
     this.track = {
@@ -333,6 +355,64 @@ export class AudioAnalyzer {
       source: 'shazam',
       confirmedAt: Date.now(),
     };
+  }
+
+  /**
+   * Record a start estimate for this playback and return the one most estimates agree on.
+   * A wrong (repeated-chorus) match can recur, so votes alone are not enough: a song cannot have
+   * started while the previous song was still being heard, which rules out such estimates. On the
+   * 4 Oct device test, song 2 had two wrong estimates against one right one; this rule kept the
+   * right one.
+   */
+  private addStartEstimate(isrc: string, startMs: number, queryMs: number): number {
+    const pb = this.playbackStarts;
+    if (pb?.isrc !== isrc) {
+      // New song: it started after the previous song was last heard
+      this.playbackStarts = { isrc, estimates: [], lastQueryMs: queryMs, notBeforeMs: pb ? pb.lastQueryMs : -Infinity };
+    }
+    const cur = this.playbackStarts!;
+    cur.lastQueryMs = Math.max(cur.lastQueryMs, queryMs);
+    cur.estimates.push(startMs);
+    const est = cur.estimates.filter(e => e >= cur.notBeforeMs);
+    if (est.length === 0) return startMs; // nothing plausible yet; keep the raw estimate
+    let best = est[0], bestVotes = 0;
+    for (const e of est) {
+      const votes = est.filter(x => Math.abs(x - e) <= START_AGREE_MS).length;
+      if (votes > bestVotes) { bestVotes = votes; best = e; } // ties keep the earlier estimate
+    }
+    const agreeing = est.filter(x => Math.abs(x - best) <= START_AGREE_MS);
+    return agreeing.reduce((s, v) => s + v, 0) / agreeing.length;
+  }
+
+  /** Clips since the last match belong to the song just matched; add them to its tempo. */
+  private commitTempoCurves(isrc: string): void {
+    if (this.songTempo?.isrc !== isrc) {
+      // Song changed: only the clip just analysed is certainly this song
+      this.songTempo = { isrc, sum: new Array(TEMPO_CURVE_LENGTH).fill(0), count: 0, last: null, stable: null };
+      this.pendingCurves = this.pendingCurves.slice(-1);
+    }
+    const st = this.songTempo!;
+    for (const curve of this.pendingCurves) {
+      curve.forEach((v, i) => { st.sum[i] += v; });
+      st.count++;
+    }
+    this.pendingCurves = [];
+    if (st.count < SENSOR_CONFIG.BPM_SONG_MIN_CLIPS) return;
+    const t = tempoFromAccumulated(st.sum, st.count);
+    if (!t) return;
+    if (st.last != null && Math.abs(t.bpm - st.last) / st.last < LEARNED_TEMPO_STABLE) st.stable = t.bpm;
+    st.last = t.bpm;
+  }
+
+  /** Song tempo: Deezer's if it has one, else the tempo learned from this song's clips. */
+  private currentSongBpm(): { bpm: number; source: 'deezer' | 'learned' } | null {
+    const track = this.track && Date.now() - this.track.confirmedAt <= SONG_STALE_MS ? this.track : null;
+    if (!track) return null;
+    if (track.bpm) return { bpm: track.bpm, source: 'deezer' };
+    if (this.songTempo?.isrc === track.isrc && this.songTempo.stable != null) {
+      return { bpm: Math.round(this.songTempo.stable * 10) / 10, source: 'learned' };
+    }
+    return null;
   }
 
   private async recognizeWithAudd(fileUri: string, fileType: string): Promise<void> {
@@ -401,7 +481,7 @@ export class AudioAnalyzer {
       crestFactor: 0, vocalPresence: 0, harmonicNoiseRatio: 0,
       beatBpm: null, beatOnsetTimesMs: [],
       clapCount: 0, audioEvent: null, recognizedSong: null, recognizedGenre: null,
-      recognizedIsrc: null, trackPopularity: null, recognitionSource: null, songMatch: null,
+      recognizedIsrc: null, trackPopularity: null, recognitionSource: null, songMatch: null, songBpmSource: null,
     };
   }
 }

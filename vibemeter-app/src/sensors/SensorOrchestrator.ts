@@ -52,8 +52,8 @@ export class SensorOrchestrator {
   private rhythmicityValues: number[] = [];
   private axisValues: MovementAxis[] = [];
   private pulseClarityValues: number[] = [];
-  private windowSong: Pick<SensorWindow, 'songIsrc' | 'songGenre' | 'songBpm' | 'songPopularity' | 'recognitionSource'> = emptySong();
-  private songStarts: { isrc: string; trackStartMs: number }[] = [];
+  private windowSong: Pick<SensorWindow, 'songIsrc' | 'songGenre' | 'songBpm' | 'songBpmSource' | 'songPopularity' | 'recognitionSource'> = emptySong();
+  private songStarts: { isrc: string; trackStartMs: number; rawStartMs: number }[] = [];
   private lastBeatSync: BeatSyncResult | null = null;
   private cycleCount = 0;
 
@@ -284,7 +284,9 @@ export class SensorOrchestrator {
     const musicBpm = audio?.beatBpm ?? audio?.recognizedBpm ?? null;
     if (audio && motion && musicBpm != null) {
       const onsets = audio.beatBpm != null ? audio.beatOnsetTimesMs : [];
-      const sync = computeBeatSync(motion.movementSeries, onsets, musicBpm, motion.movementBpm, audio.recognizedBpm);
+      // The clock grid needs the identical period on every phone, so it uses the song tempo rounded
+      const clockBpm = audio.recognizedBpm != null ? Math.round(audio.recognizedBpm) : null;
+      const sync = computeBeatSync(motion.movementSeries, onsets, musicBpm, motion.movementBpm, clockBpm);
       if (sync) {
         this.beatResults.push(sync);
         this.lastBeatSync = sync;
@@ -332,6 +334,7 @@ export class SensorOrchestrator {
         songIsrc: metrics.recognizedIsrc,
         songGenre: metrics.recognizedGenre,
         songBpm: metrics.recognizedBpm,
+        songBpmSource: metrics.songBpmSource,
         songPopularity: metrics.trackPopularity,
         recognitionSource: metrics.recognitionSource,
       };
@@ -445,13 +448,14 @@ export class SensorOrchestrator {
 
   /** Median track start of this window's matches of its song, and how far the estimates spread. */
   private aggregateSongStart(): Pick<SensorWindow, 'songStartMs' | 'songStartSpreadMs'> {
-    const starts = this.songStarts
-      .filter(m => m.isrc === this.windowSong.songIsrc)
-      .map(m => m.trackStartMs);
-    if (starts.length === 0) return { songStartMs: null, songStartSpreadMs: null };
+    const matches = this.songStarts.filter(m => m.isrc === this.windowSong.songIsrc);
+    if (matches.length === 0) return { songStartMs: null, songStartSpreadMs: null };
+    // The start uses the playback consensus (repeat-chorus matches outvoted); the spread keeps
+    // the raw estimates, as a check on ShazamKit's accuracy
+    const raw = matches.map(m => m.rawStartMs);
     return {
-      songStartMs: Math.round(median(starts)!),
-      songStartSpreadMs: starts.length > 1 ? Math.max(...starts) - Math.min(...starts) : null,
+      songStartMs: Math.round(matches[matches.length - 1].trackStartMs),
+      songStartSpreadMs: raw.length > 1 ? Math.max(...raw) - Math.min(...raw) : null,
     };
   }
 
@@ -516,8 +520,8 @@ export class SensorOrchestrator {
 
 export const sensorOrchestrator = SensorOrchestrator.getInstance();
 
-function emptySong(): Pick<SensorWindow, 'songIsrc' | 'songGenre' | 'songBpm' | 'songPopularity' | 'recognitionSource'> {
-  return { songIsrc: null, songGenre: null, songBpm: null, songPopularity: null, recognitionSource: null };
+function emptySong(): Pick<SensorWindow, 'songIsrc' | 'songGenre' | 'songBpm' | 'songBpmSource' | 'songPopularity' | 'recognitionSource'> {
+  return { songIsrc: null, songGenre: null, songBpm: null, songBpmSource: null, songPopularity: null, recognitionSource: null };
 }
 
 function mean(values: number[]): number | null {

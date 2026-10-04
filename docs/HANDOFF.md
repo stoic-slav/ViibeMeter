@@ -14,7 +14,7 @@ Decide whether ViibeMeter is worth building out. The question is whether passive
 - **App Store Connect:** app **ViibeMeter**, ASC app id `6818585201` (pinned in `eas.json`). The TestFlight internal group "Team (Expo)" contains the owner. ShazamKit App Service is enabled on the app ID.
 - **EAS:** Expo account `stoicslav`, project `@stoicslav/vibemeter`. The Supabase URL and anon key are EAS env vars. `EXPO_PUBLIC_AUDD_TOKEN` is local `.env` only, so cloud builds have no AudD.
 - **Upload route:** `eas submit` sat in the free-tier queue for hours, so builds are downloaded (`ViibeMeter.ipa`, gitignored) and the owner uploads them with **Transporter** on the Mac.
-- **iOS builds:** 1 (rejected by Apple: background mode `processing`, ITMS-90771), 2 (fixed), 3 (continuous background capture, BPM rewrite), 4 (dB calibration, no fake BLE zeros), 5 (Shazam runs above 40 dB), **6 = beat sync from song tempo, dB offset 110**, **7 = bass-only beat finding while moving, `beat_phase_clock`, movement BPM capped at 180, real `app_version` on sessions**, **8 = no GPS, song start time, group QR codes** (3 Oct). Build numbers auto-increment remotely.
+- **iOS builds:** 1 (rejected by Apple: background mode `processing`, ITMS-90771), 2 (fixed), 3 (continuous background capture, BPM rewrite), 4 (dB calibration, no fake BLE zeros), 5 (Shazam runs above 40 dB), **6 = beat sync from song tempo, dB offset 110**, **7 = bass-only beat finding while moving, `beat_phase_clock`, movement BPM capped at 180, real `app_version` on sessions**, **8 = no GPS, song start time, group QR codes** (3 Oct), **9 = learned song tempo, start consensus, music detected from recognition** (4 Oct). Build numbers auto-increment remotely.
 - **Android:** preview APK builds on EAS (`eas build -p android --profile preview`). Current APK: build `4f4a5edb-…` (3 Oct, same code as iOS build 8): https://expo.dev/artifacts/eas/LimZ427YK1CAE7LI-9HJJFq8y2f2kWuuTsDquqDd55k.apk (checked: no background location; microphone-only foreground service) No Android device has run any build yet; the owner will share the APK link with friends.
 
 ### Audio pipeline (iOS), changed 2–3 Oct
@@ -47,6 +47,19 @@ Owner's plan: 1 min still, ~3 min dancing on the beat, ~2 min deliberately off t
 - **Fixed in build 6:** beat sync falls back to the recognised song's tempo (PLV needs only the beat period; `beat_phase_mean` stays null without a grid). A known tempo also narrows the PCM search and lowers its clarity bar to 0.1. `pulse_clarity` now stores only PCM clarity (it used to mix in the metering estimate). iOS dB offset set to 110: app read 66–72 dB with offset 120, against ~50–60 on the Watch.
 - Movement BPM sometimes read 200–231 (implausible); capped at 180 in build 7.
 
+### Device test 4 (build 8, 4 Oct, session `96d2e4e6`, pocket, Dua Lipa and others, ~11 min)
+Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min on beat. Apple Watch ~60 dB, app ~60 dB: **dB offset 110 confirmed**.
+- Movement energy tracks the plan (still ≈ 1, dancing 3–6); movement tempo 125 vs song 124 while on beat.
+- Beat PLV where measurable: 0.59 on beat vs 0.01 off beat (few minutes; directionally right). Missing in most dancing minutes because **Deezer had no tempo for songs 2–4** and single pocket clips were below the clarity bar.
+- **Song start times are very precise:** song 1's four estimates agreed within 0.09 s across 4 minutes. But some estimates were off by 30–80 s (ShazamKit matched a repeated chorus), and a wrong one can recur: song 2 had two wrong estimates against one right one.
+- `music_detected` was false at ~60 dB (needs 65 dB) even with a song recognised.
+
+### Build 9 (4 Oct)
+- **Song tempo learned on the phone** when Deezer has none: each clip's onset autocorrelation (lag axis) is summed per song, and clips wait until a match confirms which song they belong to (`tempoFromAccumulated`; ≥3 clips, stable to 2%, folded into 80–160 BPM). Synthetic clips too noisy alone (clarity 0.1–0.3) give 124.1/115.7/94.8 for 124/116/95 after 2–3 clips; 128 read as 64 until the 7th clip; noise alone gives none. `song_bpm_source` = `deezer` | `learned` (migration `20261004110000_song_bpm_source.sql`, applied). The clock grid uses the tempo rounded, so phones share the period.
+- **Song start consensus on the phone:** estimates that agree within 1.5 s vote; estimates from before the previous song was last heard are rejected (that rule fixes test 4's song 2). `song_start_spread_ms` still reports the raw spread.
+- **Server:** `auto_groups.py` keeps only the biggest estimate cluster per song playback and no longer counts "same song, different start" as apart. Synthetic stress test with 15–30% chorus outliers: precision 0.92–1.00.
+- A recognised song in the last 2 minutes now counts as `music_detected`.
+
 ### Build 8 (3 Oct): no GPS, group QR codes, automatic grouping
 - **GPS removed** (checked in the build 8 ipa: no location usage strings, background modes audio/bluetooth-central/fetch). `gps_is_at_venue` was empty in every window (the venue location was never set), so location only cost battery and permissions. `LocationTracker` and `expo-location` are gone; iOS has no location permission or background mode; the Android foreground service is microphone-only; Android keeps `ACCESS_FINE_LOCATION` solely because BLE scanning on Android 11 and below requires it (`neverForLocation` set for 12+), and `ACCESS_BACKGROUND_LOCATION` is blocked. The local `ios/` folder still has old location strings, but EAS builds from app.json.
 - **Song start time:** ShazamKit's `matchOffset` gives when this playback of the track began (`song_started_at`, plus `song_start_spread_ms` = spread of a window's estimates as an accuracy check). Supabase migration `20261003130000_song_start_time.sql`, applied. **Unverified on a device:** check that the spread is under ~1 s, and, with two phones, that they agree.
@@ -75,7 +88,7 @@ Owner's plan: 1 min still, ~3 min dancing on the beat, ~2 min deliberately off t
 - **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
 ## Do next, in order
-1. **Retest on build 8** (owner; 6 and 7 can be skipped). Also tap GROUP and check the QR scans with the Camera app: same protocol, pocket, about 10 minutes. Check that the on-beat minutes now have beat PLV above the off-beat ones, and that dB is close to the Watch reading.
+1. **Retest on build 9** (owner) with songs Deezer lacks a tempo for: check `song_bpm_source = learned`, beat PLV present in dancing minutes, and higher on beat than off beat. Also tap GROUP and check the QR scans with the Camera app: same protocol, pocket, about 10 minutes. Check that the on-beat minutes now have beat PLV above the off-beat ones, and that dB is close to the Watch reading.
 2. If PLV still does not separate on-beat from off-beat, look at movement peak detection (`findMovementPeaks`) and the movement axis choice next.
 3. **Android on a friend's phone:** install the current APK (see Distribution), run a locked 10-minute session and check that windows are continuous and motion is non-zero. If the service fails to start, look for `SessionService` in logcat. Calibrate the Android dB offset too.
 4. **Pilot at a real venue with ≥3 phones** on one event code (crowd sync), ratings every 5 minutes. Invite testers in App Store Connect (internal) or set up external TestFlight (needs the privacy URL, a feedback email and Apple beta review).
