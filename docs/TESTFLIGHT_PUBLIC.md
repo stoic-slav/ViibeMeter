@@ -27,13 +27,13 @@ Left sidebar → **Test Information**. Fill in and **Save**:
 | Sign-in required | **No** (leave username and password empty) |
 
 **Review Notes:**
-> No account is needed. Tap Start Session, answer the one-time dance question, enter any venue name, choose where the phone is, and start. Play any music nearby.
+> No account is needed. Tap Start Session, answer the one-time dance question, enter any venue name, choose where the phone is, and start. Play any music nearby. Every 5 minutes a notification asks "How's the vibe right now?"; press and hold it to rate with 💀, 🙂 or 🔥.
 >
 > Background modes: a session measures continuously for the length of a night out, usually with the phone locked in a pocket. The microphone stays on during the session (audio background mode) to measure loudness, tempo and beat timing. Audio is analysed on the device in a few-second in-memory buffer and never stored or uploaded; song recognition uses ShazamKit, which sends only a fingerprint. Bluetooth counts nearby devices to estimate crowd size; no identifiers are stored. The app does not use location. The camera is used only to scan a friend's group QR code (tap GROUP on the meter screen, then Scan). The session ends when the user taps Stop, which turns all sensors off.
 
 ## 2. External group with a public link
 1. Left sidebar → **External Testing** → **+** (Add group) → name it `Public`.
-2. In the group → **Builds** → **+** → choose the latest build (7) → **What to Test**: *(below)* → **Submit for Review**.
+2. In the group → **Builds** → **+** → choose the latest build → **What to Test**: *(below)* → **Submit for Review**.
 3. Once Apple approves (email "Your submission was accepted"), open the group → **Public Link** → **Enable Public Link**. Optionally set a tester limit, e.g. 50.
 4. Copy the link (`https://testflight.apple.com/join/…`) and send it to testers with `TESTER_GUIDE.md`.
 
