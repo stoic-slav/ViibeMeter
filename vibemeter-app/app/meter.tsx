@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Animated, Platform, Alert,
+  Animated, Platform, Alert, AppState,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
@@ -10,7 +10,7 @@ import {
 } from '../src/types';
 import { sensorOrchestrator } from '../src/sensors/SensorOrchestrator';
 import { sessionManager } from '../src/session/SessionManager';
-import { vibePrompt } from '../src/notifications/VibePrompt';
+import { vibePrompt, RATING_OPTIONS, RatingValue } from '../src/notifications/VibePrompt';
 import { GroupSheet } from '../src/components/GroupQR';
 
 /* ── Design tokens ─────────────────────────────────────────── */
@@ -726,47 +726,64 @@ function InfoModal({ label, info, onClose }: { label: string; info: string; onCl
 }
 
 
-/* ── Rating Row ─────────────────────────────────────────────── */
-const RATING_COLORS = ['#e84560', '#e8a800', '#e8c800', '#8ee800', '#00E8A0'];
+function vibeTrend(readings: SensorReading[]): TrendDir | undefined {
+  if (readings.length < 3) return undefined;
+  const d = readings[readings.length - 1].v - readings[readings.length - 3].v;
+  return d > 0.1 ? 'up' : d < -0.1 ? 'down' : 'flat';
+}
 
-function RatingRow({ label, value, onSelect, size, required }: {
-  label: string; value: number | null;
-  onSelect: (v: number) => void;
-  size: 'large' | 'small';
-  required?: boolean;
-}) {
-  const btnSize = size === 'large' ? 52 : 40;
+/* ── One-tap rating sheet ───────────────────────────────────── */
+const RATING_COLORS: Record<RatingValue, string> = { 1: '#e84560', 3: '#e8c800', 5: '#00E8A0' };
+
+function RatingSheet({ onRate, onSkip }: { onRate: (v: RatingValue) => void; onSkip: () => void }) {
   return (
-    <View style={{ marginBottom: size === 'large' ? 16 : 12 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-        <Text style={{ fontFamily: MONO, fontSize: 10, color: TXM, letterSpacing: 1.5 }}>{label}</Text>
-        {required && value == null && <Text style={{ fontSize: 9, color: DNG, fontFamily: MONO }}>required</Text>}
-      </View>
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        {[1, 2, 3, 4, 5].map(v => {
-          const active = value === v;
-          const c = RATING_COLORS[v - 1];
-          return (
+    <View style={s.promptOverlay}>
+      <View style={s.promptCard}>
+        <Text style={s.promptTitle}>HOW'S THE VIBE RIGHT NOW?</Text>
+        <View style={{ flexDirection: 'row', gap: 12, marginTop: 22 }}>
+          {RATING_OPTIONS.map(o => (
             <TouchableOpacity
-              key={v}
-              onPress={() => onSelect(v)}
+              key={o.id}
+              onPress={() => onRate(o.value)}
               activeOpacity={0.7}
-              style={{
-                width: btnSize, height: btnSize, borderRadius: btnSize / 2,
-                alignItems: 'center', justifyContent: 'center',
-                backgroundColor: active ? c + '22' : S1,
-                borderWidth: active ? 2 : 1,
-                borderColor: active ? c : S2,
-                shadowColor: active ? c : 'transparent',
-                shadowOpacity: active ? 0.6 : 0,
-                shadowRadius: 8, elevation: active ? 4 : 0,
-              }}
+              style={[s.rateBtn, { borderColor: RATING_COLORS[o.value] + '55' }]}
             >
-              <Text style={{ fontFamily: MONO, fontSize: size === 'large' ? 18 : 14, fontWeight: '700', color: active ? c : TXD }}>{v}</Text>
+              <Text style={{ fontSize: 40 }}>{o.emoji}</Text>
+              <Text style={[s.rateLabel, { color: RATING_COLORS[o.value] }]}>{o.label.toUpperCase()}</Text>
             </TouchableOpacity>
-          );
-        })}
+          ))}
+        </View>
+        <TouchableOpacity onPress={onSkip} style={{ alignSelf: 'center', paddingVertical: 14, marginTop: 6 }}>
+          <Text style={{ fontFamily: MONO, fontSize: 11, color: TXD }}>skip</Text>
+        </TouchableOpacity>
       </View>
+    </View>
+  );
+}
+
+/* ── Calm recording view (the default; the panels sit behind "Details") ── */
+function CalmView({ score, trend, song, nextPromptMs, onRate, onDetails }: {
+  score: number; trend?: TrendDir; song: string | null; nextPromptMs: number | null;
+  onRate: () => void; onDetails: () => void;
+}) {
+  const mins = nextPromptMs != null ? Math.max(1, Math.ceil(nextPromptMs / 60000)) : null;
+  return (
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 18 }}>
+      <CircleGauge score={score} size={220} trend={trend} />
+      <Text style={{ fontSize: 15, color: TXM, textAlign: 'center' }} numberOfLines={2}>
+        {song ? `🎵 ${song}` : 'Listening…'}
+      </Text>
+      {mins != null && (
+        <Text style={{ fontFamily: MONO, fontSize: 11, color: TXD, letterSpacing: 1 }}>
+          next vibe check in {mins} min
+        </Text>
+      )}
+      <TouchableOpacity onPress={onRate} activeOpacity={0.8} style={s.rateNowBtn}>
+        <Text style={s.rateNowText}>RATE THE VIBE NOW</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onDetails} style={{ paddingVertical: 8 }}>
+        <Text style={{ fontFamily: MONO, fontSize: 11, color: TXD, textDecorationLine: 'underline' }}>details</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -780,12 +797,8 @@ export default function MeterScreen() {
   const [live, setLive] = useState<LiveDashboardData | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [showPrompt, setShowPrompt] = useState(false);
-  const [vibeRating, setVibeRating]   = useState<number | null>(null);
-  const [musicRating, setMusicRating] = useState<number | null>(null);
-  const [crowdRating, setCrowdRating] = useState<number | null>(null);
-  const [autoSubmitIn, setAutoSubmitIn] = useState<number | null>(null);
-  const autoSubmitRef  = useRef<ReturnType<typeof setInterval> | null>(null);
-  const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
+  const [savedToast, setSavedToast] = useState(false);
   const [vibeReadings, setVibeReadings] = useState<SensorReading[]>([]);
   const [infoModal, setInfoModal] = useState<{ label: string; info: string } | null>(null);
   const [stopping, setStopping] = useState(false);
@@ -812,15 +825,21 @@ export default function MeterScreen() {
         });
       },
     );
-    vibePrompt.setPromptShownCallback(() => {
-      setShowPrompt(true);
-      // Auto-dismiss after 15s if user never interacts at all
-      if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
-      dismissTimerRef.current = setTimeout(() => dismissPrompt(), 15000);
+    // The sheet stays until answered or skipped: on a new prompt, on a tap on the notification,
+    // and whenever the app comes back with an unanswered prompt
+    vibePrompt.setPromptShownCallback(() => setShowPrompt(true));
+    vibePrompt.setPromptRequestedCallback(() => setShowPrompt(true));
+    vibePrompt.setRatedCallback(() => setShowPrompt(false));
+    if (vibePrompt.pendingPrompt) setShowPrompt(true);
+    const appStateSub = AppState.addEventListener('change', st => {
+      if (st === 'active' && vibePrompt.pendingPrompt) setShowPrompt(true);
     });
     const cur = sensorOrchestrator.currentVibeScore;
     if (cur > 0) setVibeScore(cur);
-    return () => { sensorOrchestrator.setVibeUpdateCallback((() => {}) as any); };
+    return () => {
+      sensorOrchestrator.setVibeUpdateCallback((() => {}) as any);
+      appStateSub.remove();
+    };
   }, []);
 
   useEffect(() => {
@@ -849,50 +868,15 @@ export default function MeterScreen() {
   };
 
   const dismissPrompt = () => {
-    if (autoSubmitRef.current) { clearInterval(autoSubmitRef.current); autoSubmitRef.current = null; }
-    if (dismissTimerRef.current) { clearTimeout(dismissTimerRef.current); dismissTimerRef.current = null; }
+    vibePrompt.skipPrompt();
     setShowPrompt(false);
-    setVibeRating(null); setMusicRating(null); setCrowdRating(null); setAutoSubmitIn(null);
   };
 
-  const submitRating = async (vibe: number, music: number | null, crowd: number | null) => {
-    if (autoSubmitRef.current) { clearInterval(autoSubmitRef.current); autoSubmitRef.current = null; }
-    if (dismissTimerRef.current) { clearTimeout(dismissTimerRef.current); dismissTimerRef.current = null; }
-    await vibePrompt.recordRating(
-      vibe as 1|2|3|4|5,
-      music as 1|2|3|4|5|null,
-      crowd as 1|2|3|4|5|null,
-    );
+  const rate = async (value: RatingValue) => {
     setShowPrompt(false);
-    setVibeRating(null); setMusicRating(null); setCrowdRating(null); setAutoSubmitIn(null);
-  };
-
-  const startAutoSubmit = (vibe: number, music: number | null, crowd: number | null) => {
-    // Cancel the idle-dismiss timer — user is now interacting
-    if (dismissTimerRef.current) { clearTimeout(dismissTimerRef.current); dismissTimerRef.current = null; }
-    if (autoSubmitRef.current) clearInterval(autoSubmitRef.current);
-    setAutoSubmitIn(4);
-    let count = 4;
-    autoSubmitRef.current = setInterval(() => {
-      count -= 1;
-      setAutoSubmitIn(count);
-      if (count <= 0) { submitRating(vibe, music, crowd); }
-    }, 1000);
-  };
-
-  const handleVibeRating = (v: number) => {
-    setVibeRating(v);
-    startAutoSubmit(v, musicRating, crowdRating);
-  };
-
-  const handleMusicRating = (v: number) => {
-    setMusicRating(v);
-    if (vibeRating) startAutoSubmit(vibeRating, v, crowdRating);
-  };
-
-  const handleCrowdRating = (v: number) => {
-    setCrowdRating(v);
-    if (vibeRating) startAutoSubmit(vibeRating, musicRating, v);
+    await vibePrompt.recordRating(value, 'app');
+    setSavedToast(true);
+    setTimeout(() => setSavedToast(false), 1800);
   };
 
   const PANELS: Record<Tab, React.ReactNode> = {
@@ -937,19 +921,37 @@ export default function MeterScreen() {
         )}
       </View>
 
-      {/* Segmented control */}
-      <View style={s.segContainer}>
-        {TABS.map(t => (
-          <TouchableOpacity key={t} style={[s.segBtn, tab === t && s.segBtnActive]} onPress={() => setTab(t)} activeOpacity={0.75}>
-            <Text style={[s.segLabel, { color: tab === t ? '#030904' : TXM }]}>{TAB_LABELS[t]}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      {isActive && !showDetails ? (
+        <CalmView
+          score={vibeScore}
+          trend={vibeTrend(vibeReadings)}
+          song={live?.recognizedSong ?? null}
+          nextPromptMs={vibePrompt.msUntilNextPrompt}
+          onRate={() => setShowPrompt(true)}
+          onDetails={() => setShowDetails(true)}
+        />
+      ) : (
+        <>
+          {/* Segmented control */}
+          <View style={s.segContainer}>
+            {TABS.map(t => (
+              <TouchableOpacity key={t} style={[s.segBtn, tab === t && s.segBtnActive]} onPress={() => setTab(t)} activeOpacity={0.75}>
+                <Text style={[s.segLabel, { color: tab === t ? '#030904' : TXM }]}>{TAB_LABELS[t]}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
 
-      {/* Panel content */}
-      <View style={{ flex: 1 }}>
-        {PANELS[tab]}
-      </View>
+          {/* Panel content */}
+          <View style={{ flex: 1 }}>
+            {PANELS[tab]}
+          </View>
+          {isActive && (
+            <TouchableOpacity onPress={() => setShowDetails(false)} style={{ alignItems: 'center', paddingVertical: 10 }}>
+              <Text style={{ fontFamily: MONO, fontSize: 11, color: TXD, textDecorationLine: 'underline' }}>back to simple view</Text>
+            </TouchableOpacity>
+          )}
+        </>
+      )}
 
       <GroupSheet visible={showGroup} code={groupCode} onClose={() => setShowGroup(false)} onJoin={joinGroup} />
 
@@ -962,44 +964,12 @@ export default function MeterScreen() {
         />
       )}
 
-      {/* Rating prompt */}
-      {showPrompt && (
-        <View style={s.promptOverlay}>
-          <View style={s.promptCard}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-              <Text style={s.promptTitle}>VIBE CHECK</Text>
-              {autoSubmitIn != null && vibeRating != null && (
-                <View style={{ borderRadius: 12, borderWidth: 1, borderColor: A + '50', paddingHorizontal: 10, paddingVertical: 3 }}>
-                  <Text style={{ fontFamily: MONO, fontSize: 11, color: A }}>auto {autoSubmitIn}s</Text>
-                </View>
-              )}
-            </View>
+      {/* Rating prompt: stays until answered or skipped */}
+      {showPrompt && isActive && <RatingSheet onRate={rate} onSkip={dismissPrompt} />}
 
-            <RatingRow label="OVERALL VIBE" value={vibeRating} onSelect={handleVibeRating} size="large" required />
-            {vibeRating != null && (
-              <>
-                <RatingRow label="MUSIC" value={musicRating} onSelect={handleMusicRating} size="small" />
-                <RatingRow label="CROWD" value={crowdRating} onSelect={handleCrowdRating} size="small" />
-              </>
-            )}
-
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 18 }}>
-              {vibeRating != null && (
-                <TouchableOpacity
-                  style={[s.promptSubmit, { flex: 1 }]}
-                  onPress={() => submitRating(vibeRating, musicRating, crowdRating)}
-                >
-                  <Text style={s.promptSubmitText}>SUBMIT</Text>
-                </TouchableOpacity>
-              )}
-              <TouchableOpacity
-                onPress={dismissPrompt}
-                style={{ paddingVertical: 12, paddingHorizontal: 8 }}
-              >
-                <Text style={{ fontFamily: MONO, fontSize: 11, color: TXD }}>skip</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+      {savedToast && (
+        <View pointerEvents="none" style={s.toast}>
+          <Text style={s.toastText}>Saved ✓</Text>
         </View>
       )}
     </View>
@@ -1071,6 +1041,22 @@ const s = StyleSheet.create({
     padding: 24, paddingBottom: 36,
     borderTopWidth: 1, borderColor: A + '30',
   },
+  rateBtn: {
+    flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8,
+    paddingVertical: 18, borderRadius: 18, borderWidth: 1, backgroundColor: S1,
+  },
+  rateLabel: { fontFamily: Platform.select({ ios: 'Courier New', android: 'monospace' }) as string, fontSize: 11, fontWeight: '700', letterSpacing: 1.5 },
+  rateNowBtn: {
+    marginTop: 6, paddingVertical: 14, paddingHorizontal: 28, borderRadius: 16,
+    borderWidth: 1, borderColor: A + '55', backgroundColor: A + '12',
+  },
+  rateNowText: { fontFamily: Platform.select({ ios: 'Courier New', android: 'monospace' }) as string, fontSize: 12, fontWeight: '700', color: A, letterSpacing: 2 },
+  toast: {
+    position: 'absolute', bottom: 40, alignSelf: 'center',
+    backgroundColor: '#0d0d12', borderWidth: 1, borderColor: A + '55',
+    borderRadius: 14, paddingVertical: 10, paddingHorizontal: 22,
+  },
+  toastText: { fontFamily: Platform.select({ ios: 'Courier New', android: 'monospace' }) as string, fontSize: 13, fontWeight: '700', color: A, letterSpacing: 1 },
   promptTitle: { fontFamily: Platform.select({ ios: 'Courier New', android: 'monospace' }) as string, fontSize: 13, fontWeight: '700', color: A, letterSpacing: 2 },
   promptSubmit: {
     height: 48, borderRadius: 14, backgroundColor: A,

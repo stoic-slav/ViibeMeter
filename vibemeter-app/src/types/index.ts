@@ -153,7 +153,12 @@ export interface SubjectiveRating {
   ratedAt: Date;
   nearestWindowId: string | null;
   responseTimeMs: number;
+  ratingScale: 3 | 5;                 // 3: 💀/🙂/🔥 stored as 1/3/5 (build 12+); 5: the old 1–5 scale
+  ratingSource: RatingSource;
 }
+
+/** Where a rating was given: a lock-screen notification button, or the in-app sheet. */
+export type RatingSource = 'lockscreen' | 'app';
 
 // Raw sensor sample types (on-device only, never uploaded)
 export interface AudioSample {

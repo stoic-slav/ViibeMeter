@@ -156,6 +156,8 @@ export async function syncRatings(): Promise<void> {
     rated_at: new Date(r.rated_at).toISOString(),
     nearest_window_id: r.nearest_window_id ?? null,
     response_time_ms: r.response_time_ms,
+    rating_scale: r.rating_scale ?? null,
+    rating_source: r.rating_source ?? null,
   }));
 
   await withRetry(async () => {

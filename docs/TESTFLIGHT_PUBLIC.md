@@ -38,7 +38,7 @@ Left sidebar → **Test Information**. Fill in and **Save**:
 4. Copy the link (`https://testflight.apple.com/join/…`) and send it to testers with `TESTER_GUIDE.md`.
 
 **What to Test:**
-> Start a session when you arrive somewhere with music, keep the phone in your pocket, and leave it running with the screen locked. Answer the "How's the vibe?" prompts (every 5 minutes). Tap Stop when you leave. With friends, one of you taps GROUP on the meter screen and the others scan the QR code. Tell us if the session stops on its own, if a prompt never appears, or if the battery drain feels too high.
+> Start a session when you arrive somewhere with music, keep the phone in your pocket, and leave it running with the screen locked. Answer the "How's the vibe right now?" notification every 5 minutes: press and hold it on the lock screen and tap 💀, 🙂 or 🔥, no need to unlock. Tap Stop when you leave. With friends, one of you taps GROUP on the meter screen and the others scan the QR code. Tell us if the session stops on its own, if a prompt never appears, or if the battery drain feels too high.
 
 ## Notes
 - Internal testers (people added as App Store Connect users) get builds without review; external and public-link testers need the review above.

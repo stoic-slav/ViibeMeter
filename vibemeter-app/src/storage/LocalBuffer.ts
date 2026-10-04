@@ -126,6 +126,8 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
     // multi-dimension ratings
     ['subjective_ratings', 'music_rating', 'INTEGER'],
     ['subjective_ratings', 'crowd_rating', 'INTEGER'],
+    ['subjective_ratings', 'rating_scale', 'INTEGER'],
+    ['subjective_ratings', 'rating_source', 'TEXT'],
     // FFT spectral metrics
     ...['sub_bass_energy', 'spectral_centroid', 'spectral_flux', 'crest_factor', 'vocal_presence', 'harmonic_noise_ratio']
       .map(c => ['sensor_windows', c, 'REAL'] as [string, string, string]),
@@ -349,8 +351,9 @@ export async function saveRating(rating: SubjectiveRating): Promise<void> {
   const database = await getDb();
   await database.runAsync(
     `INSERT OR REPLACE INTO subjective_ratings
-      (id, session_id, device_id, rating, music_rating, crowd_rating, rated_at, nearest_window_id, response_time_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, session_id, device_id, rating, music_rating, crowd_rating, rated_at, nearest_window_id, response_time_ms,
+       rating_scale, rating_source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       rating.id,
       rating.sessionId,
@@ -361,6 +364,8 @@ export async function saveRating(rating: SubjectiveRating): Promise<void> {
       rating.ratedAt.getTime(),
       rating.nearestWindowId,
       rating.responseTimeMs,
+      rating.ratingScale,
+      rating.ratingSource,
     ]
   );
 }

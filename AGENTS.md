@@ -79,7 +79,7 @@ All core services are singletons. Do not re-instantiate them:
 | `LocalBuffer` | SQLite CRUD for sessions, windows, ratings (tables use a `synced` flag) |
 | `SupabaseSync` | Retry-aware batch upload (3 attempts, retry delays) |
 | `DeviceIdentity` | Persistent anonymous UUID via Expo SecureStore |
-| `VibePrompt` | Notification scheduling + rating recording |
+| `VibePrompt` | Vibe prompt every 5 min: notification category `vibe-rating` with three rating actions (answerable from the lock screen), a response listener, a pending prompt that stays until answered, and rating recording |
 
 `src/storage/UserProfile.ts` holds the one-time dance-affinity answer (SecureStore).
 
@@ -129,7 +129,7 @@ Each audio + motion cycle starts on a wall-clock multiple of 10 s (`SensorOrches
 Three SQLite tables in `LocalBuffer`, mirrored in Supabase:
 - `sessions`: one row per session (venue, start/end, device ID, `event_code`, `phone_placement`, `dance_affinity`).
 - `sensor_windows`: one row per window (component scores, composite, FFT metrics, movement energy/BPM/rhythmicity, beat-sync scalars).
-- `subjective_ratings`: one row per micro-rating (overall 1–5, optional music and crowd ratings).
+- `subjective_ratings`: one row per vibe rating. Since build 12 the scale has three levels, 💀 Dead / 🙂 Decent / 🔥 Best, stored as `rating` 1 / 3 / 5 with `rating_scale = 3`; earlier rows used 1–5. `rating_source` is `lockscreen` (a notification button) or `app` (the in-app sheet). Music and crowd sub-ratings are no longer asked, so they are null.
 
 All tables have a `synced INTEGER DEFAULT 0` column. Sync deletes old synced windows to conserve space. SQLite has no `ADD COLUMN IF NOT EXISTS`, so schema upgrades go through the migration list in `LocalBuffer.ts`, which ignores duplicate-column errors.
 

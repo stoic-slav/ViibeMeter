@@ -87,6 +87,13 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, eu-west-3. Free tier, pauses when idle.
 - **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
+### Build 12 (code done 4 Oct): 3-level rating from the lock screen, calm meter screen
+- **Why:** only **1 rating** arrived since the 2 Oct purge, across about 25 minutes of device tests (about 5 expected). The notification auto-dismissed after 60 s, its `vibe-rating` category was never registered (so it had no buttons), nothing handled taps, and the in-app sheet closed after 15 s.
+- **Rating scale (owner's decision):** 💀 Dead / 🙂 Decent / 🔥 Best, identical on iOS and Android, stored as 1 / 3 / 5 (`rating_scale = 3`) to fit the 1–5 column and its CHECK. Music and crowd sub-ratings were dropped from the UI.
+- **Lock screen:** the category is registered with three actions (`opensAppToForeground: false`); `addNotificationResponseReceivedListener` records them as `rating_source = 'lockscreen'`. The prompt is no longer auto-dismissed; a new prompt replaces an unanswered one. Tapping the notification body, or reopening the app with a pending prompt, shows the one-tap sheet (`rating_source = 'app'`). Migration `20261004142238_rating_scale_and_source`.
+- **Meter screen:** the calm default view while recording shows the vibe ring, the song or "Listening…", "next vibe check in N min", "Rate the vibe now" and "details". The four technical tabs are unchanged behind "details".
+- **Unverified on a device:** whether iOS delivers a lock-screen action to JS while the app runs in the background (it should, since the continuous mic keeps JS alive).
+
 ### Build 11 (4 Oct): 10 s clips, bass-envelope grouping, foreground BLE, movement tempo
 - **Clock-aligned cycles:** each audio + motion cycle starts at a multiple of 10 s; a late wake-up (> 0.5 s) skips to the next boundary. iOS reads exactly `[T, T+5 s)` with native `readRange`.
 - **`sensor_clips`** (Supabase table, migrations `20261004122616` and `20261004122731`): one lean row per cycle. The app can only insert (verified with the anon key: insert ok, duplicate rejected with 23505, select and update refused). Uploads use plain insert, retrying row by row on duplicates.

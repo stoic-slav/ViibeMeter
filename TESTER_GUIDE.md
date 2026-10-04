@@ -38,8 +38,8 @@ The first time you open it, allow **microphone, motion, Bluetooth and notificati
 6. Tap **Start Session** and put the phone in your pocket.
 
 **While you're out:**
-- When "How's the vibe?" appears, tap your honest answer (2 seconds).
-- Missed one? No problem, the next comes in 5 minutes.
+- Every 5 minutes a "How's the vibe right now?" notification appears. **You don't need to unlock:** press and hold it (iPhone) or use the buttons under it (Android), then tap 💀 Dead, 🙂 Decent or 🔥 Best. Done in 2 seconds.
+- Missed one? It stays there until the next one. You can also open the app and tap **Rate the vibe now** whenever you like.
 - Keep the app running. Locking the screen is fine; force-closing it stops the measurement.
 - **Android:** a "ViibeMeter is measuring" notification stays visible during the session. That's what keeps it measuring with the screen off, so leave it there. If your phone asks about battery optimisation for ViibeMeter, choose **Don't optimise** / **Unrestricted**.
 
@@ -53,11 +53,9 @@ The first time you open it, allow **microphone, motion, Bluetooth and notificati
 
 | Rating | Label | When to use |
 |--------|-------|-------------|
-| 💀 | Dead | Empty, quiet, nobody is having fun |
-| 😐 | Meh | A bit flat, nothing special |
-| 🙂 | Decent | Good atmosphere, enjoying it |
-| 🔥 | Great | Really buzzing |
-| 🤯 | Peak | Best-night-out energy |
+| 💀 | Dead | Flat, empty or boring; nobody is really into it |
+| 🙂 | Decent | Good atmosphere, you're enjoying it |
+| 🔥 | Best | Really buzzing, the best moments of the night |
 
 **Be honest.** Rate what you actually feel, not what you think the app wants. Bad honest ratings are worth more than good fake ones.
 
