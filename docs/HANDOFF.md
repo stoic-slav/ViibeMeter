@@ -87,7 +87,7 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, eu-west-3. Free tier, pauses when idle.
 - **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
-### Next build (code done 4 Oct, not yet built): 10 s clips, bass-envelope grouping, foreground BLE, movement tempo
+### Build 11 (4 Oct): 10 s clips, bass-envelope grouping, foreground BLE, movement tempo
 - **Clock-aligned cycles:** each audio + motion cycle starts at a multiple of 10 s; a late wake-up (> 0.5 s) skips to the next boundary. iOS reads exactly `[T, T+5 s)` with native `readRange`.
 - **`sensor_clips`** (Supabase table, migrations `20261004122616` and `20261004122731`): one lean row per cycle. The app can only insert (verified with the anon key: insert ok, duplicate rejected with 23505, select and update refused). Uploads use plain insert, retrying row by row on duplicates.
 - **Retention:** pg_cron job `viibemeter-retention` (daily 03:17 UTC, `public.apply_retention()`) deletes clips and clears `bass_envelope` after 90 days (migration `20261004122802`).
