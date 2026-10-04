@@ -87,6 +87,12 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, eu-west-3. Free tier, pauses when idle.
 - **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
+### Build 14 (5 Oct): uploads through RPC functions (lockdown step 2a), battery logging
+- **Upload functions** (migration `20261004233010_upload_rpc_functions`, applied with the owner's OK): `upload_sessions`, `upload_sensor_windows`, `upload_ratings`, all `SECURITY DEFINER`, JSON array of at most 500 rows. Sessions update on conflict only when `device_id` matches; windows and ratings are kept as first written. `SupabaseSync` calls them instead of table upserts; clips still use a plain insert.
+- **Verified with the anon key (curl):** insert, end-of-session update, an update from another device_id refused (0 rows), duplicate window ignored, bad payload refused. A test session `RPCTEST` (device `RPCTEST`) was left in the database. **Verified in the simulator:** session, 4 windows (with bass envelopes), 21 clips and two ratings (3 and 5, `rating_source = app`) uploaded through the functions (session `SIM RPC`).
+- **Lockdown step 2b (to do):** once every tester is on build 14 or later (check `app_version` of recent sessions), drop the anon SELECT and UPDATE policies on `sessions`, `sensor_windows` and `subjective_ratings`. Older builds would then fail to upload.
+- **Battery logging:** `sessions.battery_start_pct`, `battery_end_pct` (0–100, null while charging or unknown, e.g. in the simulator) and `low_power_mode` (migration `20261004232957`, `expo-battery`). Drain query at the end of `analysis/monitoring_queries.sql`.
+
 ### Build 13 (4 Oct): app renamed "Viibe Check", new icon, vibrating prompt
 - **Status:** built on EAS (`01842212-…`), uploaded via Transporter. App Store Connect name changed to "Viibe Check". **Submitted for Beta App Review on 4 Oct** in the external group `Public` (Test Information and review notes filled from `docs/TESTFLIGHT_PUBLIC.md`, no sign-in). After approval: enable the Public Link in that group and share it with `TESTER_GUIDE.md`.
 - **Name:** display name and all user-facing text say "Viibe Check" (app.json `name`, permission strings, home wordmark, tab title, Android session notification, group sheet, privacy page, tester guide, TestFlight text). Unchanged: bundle ID `com.leogerasimov.vibemeter`, Android package, repo and URLs, the internal `ViibeMeterSession` task name. Done in App Store Connect too.
@@ -98,7 +104,6 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - **Rating scale (owner's decision):** 💀 Dead / 🙂 Decent / 🔥 Best, identical on iOS and Android, stored as 1 / 3 / 5 (`rating_scale = 3`) to fit the 1–5 column and its CHECK. Music and crowd sub-ratings were dropped from the UI.
 - **Lock screen:** the category is registered with three actions (`opensAppToForeground: false`); `addNotificationResponseReceivedListener` records them as `rating_source = 'lockscreen'`. The prompt is no longer auto-dismissed; a new prompt replaces an unanswered one. Tapping the notification body, or reopening the app with a pending prompt, shows the one-tap sheet (`rating_source = 'app'`). Migration `20261004142238_rating_scale_and_source`.
 - **Meter screen:** the calm default view while recording shows the vibe ring, the song or "Listening…", "next vibe check in N min", "Rate the vibe now" and "details". The four technical tabs are unchanged behind "details".
-- **Lockdown step 2a (upload RPC functions) and battery logging:** drafted, not applied. The live-database change needs the owner's explicit OK.
 - **Unverified on a device:** whether iOS delivers a lock-screen action to JS while the app runs in the background (it should, since the continuous mic keeps JS alive).
 
 ### Build 11 (4 Oct): 10 s clips, bass-envelope grouping, foreground BLE, movement tempo

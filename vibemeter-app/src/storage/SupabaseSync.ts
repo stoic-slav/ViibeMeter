@@ -13,6 +13,11 @@ const APP_VERSION = `${Application.nativeApplicationVersion ?? '?'} (${Applicati
 
 const LOG_TAG = '[SupabaseSync]';
 
+// Sessions, windows and ratings go through upload functions (SECURITY DEFINER, see migration
+// 20261004233010_upload_rpc_functions), so the app's public key needs no read or update access
+// to the tables. Re-uploads are safe: sessions update (only from the phone that created them),
+// windows and ratings are kept as first written.
+
 async function withRetry<T>(fn: () => Promise<T>, attempts = SENSOR_CONFIG.UPLOAD_RETRY_ATTEMPTS): Promise<T> {
   for (let i = 0; i < attempts; i++) {
     try {
@@ -50,13 +55,14 @@ export async function syncSessions(): Promise<void> {
     event_code: r.event_code ?? null,
     phone_placement: r.phone_placement ?? null,
     dance_affinity: r.dance_affinity ?? null,
+    battery_start_pct: r.battery_start_pct ?? null,
+    battery_end_pct: r.battery_end_pct ?? null,
+    low_power_mode: r.low_power_mode == null ? null : r.low_power_mode === 1,
   }));
 
   await withRetry(async () => {
-    const { error } = await supabase
-      .from('sessions')
-      .upsert(payload, { onConflict: 'id' });
-    if (error) throw new Error(`Session upsert failed: ${error.message}`);
+    const { error } = await supabase.rpc('upload_sessions', { rows: payload });
+    if (error) throw new Error(`Session upload failed: ${error.message}`);
   });
 
   for (const row of rows) {
@@ -130,10 +136,8 @@ export async function syncSensorWindows(): Promise<void> {
   }));
 
   await withRetry(async () => {
-    const { error } = await supabase
-      .from('sensor_windows')
-      .upsert(payload, { onConflict: 'id' });
-    if (error) throw new Error(`Sensor window upsert failed: ${error.message}`);
+    const { error } = await supabase.rpc('upload_sensor_windows', { rows: payload });
+    if (error) throw new Error(`Sensor window upload failed: ${error.message}`);
   });
 
   await markWindowsSynced(rows.map(r => r.id));
@@ -161,10 +165,8 @@ export async function syncRatings(): Promise<void> {
   }));
 
   await withRetry(async () => {
-    const { error } = await supabase
-      .from('subjective_ratings')
-      .upsert(payload, { onConflict: 'id' });
-    if (error) throw new Error(`Ratings upsert failed: ${error.message}`);
+    const { error } = await supabase.rpc('upload_ratings', { rows: payload });
+    if (error) throw new Error(`Ratings upload failed: ${error.message}`);
   });
 
   await markRatingsSynced(rows.map(r => r.id));

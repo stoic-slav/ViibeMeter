@@ -125,6 +125,9 @@ export interface Session {
   eventCode: string | null;              // shared code so co-located testers can be grouped
   phonePlacement: PhonePlacement | null;
   danceAffinity: number | null;          // 1–5 self-reported enjoyment of dancing
+  batteryStartPct: number | null;        // 0–100; null if unknown or charging
+  batteryEndPct: number | null;
+  lowPowerMode: boolean | null;
 }
 
 /**

@@ -107,3 +107,13 @@ select
 from sessions s
 left join sensor_windows sw on sw.session_id = s.id
 left join subjective_ratings sr on sr.session_id = s.id;
+
+-- Battery drain per hour (target < 5 %/h). Needs build 14+; a reading taken while charging is null.
+select
+  s.id, s.device_model, s.app_version, s.low_power_mode,
+  round(s.dwell_minutes / 60.0, 2) as hours,
+  s.battery_start_pct, s.battery_end_pct,
+  round(((s.battery_start_pct - s.battery_end_pct) / nullif(s.dwell_minutes / 60.0, 0))::numeric, 1) as pct_per_hour
+from sessions s
+where s.battery_start_pct is not null and s.battery_end_pct is not null and s.dwell_minutes >= 15
+order by s.started_at desc;

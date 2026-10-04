@@ -150,6 +150,10 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
     ['sessions', 'event_code', 'TEXT'],
     ['sessions', 'phone_placement', 'TEXT'],
     ['sessions', 'dance_affinity', 'INTEGER'],
+    // battery check
+    ['sessions', 'battery_start_pct', 'REAL'],
+    ['sessions', 'battery_end_pct', 'REAL'],
+    ['sessions', 'low_power_mode', 'INTEGER'],
   ];
   for (const [table, col, type] of migrations) {
     await database.runAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`).catch(() => {});
@@ -164,8 +168,8 @@ export async function saveSession(session: Session): Promise<void> {
     `INSERT OR REPLACE INTO sessions
       (id, device_id, venue_name, venue_type, started_at, ended_at, dwell_minutes,
        auto_detected, venue_latitude, venue_longitude, device_model, os_version,
-       event_code, phone_placement, dance_affinity)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       event_code, phone_placement, dance_affinity, battery_start_pct, battery_end_pct, low_power_mode)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       session.id,
       session.deviceId,
@@ -182,6 +186,9 @@ export async function saveSession(session: Session): Promise<void> {
       session.eventCode,
       session.phonePlacement,
       session.danceAffinity,
+      session.batteryStartPct,
+      session.batteryEndPct,
+      session.lowPowerMode == null ? null : session.lowPowerMode ? 1 : 0,
     ]
   );
 }
@@ -189,12 +196,15 @@ export async function saveSession(session: Session): Promise<void> {
 export async function updateSessionEnd(
   sessionId: string,
   endedAt: Date,
-  dwellMinutes: number
+  dwellMinutes: number,
+  batteryEndPct: number | null,
+  lowPowerMode: boolean | null,
 ): Promise<void> {
   const database = await getDb();
   await database.runAsync(
-    `UPDATE sessions SET ended_at = ?, dwell_minutes = ?, synced = 0 WHERE id = ?`,
-    [endedAt.getTime(), dwellMinutes, sessionId]
+    `UPDATE sessions SET ended_at = ?, dwell_minutes = ?, battery_end_pct = ?,
+       low_power_mode = COALESCE(?, low_power_mode), synced = 0 WHERE id = ?`,
+    [endedAt.getTime(), dwellMinutes, batteryEndPct, lowPowerMode == null ? null : lowPowerMode ? 1 : 0, sessionId]
   );
 }
 

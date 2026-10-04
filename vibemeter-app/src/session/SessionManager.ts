@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import * as Crypto from 'expo-crypto';
+import * as Battery from 'expo-battery';
 import { Session, VenueType, PhonePlacement } from '../types';
 import { saveSession, updateSessionEnd, getSessions, updateSessionEventCode } from '../storage/LocalBuffer';
 import { generateGroupCode } from './GroupCode';
@@ -50,6 +51,8 @@ export class SessionManager {
       eventCode: normalizeEventCode(options.eventCode) ?? generateGroupCode(),
       phonePlacement: options.phonePlacement ?? null,
       danceAffinity,
+      ...(await readBattery()).asStart,
+      batteryEndPct: null,
     };
 
     await saveSession(session);
@@ -73,12 +76,17 @@ export class SessionManager {
       (endedAt.getTime() - this.activeSession.startedAt.getTime()) / 60000
     );
 
-    await updateSessionEnd(this.activeSession.id, endedAt, dwellMinutes);
+    const battery = await readBattery();
+    // Low Power Mode at either end marks the session (it slows sampling down)
+    const lowPowerMode = this.activeSession.lowPowerMode || battery.lowPowerMode;
+    await updateSessionEnd(this.activeSession.id, endedAt, dwellMinutes, battery.pct, lowPowerMode);
 
     const ended: Session = {
       ...this.activeSession,
       endedAt,
       dwellMinutes,
+      batteryEndPct: battery.pct,
+      lowPowerMode,
     };
 
     console.log(`${LOG_TAG} Session ended: ${ended.id}, dwell=${dwellMinutes}min`);
@@ -101,6 +109,26 @@ export class SessionManager {
 
   async getPastSessions(): Promise<any[]> {
     return getSessions();
+  }
+}
+
+/**
+ * Battery level (0–100) for the battery check: drain per hour = (start − end) / duration.
+ * Null while charging (the drain would be meaningless) or when unknown (simulator: -1).
+ */
+async function readBattery(): Promise<{
+  pct: number | null; lowPowerMode: boolean | null;
+  asStart: { batteryStartPct: number | null; lowPowerMode: boolean | null };
+}> {
+  try {
+    const [level, state, lowPowerMode] = await Promise.all([
+      Battery.getBatteryLevelAsync(), Battery.getBatteryStateAsync(), Battery.isLowPowerModeEnabledAsync(),
+    ]);
+    const charging = state === Battery.BatteryState.CHARGING || state === Battery.BatteryState.FULL;
+    const pct = level >= 0 && !charging ? Math.round(level * 1000) / 10 : null;
+    return { pct, lowPowerMode, asStart: { batteryStartPct: pct, lowPowerMode } };
+  } catch {
+    return { pct: null, lowPowerMode: null, asStart: { batteryStartPct: null, lowPowerMode: null } };
   }
 }
 

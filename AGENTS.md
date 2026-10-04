@@ -77,7 +77,7 @@ All core services are singletons. Do not re-instantiate them:
 | `SensorOrchestrator` | Coordinates all sensors; exposes `setVibeUpdateCallback()` for UI |
 | `SessionManager` | Session lifecycle: start (with group code and phone placement), end, dwell time, `setEventCode` to join a group mid-session |
 | `LocalBuffer` | SQLite CRUD for sessions, windows, ratings (tables use a `synced` flag) |
-| `SupabaseSync` | Retry-aware batch upload (3 attempts, retry delays) |
+| `SupabaseSync` | Retry-aware batch upload (3 attempts, retry delays). Sessions, windows and ratings go through `SECURITY DEFINER` upload functions (`upload_sessions`, `upload_sensor_windows`, `upload_ratings`); clips use a plain insert |
 | `DeviceIdentity` | Persistent anonymous UUID via Expo SecureStore |
 | `VibePrompt` | Vibe prompt every 5 min: notification category `vibe-rating` with three rating actions (answerable from the lock screen), a response listener, a pending prompt that stays until answered, and rating recording |
 
@@ -127,7 +127,7 @@ Each audio + motion cycle starts on a wall-clock multiple of 10 s (`SensorOrches
 
 ### Storage schema
 Three SQLite tables in `LocalBuffer`, mirrored in Supabase:
-- `sessions`: one row per session (venue, start/end, device ID, `event_code`, `phone_placement`, `dance_affinity`).
+- `sessions`: one row per session (venue, start/end, device ID, `event_code`, `phone_placement`, `dance_affinity`, and for the battery check `battery_start_pct` / `battery_end_pct` (null while charging) and `low_power_mode`; drain query in `analysis/monitoring_queries.sql`).
 - `sensor_windows`: one row per window (component scores, composite, FFT metrics, movement energy/BPM/rhythmicity, beat-sync scalars).
 - `subjective_ratings`: one row per vibe rating. Since build 12 the scale has three levels, 💀 Dead / 🙂 Decent / 🔥 Best, stored as `rating` 1 / 3 / 5 with `rating_scale = 3`; earlier rows used 1–5. `rating_source` is `lockscreen` (a notification button) or `app` (the in-app sheet). Music and crowd sub-ratings are no longer asked, so they are null.
 
