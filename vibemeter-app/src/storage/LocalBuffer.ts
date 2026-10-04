@@ -1,5 +1,5 @@
 import * as SQLite from 'expo-sqlite';
-import { SensorWindow, Session, SubjectiveRating } from '../types';
+import { SensorWindow, SensorClip, Session, SubjectiveRating } from '../types';
 
 let db: SQLite.SQLiteDatabase | null = null;
 
@@ -102,6 +102,19 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
 
+    CREATE TABLE IF NOT EXISTS sensor_clips (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      clip_start INTEGER NOT NULL,
+      beat_plv REAL,
+      beat_phase_clock REAL,
+      movement_energy REAL,
+      movement_bpm REAL,
+      song_isrc TEXT,
+      synced INTEGER DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_sc_synced ON sensor_clips(synced, clip_start);
+
     CREATE INDEX IF NOT EXISTS idx_sw_session ON sensor_windows(session_id, window_start);
     CREATE INDEX IF NOT EXISTS idx_sw_synced ON sensor_windows(synced);
     CREATE INDEX IF NOT EXISTS idx_sr_session ON subjective_ratings(session_id);
@@ -130,6 +143,7 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
     ['sensor_windows', 'song_start_ms', 'REAL'],
     ['sensor_windows', 'song_start_spread_ms', 'REAL'],
     ['sensor_windows', 'song_bpm_source', 'TEXT'],
+    ['sensor_windows', 'bass_envelope', 'TEXT'],
     // session covariates for crowd sync
     ['sessions', 'event_code', 'TEXT'],
     ['sessions', 'phone_placement', 'TEXT'],
@@ -219,12 +233,12 @@ export async function saveSensorWindow(w: SensorWindow): Promise<void> {
        movement_energy, movement_bpm, rhythmicity, movement_axis,
        beat_plv, beat_phase_mean, beat_phase_clock, tempo_match, pulse_clarity,
        song_isrc, song_genre, song_bpm, song_popularity, recognition_source,
-       song_start_ms, song_start_spread_ms, song_bpm_source,
+       song_start_ms, song_start_spread_ms, song_bpm_source, bass_envelope,
        ble_device_count, ble_count_delta, ble_count_trend,
        gps_is_at_venue, gps_accuracy_meters, screen_off_ratio, camera_activations,
        computed_energy_score, computed_density_score, computed_movement_score,
        computed_music_score, computed_vibe_score)
-     VALUES (${Array(53).fill('?').join(',')})`,
+     VALUES (${Array(54).fill('?').join(',')})`,
     [
       w.id, w.sessionId, w.windowStart.getTime(), w.windowEnd.getTime(),
       w.avgDb, w.maxDb, w.dbVariance,
@@ -236,13 +250,48 @@ export async function saveSensorWindow(w: SensorWindow): Promise<void> {
       w.movementEnergy, w.movementBpm, w.rhythmicity, w.movementAxis,
       w.beatPlv, w.beatPhaseMean, w.beatPhaseClock, w.tempoMatch, w.pulseClarity,
       w.songIsrc, w.songGenre, w.songBpm, w.songPopularity, w.recognitionSource,
-      w.songStartMs, w.songStartSpreadMs, w.songBpmSource,
+      w.songStartMs, w.songStartSpreadMs, w.songBpmSource, w.bassEnvelope,
       w.bleDeviceCount, w.bleCountDelta, w.bleCountTrend,
       w.gpsIsAtVenue == null ? null : (w.gpsIsAtVenue ? 1 : 0),
       w.gpsAccuracyMeters, w.screenOffRatio, w.cameraActivations,
       w.computedEnergyScore, w.computedDensityScore, w.computedMovementScore,
       w.computedMusicScore, w.computedVibeScore,
     ]
+  );
+}
+
+// ── Sensor Clips (10 s cycles) ────────────────────────────────────────────────
+
+export async function saveClip(c: SensorClip): Promise<void> {
+  const database = await getDb();
+  await database.runAsync(
+    `INSERT OR REPLACE INTO sensor_clips
+      (id, session_id, clip_start, beat_plv, beat_phase_clock, movement_energy, movement_bpm, song_isrc)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [c.id, c.sessionId, c.clipStart, c.beatPlv, c.beatPhaseClock, c.movementEnergy, c.movementBpm, c.songIsrc]
+  );
+}
+
+export async function getUnsyncedClips(limit = 200): Promise<any[]> {
+  const database = await getDb();
+  return database.getAllAsync(
+    `SELECT * FROM sensor_clips WHERE synced = 0 ORDER BY clip_start ASC LIMIT ?`,
+    [limit]
+  );
+}
+
+export async function markClipsSynced(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const database = await getDb();
+  const placeholders = ids.map(() => '?').join(',');
+  await database.runAsync(`UPDATE sensor_clips SET synced = 1 WHERE id IN (${placeholders})`, ids);
+}
+
+export async function deleteOldSyncedClips(olderThanMs: number = 86400000): Promise<void> {
+  const database = await getDb();
+  await database.runAsync(
+    `DELETE FROM sensor_clips WHERE synced = 1 AND clip_start < ?`,
+    [Date.now() - olderThanMs]
   );
 }
 

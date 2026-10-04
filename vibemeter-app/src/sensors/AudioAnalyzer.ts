@@ -13,8 +13,10 @@ import { detectBPM, tempoFromAccumulated, TEMPO_CURVE_LENGTH } from '../processi
 import { classifyAudio, computeRMS, rmsToDb, dbFullScaleToAmbient } from '../processing/AudioClassifier';
 import AudioRecord from 'react-native-audio-record';
 import {
-  isAudioCaptureAvailable, startCapture, stopCapture, isCapturing, readRecent, matchRecent,
+  isAudioCaptureAvailable, startCapture, stopCapture, isCapturing, readRange, matchRecent,
+  getBassEnvelope as getNativeBassEnvelope,
 } from '../../modules/audio-capture';
+import { addBassFrames, bassEnvelopeFromStore, pruneBassFrames, BassFrameStore } from '../processing/BassEnvelope';
 
 const LOG_TAG = '[AudioAnalyzer]';
 const AUDD_TOKEN = process.env.EXPO_PUBLIC_AUDD_TOKEN ?? '';
@@ -29,6 +31,8 @@ const DB_CHUNK_SAMPLES = 2048;
 // Song start estimates within this agree (same playback); further apart = matched a repeat
 const START_AGREE_MS = 1500;
 const MAX_PENDING_CURVES = 6;
+const IOS_TAP_MARGIN_MS = 150;       // the input tap delivers ~0.1 s buffers
+const BASS_KEEP_MS = 15 * 60_000;
 const LEARNED_TEMPO_STABLE = 0.02; // learned tempo is used once it moves less than 2% per clip
 
 interface RecognizedTrack {
@@ -68,6 +72,8 @@ export class AudioAnalyzer {
   // they belong to, so a song change does not mix two tempos.
   private songTempo: { isrc: string; sum: number[]; count: number; last: number | null; stable: number | null } | null = null;
   private pendingCurves: number[][] = [];
+  // Android: bass-envelope frames from each clip's PCM (iOS keeps them natively)
+  private bassFrames: BassFrameStore = new Map();
 
   /**
    * iOS: open the microphone for the whole session. A continuously running audio input
@@ -86,12 +92,19 @@ export class AudioAnalyzer {
     }
   }
 
+  /** Bass level (dB) per 250 ms wall-clock frame in [fromMs, toMs); null = not captured. */
+  async getBassEnvelope(fromMs: number, toMs: number): Promise<(number | null)[] | null> {
+    if (isAudioCaptureAvailable) return getNativeBassEnvelope(fromMs, toMs).catch(() => null);
+    return bassEnvelopeFromStore(this.bassFrames, fromMs, toMs, SENSOR_CONFIG.AUDIO_SAMPLE_RATE);
+  }
+
   setPhoneMoving(moving: boolean): void {
     this.phoneMoving = moving;
   }
 
   async stop(): Promise<void> {
     this.phoneMoving = false;
+    this.bassFrames.clear();
     if (!isAudioCaptureAvailable) return;
     await stopCapture().catch(() => {});
   }
@@ -99,10 +112,11 @@ export class AudioAnalyzer {
   /**
    * Analyze a 5-second slice of audio and return computed metrics.
    * No audio is ever saved to disk permanently — only the metrics object is returned.
-   * iOS: reads the latest 5 s from the continuous in-memory capture.
+   * iOS: reads exactly [cycleStartMs, cycleStartMs + 5 s) from the continuous in-memory capture.
    * Android: streams raw PCM via react-native-audio-record for the same pipeline.
+   * Cycles start on wall-clock multiples of 10 s, so every phone analyses the same seconds.
    */
-  async analyze(): Promise<AudioMetrics | null> {
+  async analyze(cycleStartMs: number = Date.now()): Promise<AudioMetrics | null> {
     if (this.isRecording) {
       console.warn(`${LOG_TAG} Already recording, skipping`);
       return null;
@@ -120,7 +134,7 @@ export class AudioAnalyzer {
 
       return Platform.OS === 'android'
         ? await this.analyzeAndroid()
-        : await this.analyzeIOS();
+        : await this.analyzeIOS(cycleStartMs);
     } catch (err) {
       console.warn(`${LOG_TAG} Error during analysis:`, err);
       return null;
@@ -131,11 +145,14 @@ export class AudioAnalyzer {
 
   // ─── iOS ─────────────────────────────────────────────────────────────────────
 
-  private async analyzeIOS(): Promise<AudioMetrics | null> {
+  private async analyzeIOS(cycleStartMs: number): Promise<AudioMetrics | null> {
     if (!isCapturing()) await this.start();
-    // Wait for a fresh 5 s of audio, recorded while motion is sampled in parallel
-    await new Promise(r => setTimeout(r, SENSOR_CONFIG.AUDIO_SAMPLE_DURATION_MS));
-    const recent = await readRecent(SENSOR_CONFIG.AUDIO_SAMPLE_DURATION_MS / 1000);
+    // Wait until the cycle's 5 s have been captured (plus a little for the tap's delivery),
+    // recorded while motion is sampled in parallel
+    const endMs = cycleStartMs + SENSOR_CONFIG.AUDIO_SAMPLE_DURATION_MS;
+    const wait = endMs + IOS_TAP_MARGIN_MS - Date.now();
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    const recent = await readRange(cycleStartMs, endMs);
     if (!recent || recent.count < 4096) {
       console.warn(`${LOG_TAG} No audio from continuous capture`);
       return this.buildFallbackMetrics();
@@ -187,6 +204,10 @@ export class AudioAnalyzer {
       console.warn(`${LOG_TAG} No audio chunks received from AudioRecord`);
       return this.buildFallbackMetrics();
     }
+
+    // Bass-envelope frames for this clip; frames outside clips stay missing
+    addBassFrames(this.bassFrames, pcmSamples, SENSOR_CONFIG.AUDIO_SAMPLE_RATE, recordStartMs);
+    pruneBassFrames(this.bassFrames, Date.now() - BASS_KEEP_MS);
 
     // AudioRecord returns an absolute path; FormData upload needs a file:// URI
     const fileUri = filePath ? `file://${filePath}` : null;

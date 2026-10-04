@@ -77,7 +77,7 @@ The first time you open it, allow **microphone, motion, Bluetooth and notificati
 
 ## Privacy
 
-- **No audio is stored or uploaded.** Sound is analysed on the phone a few seconds at a time and then discarded. Song recognition sends Apple only an irreversible fingerprint.
+- **No audio is stored or uploaded.** Sound is analysed on the phone a few seconds at a time and then discarded. Song recognition sends Apple only an irreversible fingerprint. The app keeps a bass-loudness curve (4 values per second), which cannot reproduce speech or music; with the 10-second movement readings, it is deleted after 90 days.
 - **No location is used.** The app never reads GPS. The camera is used only to scan a group QR code.
 - **No Bluetooth device IDs are stored.** Only the number of nearby devices.
 - You are identified by a **random anonymous ID**, shown at the bottom of the home screen. No name, email or phone number.

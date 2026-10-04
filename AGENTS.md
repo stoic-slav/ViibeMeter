@@ -112,9 +112,18 @@ FFT-derived spectral metrics (sub-bass energy, spectral centroid, spectral flux,
 
 ### Grouping phones at the same event
 - **Group codes** (`event_code` column, `src/session/GroupCode.ts`): every session gets a random code (`G-XXXXXX`). Friends join it by scanning its QR (meter screen → GROUP) with the in-app scanner (`expo-camera`) or the phone's Camera app (deep link `vibemeter://join?code=…`, handled by `app/join.tsx`). A shared code is a definite "together" label; different codes do not mean apart.
-- **Automatic grouping** (`analysis/auto_groups.py`): phones that heard the same playback of the same track (`song_isrc`, and `song_started_at` within 1.5 s, from ShazamKit's match offset) were together. It needs ≥2 shared playbacks, uses time-decayed evidence so people can move between venues, and never merges phones with evidence of being apart. `crowd_sync.py --auto` groups by it instead of codes. Goal: no codes at all once validated against code-labelled data.
+- **Automatic grouping** (`analysis/auto_groups.py`), from two evidence sources:
+  - **Shazam playbacks:** phones that heard the same playback of the same track (`song_isrc`, and `song_started_at` within 1.5 s, from ShazamKit's match offset) were together; ≥2 shared playbacks link a pair.
+  - **Bass-envelope room fingerprint** (`bass_envelope`, works without recognition): per minute, 240 frames of 40–150 Hz energy (250 ms on a wall-clock grid; iOS computes them natively and continuously in `modules/audio-capture`, Android from its 5 s clips via `src/processing/BassEnvelope.ts`, same biquads). Pairs are cross-correlated over ±2 s; peak r ≥ 0.60 is "together", ≤ 0.25 "apart" (thresholds from the self-test); ≥3 "together" minutes with a consistent lag (±1 frame) link a pair.
+  - Evidence is time-decayed (±20 min), so people can move between venues, and phones with evidence of being apart are never merged. `crowd_sync.py --auto` groups by it instead of codes. Goal: no codes at all once validated against code-labelled data.
+  - **Limits:** the same stream in two places at once looks like one room; quiet or flat sets give little evidence; Android covers only half of each minute (5 s of every 10 s) and its `AudioRecord` start time jitters; the simulation is optimistic, so validate on a real night (3–5 phones in one room, plus one phone in another room playing the same playlist 1 minute later).
 
-**Background limits:** neither platform allows useful BLE discovery with the screen off, so BLE scans are skipped while the app is not active (no measurement rather than a fake 0).
+### 10-second clips and clock alignment
+Each audio + motion cycle starts on a wall-clock multiple of 10 s (`SensorOrchestrator.scheduleRhythm`; iOS reads exactly that range with `readRange`), so phones measure the same seconds. Each cycle also writes a lean `sensor_clips` row (beat PLV, clock beat phase, movement energy and tempo, song ISRC); `crowd_sync.py` computes crowd sync per 10 s slot from them. Server-side, a pg_cron job (`apply_retention`, daily) deletes clips and clears `bass_envelope` after 90 days. The app can only **insert** clips (no read access).
+
+**Background limits:** neither platform allows useful BLE discovery with the screen off, so BLE scans are skipped while the app is not active (no measurement rather than a fake 0). To get a crowd count anyway, a scan also runs as soon as the app returns to the foreground (e.g. for the vibe prompt), debounced to 10 s.
+
+**Movement tempo:** `computeMovementRhythm` looks for real autocorrelation peaks between 60 and 180 BPM, prefers the shorter period when it is nearly as strong, and reports a tempo only at rhythmicity ≥ 0.35 (slow sway used to read as 41–57 BPM).
 
 ### Storage schema
 Three SQLite tables in `LocalBuffer`, mirrored in Supabase:
@@ -141,6 +150,6 @@ Python scripts in `analysis/` query Supabase and run statistical analysis:
 - `fetch_data.py`: pulls sessions, sensor windows and ratings to CSV (paginated).
 - `correlations.py`: per-signal Pearson/Spearman, within-person correlations, headline tests (movement energy; crowd sync and beat lock beyond movement energy), moderators by platform, placement and dance affinity.
 - `crowd_sync.py`: per group and minute crowd phase sync (heard-beat and clock versions), tempo agreement and combined crowd sync. `--auto` groups by music instead of group codes.
-- `auto_groups.py`: automatic grouping of phones from shared song playbacks; validation against group codes; `--selftest` runs synthetic venues.
+- `auto_groups.py`: automatic grouping of phones from shared song playbacks and bass envelopes; validation against group codes, per evidence source; `--selftest` runs synthetic venues and DJ sets.
 - `optimize_weights.py`: Ridge and Random Forest weight analysis.
 - `monitoring_queries.sql`: data quality checks.

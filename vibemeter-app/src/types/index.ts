@@ -52,6 +52,8 @@ export interface SensorWindow {
   // Phones hearing the same speakers get the same value: the basis for automatic grouping.
   songStartMs: number | null;
   songStartSpreadMs: number | null;   // max − min of this window's estimates (accuracy check)
+  // 240 × 250 ms bass-loudness frames, relative to the window median, base64 (room fingerprint)
+  bassEnvelope: string | null;
 
   // Density
   bleDeviceCount: number | null;
@@ -123,6 +125,22 @@ export interface Session {
   eventCode: string | null;              // shared code so co-located testers can be grouped
   phonePlacement: PhonePlacement | null;
   danceAffinity: number | null;          // 1–5 self-reported enjoyment of dancing
+}
+
+/**
+ * One 10 s measurement cycle (collect-only). Cycles start on wall-clock multiples of 10 s on
+ * every phone, so clips from different phones line up for moment-by-moment crowd sync.
+ * Deleted server-side after 90 days.
+ */
+export interface SensorClip {
+  id: string;
+  sessionId: string;
+  clipStart: number;                  // ms, multiple of 10 000
+  beatPlv: number | null;
+  beatPhaseClock: number | null;
+  movementEnergy: number | null;
+  movementBpm: number | null;
+  songIsrc: string | null;
 }
 
 export interface SubjectiveRating {

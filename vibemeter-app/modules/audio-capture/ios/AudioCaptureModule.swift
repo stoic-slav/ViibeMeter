@@ -21,6 +21,15 @@ public class AudioCaptureModule: Module {
   private var running = false
   private var observers: [NSObjectProtocol] = []
 
+  // Bass envelope (room fingerprint): 40–150 Hz band energy per 250 ms wall-clock frame.
+  // Frame index = floor(wall ms / 250), so frames line up across phones. Only per-frame
+  // sums of squares are kept (15 minutes), never the audio.
+  static let bassFrameMs: Double = 250
+  private static let bassKeepFrames: Int64 = 3600
+  private var bassHP = Biquad.highPass(fc: 40, fs: AudioCaptureModule.sampleRate)
+  private var bassLP = Biquad.lowPass(fc: 150, fs: AudioCaptureModule.sampleRate)
+  private var bassFrames: [Int64: (sumSq: Double, count: Int)] = [:]
+
   // SHSession holds its delegate weakly, so keep both alive until the match finishes.
   private var inFlight: [UUID: (SHSession, MatchDelegate)] = [:]
   private let lock = NSLock()
@@ -51,6 +60,25 @@ public class AudioCaptureModule: Module {
         "sampleRate": AudioCaptureModule.sampleRate,
         "startMs": startMs,
       ]
+    }
+
+    /// Audio from the wall-clock range [fromMs, toMs), clipped to what the buffer holds, so
+    /// every phone analyses the same seconds (cycles are aligned to :00, :10, :20 …).
+    AsyncFunction("readRange") { (fromMs: Double, toMs: Double) -> [String: Any] in
+      let (samples, startMs) = self.copyRange(fromMs: fromMs, toMs: toMs)
+      let data = samples.withUnsafeBufferPointer { Data(buffer: $0) }
+      return [
+        "pcm": data.base64EncodedString(),
+        "count": samples.count,
+        "sampleRate": AudioCaptureModule.sampleRate,
+        "startMs": startMs,
+      ]
+    }
+
+    /// Bass level (dB, uncalibrated) per 250 ms frame in [fromMs, toMs). nil where fewer than
+    /// half of the frame's samples were captured.
+    AsyncFunction("getBassEnvelope") { (fromMs: Double, toMs: Double) -> [Double?] in
+      self.bassEnvelope(fromMs: fromMs, toMs: toMs)
     }
 
     /// Match the most recent audio against the Shazam catalog. Only the signature
@@ -95,6 +123,10 @@ public class AudioCaptureModule: Module {
     }
     outFormat = out
     converter = conv
+    ringQueue.sync {
+      bassHP.reset()
+      bassLP.reset()
+    }
 
     input.installTap(onBus: 0, bufferSize: 4096, format: inFormat) { [weak self] buffer, when in
       self?.handle(buffer: buffer, when: when)
@@ -141,6 +173,76 @@ public class AudioCaptureModule: Module {
       }
       filled = min(cap, filled + n)
       lastSampleWallMs = endMs
+      accumulateBass(channel[0], count: n, endMs: endMs)
+    }
+  }
+
+  /// Band-pass the samples and add their energy to the 250 ms frame each sample falls in.
+  /// Called on ringQueue.
+  private func accumulateBass(_ samples: UnsafeMutablePointer<Int16>, count n: Int, endMs: Double) {
+    let msPerSample = 1000 / AudioCaptureModule.sampleRate
+    let startMs = endMs - Double(n) * msPerSample
+    var frame = Int64(floor(startMs / AudioCaptureModule.bassFrameMs))
+    var nextBoundary = Double(frame + 1) * AudioCaptureModule.bassFrameMs
+    var sumSq = 0.0, cnt = 0
+    for i in 0..<n {
+      let t = startMs + Double(i) * msPerSample
+      if t >= nextBoundary {
+        commitBass(frame, sumSq, cnt)
+        frame = Int64(floor(t / AudioCaptureModule.bassFrameMs))
+        nextBoundary = Double(frame + 1) * AudioCaptureModule.bassFrameMs
+        sumSq = 0; cnt = 0
+      }
+      let y = bassLP.process(bassHP.process(Double(samples[i]) / 32768))
+      sumSq += y * y
+      cnt += 1
+    }
+    commitBass(frame, sumSq, cnt)
+    let oldest = frame - AudioCaptureModule.bassKeepFrames
+    if bassFrames.count > Int(AudioCaptureModule.bassKeepFrames) + 100 {
+      bassFrames = bassFrames.filter { $0.key >= oldest }
+    }
+  }
+
+  private func commitBass(_ frame: Int64, _ sumSq: Double, _ cnt: Int) {
+    guard cnt > 0 else { return }
+    let prev = bassFrames[frame] ?? (0, 0)
+    bassFrames[frame] = (prev.sumSq + sumSq, prev.count + cnt)
+  }
+
+  private func bassEnvelope(fromMs: Double, toMs: Double) -> [Double?] {
+    let first = Int64(ceil(fromMs / AudioCaptureModule.bassFrameMs))
+    let end = Int64(ceil(toMs / AudioCaptureModule.bassFrameMs))
+    guard end > first else { return [] }
+    let needed = Int(AudioCaptureModule.sampleRate * AudioCaptureModule.bassFrameMs / 1000 / 2)
+    return ringQueue.sync {
+      (first..<end).map { k -> Double? in
+        guard let f = bassFrames[k], f.count >= needed, f.count > 0 else { return nil }
+        return 10 * log10(f.sumSq / Double(f.count) + 1e-12)
+      }
+    }
+  }
+
+  private func copyRange(fromMs: Double, toMs: Double) -> ([Int16], Double) {
+    return ringQueue.sync {
+      let cap = ring.count
+      if cap == 0 || filled == 0 || toMs <= fromMs { return ([], 0) }
+      let sr = AudioCaptureModule.sampleRate
+      let bufferStartMs = lastSampleWallMs - Double(filled) / sr * 1000
+      let from = max(fromMs, bufferStartMs)
+      let to = min(toMs, lastSampleWallMs)
+      if to <= from { return ([], 0) }
+      // Samples counted back from the newest one
+      let endBack = Int(((lastSampleWallMs - to) / 1000 * sr).rounded())
+      let want = Int(((to - from) / 1000 * sr).rounded())
+      if want <= 0 { return ([], 0) }
+      var out = [Int16](repeating: 0, count: want)
+      var idx = (writeIndex - endBack - want + 2 * cap) % cap
+      for i in 0..<want {
+        out[i] = ring[idx]
+        idx = (idx + 1) % cap
+      }
+      return (out, from)
     }
   }
 
@@ -173,6 +275,7 @@ public class AudioCaptureModule: Module {
       ring = []
       writeIndex = 0
       filled = 0
+      bassFrames = [:]
     }
   }
 
@@ -292,4 +395,31 @@ private final class MatchDelegate: NSObject, SHSessionDelegate {
     if let error = error { result["error"] = error.localizedDescription }
     finish(result)
   }
+}
+
+/// Second-order IIR section (RBJ cookbook), transposed direct form II. The same filters are
+/// implemented in src/processing/BassEnvelope.ts for Android, so both platforms measure the
+/// same band.
+struct Biquad {
+  let b0, b1, b2, a1, a2: Double
+  var z1 = 0.0, z2 = 0.0
+
+  static func lowPass(fc: Double, fs: Double, q: Double = 0.7071) -> Biquad {
+    let w0 = 2 * Double.pi * fc / fs, c = cos(w0), alpha = sin(w0) / (2 * q), a0 = 1 + alpha
+    return Biquad(b0: (1 - c) / 2 / a0, b1: (1 - c) / a0, b2: (1 - c) / 2 / a0, a1: -2 * c / a0, a2: (1 - alpha) / a0)
+  }
+
+  static func highPass(fc: Double, fs: Double, q: Double = 0.7071) -> Biquad {
+    let w0 = 2 * Double.pi * fc / fs, c = cos(w0), alpha = sin(w0) / (2 * q), a0 = 1 + alpha
+    return Biquad(b0: (1 + c) / 2 / a0, b1: -(1 + c) / a0, b2: (1 + c) / 2 / a0, a1: -2 * c / a0, a2: (1 - alpha) / a0)
+  }
+
+  mutating func process(_ x: Double) -> Double {
+    let y = b0 * x + z1
+    z1 = b1 * x - a1 * y + z2
+    z2 = b2 * x - a2 * y
+    return y
+  }
+
+  mutating func reset() { z1 = 0; z2 = 0 }
 }

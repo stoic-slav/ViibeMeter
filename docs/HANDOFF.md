@@ -87,13 +87,23 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, eu-west-3. Free tier, pauses when idle.
 - **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
+### Next build (code done 4 Oct, not yet built): 10 s clips, bass-envelope grouping, foreground BLE, movement tempo
+- **Clock-aligned cycles:** each audio + motion cycle starts at a multiple of 10 s; a late wake-up (> 0.5 s) skips to the next boundary. iOS reads exactly `[T, T+5 s)` with native `readRange`.
+- **`sensor_clips`** (Supabase table, migrations `20261004122616` and `20261004122731`): one lean row per cycle. The app can only insert (verified with the anon key: insert ok, duplicate rejected with 23505, select and update refused). Uploads use plain insert, retrying row by row on duplicates.
+- **Retention:** pg_cron job `viibemeter-retention` (daily 03:17 UTC, `public.apply_retention()`) deletes clips and clears `bass_envelope` after 90 days (migration `20261004122802`).
+- **Bass envelope:** `bass_envelope` per window (240 × 250 ms, base64). Filter check: 40–150 Hz passband, −32 dB at 1 kHz, −57 dB at 4 kHz; quantisation error ≤ 0.2 dB. Server matching thresholds T_hi 0.60 and T_lo 0.25 come from synthetic DJ sets: the same-room median r is 0.75, while different rooms (same set 90 s later, or another set at the same tempo) have a median of 0.04–0.11 but a p99 of 0.71, so a single minute is not enough. Linking needs ≥3 lag-consistent minutes, and "apart" minutes count against. Envelope-only self-test: precision 1.00, recall 0.985–0.991; the mover switches rooms; an Android-style phone (half coverage) groups correctly. With noisier phones (4.5 dB noise, double chatter) recall drops to 0.34 but precision stays 1.00. Detrending the envelopes was tried and made separation worse.
+- **Movement tempo:** 60–180 BPM, local peaks only, prefer the half period at ≥ 0.85, report at rhythmicity ≥ 0.35. Synthetic: 120→120, 62→63, 90→91, 128→130, 150→150, jittery 120→120, slow sway and noise → none.
+- **Foreground BLE scan** on app activation (10 s debounce).
+- **Database lockdown NOT applied.** A probe table showed `upsert` (used by every installed build for sessions, windows and ratings) fails under RLS without a SELECT policy, even with `ignoreDuplicates`. Options are with the owner: RPC upsert functions (old builds stop syncing until updated; their unsynced rows stay on the phone and upload after the update), or lock only DELETE now.
+- Migration files renamed to the versions Supabase recorded.
+
 ## Do next, in order
 1. **Retest on build 10** (owner) with songs Deezer lacks a tempo for: check `song_bpm_source = learned`, beat PLV present in dancing minutes, and higher on beat than off beat. Also tap GROUP and check the QR scans with the Camera app: same protocol, pocket, about 10 minutes. Check that the on-beat minutes now have beat PLV above the off-beat ones, and that dB is close to the Watch reading.
 2. If PLV still does not separate on-beat from off-beat, look at movement peak detection (`findMovementPeaks`) and the movement axis choice next.
 3. **Android on a friend's phone:** install the current APK (see Distribution), run a locked 10-minute session and check that windows are continuous and motion is non-zero. If the service fails to start, look for `SessionService` in logcat. Calibrate the Android dB offset too.
 4. **Pilot at a real venue with ≥3 phones** on one event code (crowd sync), ratings every 5 minutes. Invite testers in App Store Connect (internal) or set up external TestFlight (needs the privacy URL, a feedback email and Apple beta review).
 5. **Analysis:** `fetch_data.py`, then `correlations.py` and `crowd_sync.py`.
-6. Optional: store ~10 s sub-window rows for beat sync and movement (discussed with the owner, not requested yet).
+6. **Validation night for automatic grouping:** 3–5 phones in one room, plus one phone in another room playing the same playlist 1 minute later. Then run `auto_groups.py` (and `validate_by_source`) and `crowd_sync.py --auto`.
 
 ## Known caveats
 - Battery: on iOS the mic is open for the whole session, and on Android a wake lock is held while the session service runs.

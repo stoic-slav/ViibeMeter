@@ -8,13 +8,17 @@ import { MotionTracker } from './MotionTracker';
 import { BLEScanner } from './BLEScanner';
 import { computeVibeScore } from '../processing/VibeScoreEngine';
 import { computeBeatSync, computeTempoMatch, aggregateBeatSync, BeatSyncResult } from '../processing/BeatSync';
-import { saveSensorWindow, deleteOldSyncedWindows } from '../storage/LocalBuffer';
+import { saveSensorWindow, deleteOldSyncedWindows, saveClip, deleteOldSyncedClips } from '../storage/LocalBuffer';
+import { encodeEnvelope, BASS_FRAME_MS, FRAMES_PER_WINDOW } from '../processing/BassEnvelope';
 import { syncAll } from '../storage/SupabaseSync';
 
 const LOG_TAG = '[SensorOrchestrator]';
+const FOREGROUND_SCAN_DEBOUNCE_MS = 10_000;
 const ROLLING_WINDOW_MS = 90_000;   // keep 90s of readings for display
 const TREND_WINDOW_MS   = 900_000;  // keep 15min of window scores for trend
 const MINUTE_MS = 60_000;
+// A cycle that wakes up later than this after its 10 s boundary is skipped, not run late
+const CYCLE_START_TOLERANCE_MS = 500;
 
 type VibeUpdateCallback = (window: SensorWindow, breakdown: VibeScoreBreakdown, live: LiveDashboardData) => void;
 
@@ -31,6 +35,9 @@ export class SensorOrchestrator {
 
   private audioTimer: ReturnType<typeof setTimeout> | null = null;
   private bleTimer: ReturnType<typeof setTimeout> | null = null;
+  private bleScanning = false;
+  private lastBleScanAt = 0;
+  private appStateSub: { remove: () => void } | null = null;
   private windowTimer: ReturnType<typeof setTimeout> | null = null;
   private uploadTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -106,6 +113,13 @@ export class SensorOrchestrator {
     // Audio + motion run together (beat sync needs them on one clock); others staggered
     this.audioTimer  = setTimeout(() => this.scheduleRhythm(),   0);
     this.bleTimer    = setTimeout(() => this.scheduleBLE(),     600);
+    // Full Bluetooth discovery only works with the app open, so count the crowd as soon as it
+    // comes to the foreground (typically to answer the vibe prompt)
+    this.appStateSub = AppState.addEventListener('change', state => {
+      if (state === 'active' && this.isRunning && Date.now() - this.lastBleScanAt > FOREGROUND_SCAN_DEBOUNCE_MS) {
+        this.collectBLESample();
+      }
+    });
 
     this.scheduleWindowBoundary();
     this.uploadTimer = setInterval(() => this.runUpload(), SENSOR_CONFIG.UPLOAD_BATCH_INTERVAL_MS);
@@ -129,6 +143,8 @@ export class SensorOrchestrator {
     stopSessionService();
     await syncAll();
 
+    this.appStateSub?.remove();
+    this.appStateSub = null;
     this.bleScanner.destroy();
     this.currentSession = null;
     this.currentWindow = {};
@@ -249,13 +265,24 @@ export class SensorOrchestrator {
     };
   }
 
+  /**
+   * Run each audio + motion cycle on a wall-clock multiple of 10 s (:00, :10, :20 …), so every
+   * phone measures the same seconds and their 10 s clips line up for crowd sync. A cycle that
+   * overruns or wakes up late skips to the next boundary instead of drifting.
+   */
   private scheduleRhythm(): void {
     if (!this.isRunning) return;
-    this.collectRhythmCycle().then(() => {
-      if (this.isRunning) {
-        this.audioTimer = setTimeout(() => this.scheduleRhythm(), SENSOR_CONFIG.AUDIO_SAMPLE_INTERVAL_MS);
+    const interval = SENSOR_CONFIG.AUDIO_SAMPLE_INTERVAL_MS;
+    this.audioTimer = setTimeout(() => {
+      if (!this.isRunning) return;
+      const now = Date.now();
+      const boundary = Math.floor(now / interval) * interval;
+      if (now - boundary > CYCLE_START_TOLERANCE_MS) {
+        this.scheduleRhythm();
+        return;
       }
-    });
+      this.collectRhythmCycle(boundary).finally(() => this.scheduleRhythm());
+    }, interval - (Date.now() % interval));
   }
 
   /**
@@ -263,11 +290,11 @@ export class SensorOrchestrator {
    * from the overlapping window. When the user has been stationary for a long time,
    * motion is sampled only every 3rd cycle to save battery.
    */
-  private async collectRhythmCycle(): Promise<void> {
+  private async collectRhythmCycle(cycleStartMs: number = Date.now()): Promise<void> {
     this.cycleCount++;
     const skipMotion = this.motionTracker.isLongTermStationary() && this.cycleCount % 3 !== 0;
     const [audioRes, motionRes] = await Promise.allSettled([
-      this.audioAnalyzer.analyze(),
+      this.audioAnalyzer.analyze(cycleStartMs),
       skipMotion ? Promise.resolve(null) : this.motionTracker.sample(),
     ]);
     const audio = audioRes.status === 'fulfilled' ? audioRes.value : null;
@@ -292,6 +319,19 @@ export class SensorOrchestrator {
         this.lastBeatSync = sync;
         console.log(`${LOG_TAG} BeatSync: plv=${sync.plv.toFixed(2)} tempo=${sync.tempoMatch.toFixed(2)} ×${sync.harmonic} peaks=${sync.peakCount}`);
       }
+    }
+    if ((audio || motion) && this.currentSession) {
+      // One lean row per 10 s cycle (collect-only): the values the minute row averages
+      saveClip({
+        id: Crypto.randomUUID(),
+        sessionId: this.currentSession.id,
+        clipStart: cycleStartMs,
+        beatPlv: this.lastBeatSync?.plv ?? null,
+        beatPhaseClock: this.lastBeatSync?.clockPhase ?? null,
+        movementEnergy: motion?.movementEnergy ?? null,
+        movementBpm: motion?.movementBpm ?? null,
+        songIsrc: audio?.recognizedIsrc ?? null,
+      }).catch(err => console.warn(`${LOG_TAG} Clip save error:`, err));
     }
     if (audio || motion) this.emitPreviewUpdate();
   }
@@ -375,9 +415,11 @@ export class SensorOrchestrator {
     // iOS does not let apps discover arbitrary nearby devices in the background, and Android
     // pauses unfiltered scans with the screen off, so a locked-phone scan finds 0. Record no
     // measurement rather than an empty room.
-    if (AppState.currentState !== 'active') return;
+    if (AppState.currentState !== 'active' || this.bleScanning) return;
+    this.bleScanning = true;
     try {
       const metrics = await this.bleScanner.scan();
+      this.lastBleScanAt = Date.now();
       if (!metrics) return;
 
       this.currentWindow.bleDeviceCount = metrics.bleDeviceCount;
@@ -390,6 +432,8 @@ export class SensorOrchestrator {
       this.emitPreviewUpdate();
     } catch (err) {
       console.warn(`${LOG_TAG} BLE collection error:`, err);
+    } finally {
+      this.bleScanning = false;
     }
   }
 
@@ -431,6 +475,7 @@ export class SensorOrchestrator {
       ...this.aggregateRhythmMetrics(),
       ...this.windowSong,
       ...this.aggregateSongStart(),
+      bassEnvelope: null, // filled in finalizeWindow (needs an async native read)
       bleDeviceCount: this.currentWindow.bleDeviceCount ?? null,
       bleCountDelta: this.currentWindow.bleCountDelta ?? null,
       bleCountTrend: this.currentWindow.bleCountTrend ?? null,
@@ -444,6 +489,21 @@ export class SensorOrchestrator {
       computedMusicScore: breakdown.musicScore,
       computedVibeScore: breakdown.compositeVibeScore,
     };
+  }
+
+  /**
+   * The minute's bass envelope: 240 frames from the minute boundary (frame k = minute + k·250 ms),
+   * so phones' envelopes line up frame by frame. A first window that starts mid-minute simply
+   * has missing frames before the session began.
+   */
+  private async bassEnvelopeFor(windowStart: Date): Promise<string | null> {
+    const minute = Math.floor(windowStart.getTime() / MINUTE_MS) * MINUTE_MS;
+    try {
+      const frames = await this.audioAnalyzer.getBassEnvelope(minute, minute + FRAMES_PER_WINDOW * BASS_FRAME_MS);
+      return frames ? encodeEnvelope(frames) : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Median track start of this window's matches of its song, and how far the estimates spread. */
@@ -486,6 +546,7 @@ export class SensorOrchestrator {
     const windowEnd = new Date(boundaryMs ?? Date.now());
     const breakdown = computeVibeScore(this.currentWindow);
     const window = this.buildSensorWindow(breakdown, windowEnd);
+    window.bassEnvelope = await this.bassEnvelopeFor(this.windowStartTime);
 
     this.lastVibeScore = breakdown.compositeVibeScore;
     this.lastBreakdown = breakdown;
@@ -506,6 +567,7 @@ export class SensorOrchestrator {
     }
 
     await deleteOldSyncedWindows();
+    await deleteOldSyncedClips();
     this.startNewWindow(boundaryMs);
   }
 

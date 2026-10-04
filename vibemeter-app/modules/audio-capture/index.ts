@@ -25,6 +25,8 @@ interface AudioCaptureNative {
   stop(): Promise<void>;
   isRunning(): boolean;
   readRecent(seconds: number): Promise<RecentAudio>;
+  readRange(fromMs: number, toMs: number): Promise<RecentAudio>;
+  getBassEnvelope(fromMs: number, toMs: number): Promise<(number | null)[]>;
   matchRecent(seconds: number): Promise<ShazamMatchResult>;
 }
 
@@ -47,6 +49,16 @@ export function isCapturing(): boolean {
 
 export async function readRecent(seconds: number): Promise<RecentAudio | null> {
   return native ? native.readRecent(seconds) : null;
+}
+
+/** Audio for the wall-clock range [fromMs, toMs), clipped to what the buffer holds. */
+export async function readRange(fromMs: number, toMs: number): Promise<RecentAudio | null> {
+  return native ? native.readRange(fromMs, toMs) : null;
+}
+
+/** Bass level (dB) per 250 ms wall-clock frame in [fromMs, toMs); null = not captured. */
+export async function getBassEnvelope(fromMs: number, toMs: number): Promise<(number | null)[] | null> {
+  return native ? native.getBassEnvelope(fromMs, toMs) : null;
 }
 
 export async function matchRecent(seconds: number): Promise<ShazamMatchResult | null> {

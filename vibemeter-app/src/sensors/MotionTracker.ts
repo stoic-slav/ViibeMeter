@@ -15,6 +15,10 @@ const G = 9.80665; // m/s² per g
 
 type Vec3 = { x: number; y: number; z: number };
 const MAX_MOVEMENT_BPM = 180;
+// Below 60 a "rhythm" is slow, irregular sway (device test 4 read 41–57 BPM while swaying).
+// 60 still covers moving on every other beat of a 120+ BPM song.
+const MIN_MOVEMENT_BPM = 60;
+const MOVEMENT_HALF_PERIOD_RATIO = 0.85;
 
 export class MotionTracker {
   private isStationary = false;
@@ -192,7 +196,7 @@ export class MotionTracker {
   }
 }
 
-function computeMovementRhythm(
+export function computeMovementRhythm(
   magnitudes: number[],
   sampleRateHz: number,
 ): { movementBpm: number | null; rhythmicity: number } {
@@ -205,23 +209,42 @@ function computeMovementRhythm(
 
   // Body movement above ~180 per minute is jitter or a footstep harmonic, not a dance tempo
   const minLag = Math.max(2, Math.round((sampleRateHz * 60) / MAX_MOVEMENT_BPM));
-  const maxLag = Math.min(magnitudes.length - 2, Math.round((sampleRateHz * 60) / 30));
+  const maxLag = Math.min(magnitudes.length - 2, Math.round((sampleRateHz * 60) / MIN_MOVEMENT_BPM));
 
-  let bestLag = minLag;
-  let bestCorr = -Infinity;
-
-  for (let lag = minLag; lag <= maxLag; lag++) {
+  const acf: number[] = [];
+  for (let lag = minLag - 1; lag <= maxLag + 1; lag++) {
     let corr = 0;
     const n = magnitudes.length - lag;
     for (let i = 0; i < n; i++) {
       corr += centered[i] * centered[i + lag];
     }
-    corr /= n;
-    if (corr > bestCorr) { bestCorr = corr; bestLag = lag; }
+    acf[lag] = n > 0 ? corr / n : 0;
+  }
+  // Only real peaks count: for slow, smooth sway the autocorrelation simply decays, and its
+  // largest value would sit at the shortest lag (a spurious ~180 BPM)
+  let bestLag = -1;
+  let bestCorr = -Infinity;
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    if (acf[lag] >= acf[lag - 1] && acf[lag] >= acf[lag + 1] && acf[lag] > bestCorr) {
+      bestCorr = acf[lag];
+      bestLag = lag;
+    }
+  }
+  if (bestLag < 0) return { movementBpm: null, rhythmicity: 0 };
+  // A regular movement correlates as well at two cycles as at one: prefer the shorter period
+  // when its peak is nearly as strong (otherwise a 120 bounce reads as 60)
+  const half = Math.round(bestLag / 2);
+  for (const lag of [half - 1, half, half + 1]) {
+    if (lag >= minLag && acf[lag] >= acf[lag - 1] && acf[lag] >= acf[lag + 1]
+        && acf[lag] >= MOVEMENT_HALF_PERIOD_RATIO * bestCorr) {
+      bestLag = lag;
+      bestCorr = acf[lag];
+      break;
+    }
   }
 
   const rhythmicity = Math.max(0, Math.min(1, bestCorr / (r0 / magnitudes.length)));
-  if (rhythmicity < 0.25) return { movementBpm: null, rhythmicity };
+  if (rhythmicity < SENSOR_CONFIG.MOVEMENT_MIN_RHYTHMICITY) return { movementBpm: null, rhythmicity };
 
   return { movementBpm: Math.round((sampleRateHz * 60) / bestLag), rhythmicity };
 }

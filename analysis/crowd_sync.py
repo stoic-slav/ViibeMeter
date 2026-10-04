@@ -158,6 +158,46 @@ def attach_crowd_sync(windows: pd.DataFrame, sessions: pd.DataFrame) -> pd.DataF
     return out.drop(columns=['minute'])
 
 
+def clip_crowd_sync(clips: pd.DataFrame, windows: pd.DataFrame, sessions: pd.DataFrame,
+                    group_by: str = 'event_code') -> pd.DataFrame:
+    """Crowd sync every 10 s: per (group, clip_start) with ≥ MIN_DEVICES phones.
+
+    Clips start on wall-clock multiples of 10 s on every phone, so they line up directly. Uses
+    the clock-referenced beat phase (beat_phase_clock), which is only comparable between phones
+    hearing the same song, so each slot keeps the devices on its most common song_isrc.
+    The group is the session's group code, or with group_by='auto' the phone's automatic group
+    in that minute (auto_groups.py).
+    """
+    if clips.empty:
+        return pd.DataFrame()
+    c = clips.copy()
+    c['clip_start'] = pd.to_datetime(c['clip_start'], utc=True, format='ISO8601')
+    c['minute'] = c['clip_start'].dt.floor('min')
+    c = c.merge(sessions[['id', 'device_id'] + (['event_code'] if group_by != 'auto' else [])]
+                .rename(columns={'id': 'session_id'}), on='session_id', how='inner')
+    if group_by == 'auto':
+        from auto_groups import auto_groups
+        groups = auto_groups(windows, sessions)
+        if groups.empty:
+            return pd.DataFrame()
+        c = c.merge(groups[['session_id', 'minute', 'auto_group']], on=['session_id', 'minute'], how='inner')
+        c = c.rename(columns={'auto_group': 'group'})
+    else:
+        c = c.rename(columns={'event_code': 'group'})
+    c = c.dropna(subset=['group', 'beat_phase_clock', 'beat_plv', 'song_isrc'])
+    rows = []
+    for (group, slot), g in c.groupby(['group', 'clip_start']):
+        g = g[g['song_isrc'] == g['song_isrc'].mode().iloc[0]].drop_duplicates('device_id')
+        n = len(g)
+        row = {'group': group, 'clip_start': slot, 'n_devices': n,
+               'crowd_phase_sync_clock': np.nan, 'crowd_sync_clock': np.nan}
+        if n >= MIN_DEVICES:
+            sync = float(np.abs(np.exp(1j * g['beat_phase_clock'].to_numpy()).mean()))
+            row.update(crowd_phase_sync_clock=sync, crowd_sync_clock=sync * float(g['beat_plv'].mean()))
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def peak_moments(crowd: pd.DataFrame, top_fraction: float = 0.1) -> pd.DataFrame:
     """Top-decile crowd_sync minutes per event — candidate 'memorable moments' (Martella 2015)."""
     valid = crowd.dropna(subset=['crowd_sync'])
@@ -240,6 +280,23 @@ def selftest():
     auto = compute_crowd_sync(w, s, group_by='auto').dropna(subset=['crowd_sync'])
     assert len(auto) > 0 and (auto['n_devices'] == 3).all(), auto
     print(f"group_by='auto'     → {len(auto)} crowd minutes from the music alone (codes all differ)")
+
+    # 10 s clips: 4 phones in one group; slot 1 aligned, slot 2 spread, slot 3 one phone on
+    # another song (left out, 3 remain)
+    slot = pd.Timestamp('2026-10-10T22:00:00Z')
+    rows = []
+    for k, (phases, songs) in enumerate([([1.0, 1.1, 0.9, 1.05], ['S'] * 4),
+                                         ([0.0, 1.6, 3.1, -1.6], ['S'] * 4),
+                                         ([2.0, 2.1, 1.9, -1.0], ['S', 'S', 'S', 'X'])]):
+        for i in range(4):
+            rows.append({'id': f'c{k}{i}', 'session_id': f's{i}', 'clip_start': (slot + pd.Timedelta(seconds=10 * k)).isoformat(),
+                         'beat_plv': 0.8, 'beat_phase_clock': phases[i], 'song_isrc': songs[i]})
+    s = pd.DataFrame({'id': [f's{i}' for i in range(4)], 'device_id': [f'd{i}' for i in range(4)], 'event_code': 'G-X'})
+    cc = clip_crowd_sync(pd.DataFrame(rows), pd.DataFrame(), s).sort_values('clip_start').reset_index(drop=True)
+    assert cc.loc[0, 'crowd_phase_sync_clock'] > 0.99 and cc.loc[1, 'crowd_phase_sync_clock'] < 0.05, cc
+    assert cc.loc[2, 'n_devices'] == 3 and cc.loc[2, 'crowd_phase_sync_clock'] > 0.99, cc
+    print(f"clip_crowd_sync     → 10 s slots: aligned {cc.loc[0, 'crowd_phase_sync_clock']:.2f}, spread "
+          f"{cc.loc[1, 'crowd_phase_sync_clock']:.2f}, other-song phone left out ({cc.loc[2, 'n_devices']} devices)")
     print("selftest OK")
 
 
@@ -269,6 +326,15 @@ def main():
     crowd.to_csv(OUTPUT_DIR / 'crowd_sync.csv', index=False)
     peak_moments(crowd).to_csv(OUTPUT_DIR / 'crowd_peak_moments.csv', index=False)
     print(f"\nSaved {OUTPUT_DIR}/crowd_sync.csv and crowd_peak_moments.csv")
+
+    clips_path = DATA_DIR / 'sensor_clips.csv'
+    if clips_path.exists():
+        clips = pd.read_csv(clips_path)
+        cc = clip_crowd_sync(clips, windows, sessions, group_by=group_by)
+        if not cc.empty:
+            cc.to_csv(OUTPUT_DIR / 'clip_crowd_sync.csv', index=False)
+            print(f"10 s slots with ≥{MIN_DEVICES} devices: {int(cc['crowd_sync_clock'].notna().sum())} "
+                  f"→ saved {OUTPUT_DIR}/clip_crowd_sync.csv")
 
 
 if __name__ == '__main__':

@@ -3,6 +3,7 @@ import {
   getUnsyncedSessions, markSessionSynced,
   getUnsyncedWindows, markWindowsSynced,
   getUnsyncedRatings, markRatingsSynced,
+  getUnsyncedClips, markClipsSynced,
 } from './LocalBuffer';
 import { SENSOR_CONFIG } from '../config/constants';
 import * as Application from 'expo-application';
@@ -113,6 +114,7 @@ export async function syncSensorWindows(): Promise<void> {
     song_started_at: r.song_start_ms != null ? new Date(r.song_start_ms).toISOString() : null,
     song_start_spread_ms: r.song_start_spread_ms ?? null,
     song_bpm_source: r.song_bpm_source ?? null,
+    bass_envelope: r.bass_envelope ?? null,
     ble_device_count: r.ble_device_count,
     ble_count_delta: r.ble_count_delta,
     ble_count_trend: r.ble_count_trend,
@@ -169,10 +171,45 @@ export async function syncRatings(): Promise<void> {
 
 // ── Full sync ─────────────────────────────────────────────────────────────────
 
+// ── Sensor Clips (10 s cycles) ────────────────────────────────────────────────
+
+export async function syncClips(): Promise<void> {
+  // Several batches per sync: a long session produces 30 clips per 5-minute sync interval
+  for (let round = 0; round < 5; round++) {
+    const rows = await getUnsyncedClips(200);
+    if (rows.length === 0) return;
+    const payload = rows.map(r => ({
+      id: r.id,
+      session_id: r.session_id,
+      clip_start: new Date(r.clip_start).toISOString(),
+      beat_plv: r.beat_plv ?? null,
+      beat_phase_clock: r.beat_phase_clock ?? null,
+      movement_energy: r.movement_energy ?? null,
+      movement_bpm: r.movement_bpm ?? null,
+      song_isrc: r.song_isrc ?? null,
+    }));
+    await withRetry(async () => {
+      // The app may only insert clips (no read access, so no upsert). A batch that hits a clip
+      // already uploaded (sync interrupted before it was marked) is retried one row at a time,
+      // skipping the duplicates.
+      const { error } = await supabase.from('sensor_clips').insert(payload);
+      if (!error) return;
+      if (error.code !== '23505') throw new Error(`Clip insert failed: ${error.message}`);
+      for (const row of payload) {
+        const { error: rowError } = await supabase.from('sensor_clips').insert(row);
+        if (rowError && rowError.code !== '23505') throw new Error(`Clip insert failed: ${rowError.message}`);
+      }
+    });
+    await markClipsSynced(rows.map(r => r.id));
+    console.log(`${LOG_TAG} Synced ${rows.length} clip(s)`);
+  }
+}
+
 export async function syncAll(): Promise<void> {
   try {
     await syncSessions();
     await syncSensorWindows();
+    await syncClips();
     await syncRatings();
   } catch (err) {
     console.error(`${LOG_TAG} Sync error:`, err);

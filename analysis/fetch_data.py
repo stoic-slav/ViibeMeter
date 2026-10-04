@@ -50,10 +50,12 @@ def main():
     sessions = fetch_table('sessions')
     windows = fetch_table('sensor_windows')
     ratings = fetch_table('subjective_ratings')
+    clips = fetch_table('sensor_clips')  # 10 s cycles; kept 90 days
 
     sessions.to_csv(output_dir / 'sessions.csv', index=False)
     windows.to_csv(output_dir / 'sensor_windows.csv', index=False)
     ratings.to_csv(output_dir / 'ratings.csv', index=False)
+    clips.to_csv(output_dir / 'sensor_clips.csv', index=False)
 
     print(f"\n=== Data Summary ===")
     print(f"Sessions:       {len(sessions)}")

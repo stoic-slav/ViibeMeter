@@ -14,6 +14,7 @@ While a session is running, the app turns sensor readings into **summary numbers
 | Motion (accelerometer, gyroscope) | How much you move, your movement tempo, and how well your movement matches the beat | Raw motion traces |
 | Bluetooth | How many Bluetooth devices are nearby | Device names, addresses or identifiers |
 | Song recognition | The track's ISRC code, genre, tempo and popularity rank, and when that playback of the track started | Song audio |
+| Bass loudness | How loud the bass is, 4 values per second, as a curve for each minute. A loudness curve this coarse cannot reproduce speech or music | Audio recordings |
 | Camera | Nothing. It is used only to scan a friend's group QR code, and only when you tap Scan | Photos or video |
 
 The app does **not** use your location (GPS).
@@ -35,7 +36,11 @@ To recognise songs on iPhone, the app uses Apple's ShazamKit. A clip is turned i
 
 ## Being grouped with other phones
 
-To measure whether a crowd moves in sync, we need to know which phones were at the same event. This comes from the group code, and from the music itself: phones that heard the same playback of the same song at the same moment were very likely in the same place. So the data can show that two **anonymous** phones were at the same event at the same time. It cannot show where that was, or who you are.
+To measure whether a crowd moves in sync, we need to know which phones were at the same event. This comes from the group code, and from the music itself: phones that heard the same playback of the same song at the same moment were very likely in the same place. Phones in the same room also hear the bass get louder and quieter at the same moments, so their bass-loudness curves match. So the data can show that two **anonymous** phones were at the same event at the same time. It cannot show where that was, or who you are.
+
+## How long we keep data
+
+Besides the per-minute summaries, the app saves a few numbers for every 10 seconds (how well your movement matches the beat, how much you move, your movement tempo, and the song's ISRC code). These 10-second readings and the bass-loudness curves are **deleted automatically after 90 days**. The per-minute summaries and ratings are kept for the research.
 
 ## Where data goes
 

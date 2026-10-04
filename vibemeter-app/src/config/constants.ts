@@ -18,6 +18,7 @@ export const SENSOR_CONFIG = {
   MOTION_SWAYING_THRESHOLD: 0.8,
   MOTION_DANCING_THRESHOLD: 1.5,
   MOTION_JUMPING_THRESHOLD: 3.0,
+  MOVEMENT_MIN_RHYTHMICITY: 0.35,      // below this, movement tempo is not reported (rhythmicity still is)
 
   // BLE scanning
   BLE_SCAN_DURATION_MS: 3000,
