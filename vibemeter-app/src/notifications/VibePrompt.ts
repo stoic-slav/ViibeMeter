@@ -7,7 +7,8 @@ import { syncRatings } from '../storage/SupabaseSync';
 import { getDeviceId } from '../storage/DeviceIdentity';
 
 const LOG_TAG = '[VibePrompt]';
-const NOTIFICATION_CHANNEL = 'vibe-prompt';
+// Android channel settings are fixed once created, so vibration needs a new channel id
+const NOTIFICATION_CHANNEL = 'vibe-check';
 const NOTIFICATION_IDENTIFIER = 'vibe-check';
 const CATEGORY_ID = 'vibe-rating';
 
@@ -43,7 +44,7 @@ export class VibePrompt {
         shouldShowAlert: true,
         shouldShowBanner: true,
         shouldShowList: true,
-        shouldPlaySound: false,
+        shouldPlaySound: true,
         shouldSetBadge: false,
       }),
     });
@@ -51,9 +52,12 @@ export class VibePrompt {
     await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNEL, {
       name: 'Vibe Check',
       importance: Notifications.AndroidImportance.HIGH,
-      vibrationPattern: [0, 250],
+      enableVibrate: true,
+      vibrationPattern: [0, 400, 200, 400],
+      sound: 'default',
       lightColor: '#00FF88',
     });
+    Notifications.deleteNotificationChannelAsync('vibe-prompt').catch(() => {}); // old, silent
 
     // Rating buttons on the notification itself: long-press (iOS) or the buttons under it
     // (Android) rate without unlocking the phone or opening the app
@@ -155,8 +159,11 @@ export class VibePrompt {
         body: RATING_OPTIONS.map(o => `${o.emoji} ${o.label}`).join(' · '),
         data: { type: 'vibe-check', sessionId: this.sessionId },
         categoryIdentifier: CATEGORY_ID,
+        // The prompt has to be noticed with the phone in a pocket: iOS vibrates with the sound
+        // (and vibrates only in silent mode), Android uses the channel's vibration pattern
+        sound: 'default',
       },
-      trigger: null, // Show immediately
+      trigger: { channelId: NOTIFICATION_CHANNEL }, // immediately, on the vibrating channel
     });
 
     this.onPromptShown?.();
