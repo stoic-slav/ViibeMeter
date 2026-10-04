@@ -1,12 +1,12 @@
-# ViibeMeter — Tester Guide
+# Viibe Check — Tester Guide
 
-Thanks for helping test ViibeMeter! This takes 2 minutes to read. Please read it.
+Thanks for helping test Viibe Check! This takes 2 minutes to read. Please read it.
 
 ---
 
 ## What this app does
 
-ViibeMeter measures the "vibe" of a venue using your phone's sensors:
+Viibe Check measures the "vibe" of a venue using your phone's sensors:
 - **Sound** (how loud it is, the tempo, how strong the bass is). Audio is analysed on the phone and never saved.
 - **Song** playing (recognised on iPhone with Apple's ShazamKit)
 - **Movement** (are you dancing, walking or standing still, and are you moving on the beat?)
@@ -20,7 +20,7 @@ The experiment tests whether the sensor measurements match your honest ratings, 
 
 ## Install
 
-- **iPhone:** open the TestFlight invite link (or scan the QR code) → install **TestFlight** from the App Store if asked → tap **Install** next to ViibeMeter.
+- **iPhone:** open the TestFlight invite link (or scan the QR code) → install **TestFlight** from the App Store if asked → tap **Install** next to Viibe Check.
 - **Android:** open the APK download link on your phone → allow "install from unknown sources" when asked → install.
 
 The first time you open it, allow **microphone, motion, Bluetooth and notifications**. Each one feeds a signal; the app still works if you refuse one, it just measures less.
@@ -30,21 +30,21 @@ The first time you open it, allow **microphone, motion, Bluetooth and notificati
 ## How to use it
 
 **When you arrive:**
-1. Open ViibeMeter and tap **Start Session**.
+1. Open Viibe Check and tap **Start Session**.
 2. The first time only, answer how much you enjoy dancing (1–5).
 3. Optional: type the venue name.
 4. Where the phone will be: **Pocket** is preselected and best, so keep it there all night if you can.
-5. With friends? One person starts a session and taps **GROUP** on the meter screen to show a QR code. Everyone else scans it, either with the phone's Camera app or with **Scan a friend's group QR** in ViibeMeter. You can also scan after starting. If you forget, that's fine: the app can often work out who was together from the music.
+5. With friends? One person starts a session and taps **GROUP** on the meter screen to show a QR code. Everyone else scans it, either with the phone's Camera app or with **Scan a friend's group QR** in Viibe Check. You can also scan after starting. If you forget, that's fine: the app can often work out who was together from the music.
 6. Tap **Start Session** and put the phone in your pocket.
 
 **While you're out:**
 - Every 5 minutes a "How's the vibe right now?" notification appears. **You don't need to unlock:** press and hold it (iPhone) or use the buttons under it (Android), then tap 💀 Dead, 🙂 Decent or 🔥 Best. Done in 2 seconds.
 - Missed one? It stays there until the next one. You can also open the app and tap **Rate the vibe now** whenever you like.
 - Keep the app running. Locking the screen is fine; force-closing it stops the measurement.
-- **Android:** a "ViibeMeter is measuring" notification stays visible during the session. That's what keeps it measuring with the screen off, so leave it there. If your phone asks about battery optimisation for ViibeMeter, choose **Don't optimise** / **Unrestricted**.
+- **Android:** a "Viibe Check is measuring" notification stays visible during the session. That's what keeps it measuring with the screen off, so leave it there. If your phone asks about battery optimisation for Viibe Check, choose **Don't optimise** / **Unrestricted**.
 
 **When you leave:**
-1. Open ViibeMeter and tap **Stop**.
+1. Open Viibe Check and tap **Stop**.
 2. Look at the Summary to see how the sensors read your night.
 
 ---

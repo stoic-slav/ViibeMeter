@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "ViibeMeter",
+    "name": "Viibe Check",
     "slug": "vibemeter",
     "version": "0.2.0",
     "orientation": "portrait",
@@ -16,9 +16,9 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.leogerasimov.vibemeter",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "ViibeMeter analyses the sound around you on your phone, a few seconds at a time, to measure the music and the vibe. No audio is stored or uploaded.",
-        "NSBluetoothAlwaysUsageDescription": "ViibeMeter scans for nearby Bluetooth devices to estimate crowd density. No device identities are stored.",
-        "NSMotionUsageDescription": "ViibeMeter measures how much you move and whether it matches the beat. Only summary values are stored.",
+        "NSMicrophoneUsageDescription": "Viibe Check analyses the sound around you on your phone, a few seconds at a time, to measure the music and the vibe. No audio is stored or uploaded.",
+        "NSBluetoothAlwaysUsageDescription": "Viibe Check scans for nearby Bluetooth devices to estimate crowd density. No device identities are stored.",
+        "NSMotionUsageDescription": "Viibe Check measures how much you move and whether it matches the beat. Only summary values are stored.",
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [
           "audio",
@@ -76,7 +76,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "ViibeMeter uses the camera only to scan a friend's group QR code. No photos or video are taken.",
+          "cameraPermission": "Viibe Check uses the camera only to scan a friend's group QR code. No photos or video are taken.",
           "recordAudioAndroid": false
         }
       ]

@@ -84,7 +84,7 @@ function SessionsScreen({ onStart, pastSessions, loading }: {
   return (
     <View style={s.container}>
       <View style={s.header}>
-        <Text style={s.wordmark}>VIIBEMETER</Text>
+        <Text style={s.wordmark}>VIIBE CHECK</Text>
         <Text style={s.title}>Sessions</Text>
       </View>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12 }}>
@@ -148,7 +148,7 @@ function AffinityScreen({ onDone }: { onDone: (value: number) => void }) {
   return (
     <View style={s.container}>
       <View style={s.header}>
-        <Text style={s.wordmark}>VIIBEMETER</Text>
+        <Text style={s.wordmark}>VIIBE CHECK</Text>
         <Text style={s.title}>One quick question</Text>
       </View>
       <View style={{ paddingHorizontal: 20 }}>
@@ -195,7 +195,7 @@ function VenueScreen({ onStart, onSkip, loading }: {
   return (
     <View style={s.container}>
       <View style={s.header}>
-        <Text style={s.wordmark}>VIIBEMETER</Text>
+        <Text style={s.wordmark}>VIIBE CHECK</Text>
         <Text style={s.title}>New Session</Text>
       </View>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20 }}>

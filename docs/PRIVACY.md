@@ -1,8 +1,8 @@
-# ViibeMeter privacy policy
+# Viibe Check privacy policy
 
 *Last updated: 2 October 2026*
 
-ViibeMeter is a research app. It tests whether phone sensors can measure the atmosphere ("vibe") at bars, clubs and parties, by comparing sensor readings with the ratings you give in the app. This page explains what it collects and what it never collects.
+Viibe Check is a research app. It tests whether phone sensors can measure the atmosphere ("vibe") at bars, clubs and parties, by comparing sensor readings with the ratings you give in the app. This page explains what it collects and what it never collects.
 
 ## What the app collects
 

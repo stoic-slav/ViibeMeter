@@ -106,7 +106,7 @@ export class SensorOrchestrator {
     // Android: a foreground service keeps mic, motion and JS timers running with the screen off.
     // Started after the permission prompts, since its type depends on what was granted.
     if (Platform.OS === 'android') {
-      startSessionService('ViibeMeter is measuring', 'Session running. Open the app to stop it.');
+      startSessionService('Viibe Check is measuring', 'Session running. Open the app to stop it.');
     }
     this.startNewWindow();
 

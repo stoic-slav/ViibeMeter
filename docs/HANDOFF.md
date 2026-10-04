@@ -87,6 +87,11 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, eu-west-3. Free tier, pauses when idle.
 - **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
+### Next build (13, code done 4 Oct): app renamed "Viibe Check", new icon, vibrating prompt
+- **Name:** display name and all user-facing text say "Viibe Check" (app.json `name`, permission strings, home wordmark, tab title, Android session notification, group sheet, privacy page, tester guide, TestFlight text). Unchanged: bundle ID `com.leogerasimov.vibemeter`, Android package, repo and URLs, the internal `ViibeMeterSession` task name. **The owner must also rename the app in App Store Connect** (App Information → Name).
+- **Icon:** designed in Figma (https://www.figma.com/design/PwDGNebtd9RSCSB3uAPAWt). "Viibe" over "Check" in Outfit SemiBold, white on pure black; the V is a green check with a dark-green outline, and the dots of the two i's are flames. The flame and check are original vector drawings, not Apple emoji (Apple's emoji artwork is not licensed for app icons). `assets/icon.png` is flattened to RGB because App Store icons must not have alpha. `assets/adaptive-icon.png` holds the icon at 78% on transparency for Android's mask, with a #000000 background. `splash-icon.png` is the same artwork.
+- **Vibration:** the vibe-check notification plays the default sound on iOS (iOS only vibrates with a sound; in silent mode it only vibrates), and Android uses a new `vibe-check` channel with a vibration pattern (the old silent `vibe-prompt` channel is deleted).
+
 ### Build 12 (code done 4 Oct): 3-level rating from the lock screen, calm meter screen
 - **Why:** only **1 rating** arrived since the 2 Oct purge, across about 25 minutes of device tests (about 5 expected). The notification auto-dismissed after 60 s, its `vibe-rating` category was never registered (so it had no buttons), nothing handled taps, and the in-app sheet closed after 15 s.
 - **Rating scale (owner's decision):** 💀 Dead / 🙂 Decent / 🔥 Best, identical on iOS and Android, stored as 1 / 3 / 5 (`rating_scale = 3`) to fit the 1–5 column and its CHECK. Music and crowd sub-ratings were dropped from the UI.

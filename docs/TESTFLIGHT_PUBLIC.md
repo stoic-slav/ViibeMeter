@@ -1,8 +1,8 @@
 # Public TestFlight link: setup
 
-A public link lets anyone with an iPhone install ViibeMeter through TestFlight without being added by email. Apple must approve the build once (Beta App Review, usually within a day). Later builds of the same version often skip review.
+A public link lets anyone with an iPhone install Viibe Check through TestFlight without being added by email. Apple must approve the build once (Beta App Review, usually within a day). Later builds of the same version often skip review.
 
-Everything is in App Store Connect → **Apps → ViibeMeter → TestFlight**.
+Everything is in App Store Connect → **Apps → Viibe Check → TestFlight**.
 
 ## 1. Test information (once)
 Left sidebar → **Test Information**. Fill in and **Save**:
@@ -15,7 +15,7 @@ Left sidebar → **Test Information**. Fill in and **Save**:
 | Privacy Policy URL | `https://github.com/stoic-slav/ViibeMeter/blob/master/docs/PRIVACY.md` |
 
 **Beta App Description:**
-> ViibeMeter is a research app that measures the "vibe" at parties, bars and clubs from your phone's sensors. During a session it listens to the music (tempo, loudness, song recognition), measures how you move and whether you move on the beat, and asks you every 5 minutes to rate the vibe. No audio or Bluetooth identities are stored or uploaded, and the app does not use location; only summary numbers are. We use the data to test whether sensors can predict how people rate a night out.
+> Viibe Check is a research app that measures the "vibe" at parties, bars and clubs from your phone's sensors. During a session it listens to the music (tempo, loudness, song recognition), measures how you move and whether you move on the beat, and asks you every 5 minutes to rate the vibe. No audio or Bluetooth identities are stored or uploaded, and the app does not use location; only summary numbers are. We use the data to test whether sensors can predict how people rate a night out.
 
 **Beta App Review Information:**
 

@@ -71,7 +71,7 @@ class SessionForegroundService : HeadlessJsTaskService(), SensorEventListener {
 
   private fun enterForeground(intent: Intent?): Boolean {
     val notification = buildNotification(
-      intent?.getStringExtra(EXTRA_TITLE) ?: "ViibeMeter is measuring",
+      intent?.getStringExtra(EXTRA_TITLE) ?: "Viibe Check is measuring",
       intent?.getStringExtra(EXTRA_BODY) ?: "Session running. Open the app to stop it.",
     )
     return try {
@@ -97,7 +97,7 @@ class SessionForegroundService : HeadlessJsTaskService(), SensorEventListener {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && manager.getNotificationChannel(CHANNEL_ID) == null) {
       manager.createNotificationChannel(
         NotificationChannel(CHANNEL_ID, "Measuring session", NotificationManager.IMPORTANCE_LOW).apply {
-          description = "Shown while ViibeMeter is measuring"
+          description = "Shown while Viibe Check is measuring"
           setShowBadge(false)
         }
       )

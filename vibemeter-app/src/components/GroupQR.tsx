@@ -62,13 +62,13 @@ export function GroupScanner({ visible, onCode, onClose }: {
           />
         ) : (
           <View style={st.center}>
-            <Text style={st.body}>ViibeMeter needs the camera only to scan a friend's group code.</Text>
+            <Text style={st.body}>Viibe Check needs the camera only to scan a friend's group code.</Text>
             <TouchableOpacity
               style={st.btn}
               onPress={async () => {
                 const res = await requestPermission();
                 if (!res.granted && !res.canAskAgain) {
-                  Alert.alert('Camera blocked', 'Allow camera access for ViibeMeter in Settings, or ask your friend to show you their code.');
+                  Alert.alert('Camera blocked', 'Allow camera access for Viibe Check in Settings, or ask your friend to show you their code.');
                 }
               }}
             >
@@ -77,7 +77,7 @@ export function GroupScanner({ visible, onCode, onClose }: {
           </View>
         )}
         <View style={st.scanFooter}>
-          <Text style={st.body}>Point at the QR code on your friend's ViibeMeter screen</Text>
+          <Text style={st.body}>Point at the QR code on your friend's Viibe Check screen</Text>
           <TouchableOpacity style={[st.btn, { backgroundColor: '#22222e' }]} onPress={onClose}>
             <Text style={[st.btnText, { color: TX }]}>CANCEL</Text>
           </TouchableOpacity>
@@ -101,7 +101,7 @@ export function GroupSheet({ visible, code, onClose, onJoin }: {
         <View style={st.card}>
           <Text style={st.title}>YOUR GROUP</Text>
           <Text style={st.body}>
-            Friends at the same party scan this to join your group. With the Camera app, or with “Scan” in ViibeMeter.
+            Friends at the same party scan this to join your group. With the Camera app, or with “Scan” in Viibe Check.
           </Text>
           {code && <View style={{ alignItems: 'center', marginVertical: 18 }}><QRCodeView value={joinUrl(code)} /></View>}
           <Text selectable style={st.code}>{code ?? '—'}</Text>
