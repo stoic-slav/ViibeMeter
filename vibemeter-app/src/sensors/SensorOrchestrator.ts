@@ -1,7 +1,8 @@
 import * as Crypto from 'expo-crypto';
 import { AppState, Platform } from 'react-native';
 import { startSessionService, stopSessionService } from '../../modules/session-service';
-import { SensorWindow, Session, VibeScoreBreakdown, SensorReading, LiveDashboardData, TrendDir, AudioMetrics, MotionMetrics, MovementAxis } from '../types';
+import * as Battery from 'expo-battery';
+import { SensorWindow, Session, VibeScoreBreakdown, SensorReading, LiveDashboardData, TrendDir, AudioMetrics, MotionMetrics, MovementAxis, PhoneContext, EndReason } from '../types';
 import { SENSOR_CONFIG } from '../config/constants';
 import { AudioAnalyzer } from './AudioAnalyzer';
 import { MotionTracker } from './MotionTracker';
@@ -11,6 +12,7 @@ import { computeBeatSync, computeTempoMatch, aggregateBeatSync, BeatSyncResult }
 import { saveSensorWindow, deleteOldSyncedWindows, saveClip, deleteOldSyncedClips } from '../storage/LocalBuffer';
 import { encodeEnvelope, BASS_FRAME_MS, FRAMES_PER_WINDOW } from '../processing/BassEnvelope';
 import { syncAll } from '../storage/SupabaseSync';
+import { venueLocator, Venue } from '../session/VenueLocator';
 
 const LOG_TAG = '[SensorOrchestrator]';
 const FOREGROUND_SCAN_DEBOUNCE_MS = 10_000;
@@ -21,6 +23,8 @@ const MINUTE_MS = 60_000;
 const CYCLE_START_TOLERANCE_MS = 500;
 
 type VibeUpdateCallback = (window: SensorWindow, breakdown: VibeScoreBreakdown, live: LiveDashboardData) => void;
+// Steps per minute above which a moving phone counts as walking (for the going-home auto-stop)
+const WALKING_CADENCE_SPM = 80;
 
 export class SensorOrchestrator {
   private static instance: SensorOrchestrator | null = null;
@@ -42,6 +46,17 @@ export class SensorOrchestrator {
   private uploadTimer: ReturnType<typeof setInterval> | null = null;
 
   private onVibeUpdate: VibeUpdateCallback | null = null;
+  private onAutoStop: ((reason: EndReason) => void) | null = null;
+  private onVenueChange: ((venue: Venue) => void) | null = null;
+
+  // Venue the phone is in now (per window), phone context per cycle, auto-stop state
+  private currentVenue: Venue | null = null;
+  private venueRecheck = true;
+  private contextValues: PhoneContext[] = [];
+  private lastPhoneContext: PhoneContext | null = null;
+  private walkingFlags: boolean[] = [];
+  private quietRun: boolean[] = []; // consecutive quiet minutes, each flagged walking or not
+  private autoStopFired = false;
 
   // Rolling sensor reading buffers (for sparklines)
   private dbReadings: SensorReading[] = [];
@@ -82,6 +97,16 @@ export class SensorOrchestrator {
     this.onVibeUpdate = cb;
   }
 
+  /** Called once when an auto-stop rule fires; the handler ends the session (SessionControl). */
+  setAutoStopHandler(cb: (reason: EndReason) => void): void {
+    this.onAutoStop = cb;
+  }
+
+  /** Called when a venue lookup during the session finds a venue. */
+  setVenueChangeHandler(cb: (venue: Venue) => void): void {
+    this.onVenueChange = cb;
+  }
+
   async startSession(session: Session): Promise<void> {
     if (this.isRunning) await this.stopSession();
 
@@ -97,6 +122,14 @@ export class SensorOrchestrator {
     this.stepReadings = [];
     this.movementBpmReadings = [];
     this.windowVibeHistory = [];
+    this.quietRun = [];
+    this.lastPhoneContext = null;
+    this.autoStopFired = false;
+    // The start screen looked the venue up; a typed (manual) venue is not overridden
+    this.venueRecheck = session.venueSource !== 'manual';
+    this.currentVenue = session.venuePlaceId
+      ? { placeId: session.venuePlaceId, name: session.venueName ?? 'Unknown venue', distanceM: session.venueDistanceM }
+      : null;
 
     console.log(`${LOG_TAG} Starting sensors for session ${session.id}`);
 
@@ -116,10 +149,12 @@ export class SensorOrchestrator {
     // Full Bluetooth discovery only works with the app open, so count the crowd as soon as it
     // comes to the foreground (typically to answer the vibe prompt)
     this.appStateSub = AppState.addEventListener('change', state => {
-      if (state === 'active' && this.isRunning && Date.now() - this.lastBleScanAt > FOREGROUND_SCAN_DEBOUNCE_MS) {
-        this.collectBLESample();
-      }
+      if (state !== 'active' || !this.isRunning) return;
+      if (Date.now() - this.lastBleScanAt > FOREGROUND_SCAN_DEBOUNCE_MS) this.collectBLESample();
+      // Location is "While Using" only, so the venue is re-checked when the app is open
+      if (venueLocator.msSinceCheck > SENSOR_CONFIG.VENUE_RECHECK_MS) this.recheckVenue();
     });
+    if (!this.currentVenue) this.recheckVenue();
 
     this.scheduleWindowBoundary();
     this.uploadTimer = setInterval(() => this.runUpload(), SENSOR_CONFIG.UPLOAD_BATCH_INTERVAL_MS);
@@ -151,6 +186,19 @@ export class SensorOrchestrator {
     this.windowStartTime = null;
 
     console.log(`${LOG_TAG} Sensors stopped`);
+  }
+
+  /** Look the venue up again; people move between clubs during a night. */
+  private recheckVenue(): void {
+    if (!this.venueRecheck) return;
+    venueLocator.identify().then(venue => {
+      if (venue === undefined || !this.isRunning) return; // lookup failed: keep what we had
+      if (venue?.placeId !== this.currentVenue?.placeId) {
+        console.log(`${LOG_TAG} Venue now: ${venue?.name ?? 'none'}`);
+      }
+      this.currentVenue = venue;
+      if (venue) this.onVenueChange?.(venue);
+    });
   }
 
   async runCollectionCycle(): Promise<void> {
@@ -187,6 +235,8 @@ export class SensorOrchestrator {
     this.pulseClarityValues = [];
     this.windowSong = emptySong();
     this.songStarts = [];
+    this.contextValues = [];
+    this.walkingFlags = [];
   }
 
   /** Fire finalizeWindow at each wall-clock minute boundary (recomputed every time to avoid drift). */
@@ -331,6 +381,8 @@ export class SensorOrchestrator {
         movementEnergy: motion?.movementEnergy ?? null,
         movementBpm: motion?.movementBpm ?? null,
         songIsrc: audio?.recognizedIsrc ?? null,
+        // A skipped motion sample (long stationary) keeps the last known context
+        phoneContext: motion?.phoneContext ?? (skipMotion ? this.lastPhoneContext : null),
       }).catch(err => console.warn(`${LOG_TAG} Clip save error:`, err));
     }
     if (audio || motion) this.emitPreviewUpdate();
@@ -407,6 +459,11 @@ export class SensorOrchestrator {
     if (metrics.movementEnergy != null) this.energyValues.push(metrics.movementEnergy);
     if (metrics.movementBpm != null) this.movementBpmValues.push(metrics.movementBpm);
     if (metrics.movementAxis) this.axisValues.push(metrics.movementAxis);
+    this.contextValues.push(metrics.phoneContext);
+    this.lastPhoneContext = metrics.phoneContext;
+    this.walkingFlags.push(
+      metrics.movementClassification === 'walking' || (metrics.stepCadence ?? 0) >= WALKING_CADENCE_SPM,
+    );
 
     console.log(`${LOG_TAG} Motion: ${metrics.movementClassification} energy=${metrics.movementEnergy?.toFixed(2)} movBPM=${metrics.movementBpm} rhythm=${metrics.rhythmicity.toFixed(2)} axis=${metrics.movementAxis} steps=${metrics.stepCadence}spm`);
   }
@@ -476,6 +533,8 @@ export class SensorOrchestrator {
       ...this.windowSong,
       ...this.aggregateSongStart(),
       bassEnvelope: null, // filled in finalizeWindow (needs an async native read)
+      venuePlaceId: this.currentVenue?.placeId ?? null,
+      ...this.aggregatePhoneContext(),
       bleDeviceCount: this.currentWindow.bleDeviceCount ?? null,
       bleCountDelta: this.currentWindow.bleCountDelta ?? null,
       bleCountTrend: this.currentWindow.bleCountTrend ?? null,
@@ -504,6 +563,40 @@ export class SensorOrchestrator {
     } catch {
       return null;
     }
+  }
+
+  /** The window's dominant phone context (ignoring "uncertain" cycles) and its on-body share. */
+  private aggregatePhoneContext(): Pick<SensorWindow, 'phoneContext' | 'onBodyShare'> {
+    const known = this.contextValues.filter(c => c !== 'uncertain');
+    if (this.contextValues.length === 0) return { phoneContext: null, onBodyShare: null };
+    if (known.length === 0) return { phoneContext: 'uncertain', onBodyShare: null };
+    const onBody = known.filter(c => c !== 'off_body').length;
+    return { phoneContext: mode(known), onBodyShare: onBody / known.length };
+  }
+
+  /**
+   * Auto-stop rules, checked once a minute: no music for 20 min (10 if mostly walking, i.e.
+   * going home), longer than 8 h, or the battery at 10% and not charging.
+   */
+  private async checkAutoStop(w: SensorWindow, walking: boolean): Promise<EndReason | null> {
+    const C = SENSOR_CONFIG;
+    const quiet = !w.musicDetected && (w.avgDb == null || w.avgDb < C.AUTO_STOP_QUIET_DB);
+    this.quietRun = quiet ? [...this.quietRun, walking] : [];
+    const run = this.quietRun.length;
+    if (run >= C.AUTO_STOP_QUIET_MINUTES) return 'no_music';
+    if (run >= C.AUTO_STOP_QUIET_WALKING_MINUTES) {
+      const last = this.quietRun.slice(-C.AUTO_STOP_QUIET_WALKING_MINUTES);
+      if (last.filter(Boolean).length / last.length >= C.AUTO_STOP_WALKING_SHARE) return 'no_music';
+    }
+    if (this.currentSession && Date.now() - this.currentSession.startedAt.getTime() >= C.AUTO_STOP_MAX_SESSION_MS) {
+      return 'max_duration';
+    }
+    try {
+      const [level, state] = await Promise.all([Battery.getBatteryLevelAsync(), Battery.getBatteryStateAsync()]);
+      const charging = state === Battery.BatteryState.CHARGING || state === Battery.BatteryState.FULL;
+      if (level >= 0 && !charging && level * 100 <= C.AUTO_STOP_LOW_BATTERY_PCT) return 'low_battery';
+    } catch { /* battery unknown: no rule */ }
+    return null;
   }
 
   /** Median track start of this window's matches of its song, and how far the estimates spread. */
@@ -560,7 +653,20 @@ export class SensorOrchestrator {
     }
 
     await saveSensorWindow(window);
-    console.log(`${LOG_TAG} Window finalized: vibe=${breakdown.compositeVibeScore.toFixed(2)}`);
+    console.log(`${LOG_TAG} Window finalized: vibe=${breakdown.compositeVibeScore.toFixed(2)} context=${window.phoneContext} venue=${window.venuePlaceId ? this.currentVenue?.name : '-'}`);
+
+    // Auto-stop only from the minute timer (boundaryMs set), not from the final flush of a stop
+    if (boundaryMs != null && this.isRunning && !this.autoStopFired) {
+      const walking = this.walkingFlags.length > 0
+        && this.walkingFlags.filter(Boolean).length / this.walkingFlags.length >= 0.5;
+      const reason = await this.checkAutoStop(window, walking);
+      if (reason) {
+        this.autoStopFired = true;
+        console.log(`${LOG_TAG} Auto-stop: ${reason}`);
+        // After this minute's bookkeeping; stopping re-enters finalizeWindow
+        setTimeout(() => this.onAutoStop?.(reason), 0);
+      }
+    }
 
     if (this.onVibeUpdate) {
       this.onVibeUpdate(window, breakdown, this.buildLiveDashboard());

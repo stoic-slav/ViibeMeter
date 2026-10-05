@@ -158,7 +158,7 @@ Each device generates a random anonymous UUID on first launch (stored in iOS Sec
 ## Privacy
 
 - No audio ever recorded or stored — only computed metrics (dB level, BPM, classification)
-- No location used at all (since build 8); only an optional venue name and dwell time
+- Location only to recognise the venue (While Using, since build 15): the rounded position is looked up on Google Maps and discarded; only the venue's place ID and name are stored
 - No Bluetooth device identities — only device count
 - All raw sensor data stays on-device; only aggregated 1-minute windows are uploaded
 - Users identified by anonymous device ID only

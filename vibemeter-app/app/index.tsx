@@ -13,8 +13,10 @@ import { PhonePlacement } from '../src/types';
 import { getDeviceId } from '../src/storage/DeviceIdentity';
 import { GroupScanner } from '../src/components/GroupQR';
 import { getPendingGroupCode, onPendingGroupCode, setPendingGroupCode, parseGroupCode } from '../src/session/GroupCode';
+import { venueLocator, Venue } from '../src/session/VenueLocator';
 
-type StartOptions = { venueName: string; eventCode: string; phonePlacement: PhonePlacement | null };
+type StartOptions = { venueName: string; eventCode: string; phonePlacement: PhonePlacement | null; venue: Venue | null };
+type VenueLookup = 'looking' | 'found' | 'none' | 'off';
 
 const PLACEMENTS: { value: PhonePlacement; label: string }[] = [
   { value: 'pocket', label: 'Pocket' },
@@ -177,6 +179,20 @@ function VenueScreen({ onStart, onSkip, loading }: {
   loading: boolean;
 }) {
   const [name, setName] = useState('');
+  // The club (or else bar) the phone is in, from Google Maps; the user can overwrite the name
+  const [venue, setVenue] = useState<Venue | null>(null);
+  const [lookup, setLookup] = useState<VenueLookup>('looking');
+  useEffect(() => {
+    let alive = true;
+    venueLocator.identify().then(v => {
+      if (!alive) return;
+      if (v === undefined) { setLookup('off'); return; }
+      setVenue(v);
+      setLookup(v ? 'found' : 'none');
+      if (v) setName(n => n || v.name);
+    });
+    return () => { alive = false; };
+  }, []);
   // Group: joined by scanning a friend's QR (in-app, or the Camera app deep link), or typed
   const [joinedCode, setJoinedCode] = useState<string | null>(getPendingGroupCode());
   const [typing, setTyping] = useState(false);
@@ -188,7 +204,7 @@ function VenueScreen({ onStart, onSkip, loading }: {
   const [placement, setPlacement] = useState<PhonePlacement | null>('pocket');
   const start = (venueName: string) => {
     setPendingGroupCode(null);
-    onStart({ venueName, eventCode, phonePlacement: placement });
+    onStart({ venueName, eventCode, phonePlacement: placement, venue });
   };
   const [recentVenues, setRecentVenues] = useState<string[]>([]);
   useEffect(() => { getRecentVenues(3).then(setRecentVenues); }, []);
@@ -209,6 +225,14 @@ function VenueScreen({ onStart, onSkip, loading }: {
           returnKeyType="go"
           onSubmitEditing={() => start(name)}
         />
+        <Text style={[s.hint, { marginTop: 6 }]}>
+          {lookup === 'looking' ? 'Looking for the club you\'re in…'
+            : lookup === 'found' && venue ? (name === venue.name
+                ? `📍 Found on the map${venue.distanceM != null ? ` · ${venue.distanceM} m away` : ''}`
+                : `📍 Map says ${venue.name}; your name is used instead`)
+            : lookup === 'none' ? 'No club or bar found nearby. Type the name if you like.'
+            : 'Couldn\'t recognise the venue (location off or no connection). Type the name if you like.'}
+        </Text>
         <Text style={[s.formLabel, { marginTop: 20 }]}>WHERE'S YOUR PHONE?</Text>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           {PLACEMENTS.map(p => (
@@ -276,7 +300,7 @@ function VenueScreen({ onStart, onSkip, loading }: {
       <View style={{ padding: 20, paddingBottom: 28, gap: 10 }}>
         <TouchableOpacity
           style={[s.startBtn, loading && { opacity: 0.5 }]}
-          onPress={() => start(name || 'Unknown venue')}
+          onPress={() => start(name)}
           disabled={loading}
           activeOpacity={0.85}
         >
@@ -309,11 +333,11 @@ export default function HomeScreen() {
     setStep(affinity == null ? 'affinity' : 'venue');
   };
 
-  const handleStartSession = async ({ venueName, eventCode, phonePlacement }: StartOptions) => {
+  const handleStartSession = async ({ venueName, eventCode, phonePlacement, venue }: StartOptions) => {
     if (loading) return;
     setLoading(true);
     try {
-      const session = await sessionManager.startSession(venueName.trim() || null, null, { eventCode, phonePlacement });
+      const session = await sessionManager.startSession(venueName.trim() || null, null, { eventCode, phonePlacement, venue });
       await sensorOrchestrator.startSession(session);
       vibePrompt.startPromptSchedule(session.id);
       setStep('sessions');
@@ -338,7 +362,11 @@ export default function HomeScreen() {
       <VenueScreen
         loading={loading}
         onStart={handleStartSession}
-        onSkip={() => handleStartSession({ venueName: '', eventCode: '', phonePlacement: null })}
+        onSkip={() => {
+          // Skipping the form still keeps the auto-identified venue
+          const v = venueLocator.current;
+          handleStartSession({ venueName: v?.name ?? '', eventCode: '', phonePlacement: null, venue: v });
+        }}
       />
     );
   }

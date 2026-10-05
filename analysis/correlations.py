@@ -13,7 +13,7 @@ import numpy as np
 from scipy import stats
 from pathlib import Path
 import warnings
-from crowd_sync import attach_crowd_sync
+from crowd_sync import attach_crowd_sync, residual_sync
 warnings.filterwarnings('ignore')
 
 DATA_DIR = Path(__file__).parent / 'data'
@@ -33,13 +33,18 @@ SIGNALS = [
     'accel_magnitude_avg', 'accel_variance', 'gyro_activity_avg',
     'movement_energy', 'movement_bpm', 'rhythmicity',
     'beat_plv', 'tempo_match',
+    'movement_energy_z', 'beat_plv_z', 'rhythmicity_z',
     'crowd_phase_sync', 'crowd_tempo_agreement', 'crowd_sync',
+    'residual_phase_sync', 'residual_energy_coupling',
     'ble_device_count', 'ble_count_delta',
     'screen_off_ratio',
     'computed_energy_score', 'computed_density_score',
     'computed_movement_score', 'computed_music_score', 'computed_vibe_score',
 ]
 SESSION_COVARIATES = ['phone_placement', 'dance_affinity', 'event_code', 'app_version', 'os_version']
+# Judged against each person's own normal: an athletic dancer and a calm one differ in raw numbers
+BASELINE_SIGNALS = ['movement_energy', 'beat_plv', 'rhythmicity']
+BASELINE_MIN_WINDOWS = 10
 
 
 def platform_of(os_version) -> str | float:
@@ -55,17 +60,59 @@ def load_data():
     sessions = pd.read_csv(DATA_DIR / 'sessions.csv')
 
     # Parse timestamps
-    windows['window_start'] = pd.to_datetime(windows['window_start'])
-    ratings['rated_at'] = pd.to_datetime(ratings['rated_at'])
+    windows['window_start'] = pd.to_datetime(windows['window_start'], utc=True, format='ISO8601')
+    ratings['rated_at'] = pd.to_datetime(ratings['rated_at'], utc=True, format='ISO8601')
+    # A phone lying on a table says nothing about its owner's dancing
+    if 'phone_context' in windows.columns:
+        windows = windows[windows['phone_context'] != 'off_body']
 
     return windows, ratings, sessions
 
 
+def add_personal_baselines(windows: pd.DataFrame, sessions: pd.DataFrame) -> pd.DataFrame:
+    """<signal>_z: each window's value as a z-score against all of that phone's windows."""
+    out = windows.copy()
+    if 'device_id' not in out.columns:
+        out = out.merge(sessions[['id', 'device_id']].rename(columns={'id': 'session_id'}), on='session_id', how='left')
+    for c in BASELINE_SIGNALS:
+        if c not in out.columns:
+            out[f'{c}_z'] = np.nan
+            continue
+        vals = pd.to_numeric(out[c], errors='coerce')
+        g = vals.groupby(out['device_id'])
+        n, mu, sd = g.transform('count'), g.transform('mean'), g.transform('std')
+        out[f'{c}_z'] = np.where((n >= BASELINE_MIN_WINDOWS) & (sd > 0), (vals - mu) / sd, np.nan)
+    return out
+
+
+def attach_residual_sync(windows: pd.DataFrame, sessions: pd.DataFrame, clips: pd.DataFrame | None) -> pd.DataFrame:
+    """Residual social sync of the window's group and 5-minute block (crowd_sync.residual_sync)."""
+    out = windows.copy()
+    out['residual_phase_sync'] = np.nan
+    out['residual_energy_coupling'] = np.nan
+    if clips is None or clips.empty or 'event_code' not in sessions.columns:
+        return out
+    rs = residual_sync(clips, windows.assign(window_start=windows['window_start'].astype(str)), sessions)
+    if rs.empty:
+        return out
+    out = out.drop(columns=['residual_phase_sync', 'residual_energy_coupling'])
+    codes = sessions[['id', 'event_code']].rename(columns={'id': 'session_id', 'event_code': 'group'})
+    out = out.merge(codes, on='session_id', how='left')
+    out['block_start'] = pd.to_datetime(out['window_start'], utc=True).dt.floor('5min')
+    rs['block_start'] = pd.to_datetime(rs['block_start'], utc=True)
+    out = out.merge(rs[['group', 'block_start', 'residual_phase_sync', 'residual_energy_coupling']],
+                    on=['group', 'block_start'], how='left')
+    return out.drop(columns=['group', 'block_start'])
+
+
 def build_paired_dataset(windows: pd.DataFrame, ratings: pd.DataFrame,
-                         sessions: pd.DataFrame | None = None) -> pd.DataFrame:
+                         sessions: pd.DataFrame | None = None,
+                         clips: pd.DataFrame | None = None) -> pd.DataFrame:
     """For each rating, find the nearest sensor window (with crowd metrics attached)."""
     if sessions is not None:
         windows = attach_crowd_sync(windows, sessions)
+        windows = add_personal_baselines(windows, sessions)
+        windows = attach_residual_sync(windows, sessions, clips)
     if 'estimated_bpm' in windows.columns:
         bpm = pd.to_numeric(windows['estimated_bpm'], errors='coerce')
         windows = windows.assign(bpm_in_100_150=np.where(bpm.notna(), ((bpm >= 100) & (bpm <= 150)).astype(float), np.nan))
@@ -181,7 +228,7 @@ def headline_tests(paired: pd.DataFrame):
     if 'device_id' not in paired.columns or len(paired) == 0:
         print("  No paired data.")
         return
-    wp = within_person(paired, ['movement_energy', 'crowd_sync', 'beat_plv'])
+    wp = within_person(paired, ['movement_energy', 'crowd_sync', 'residual_phase_sync', 'residual_energy_coupling', 'beat_plv'])
 
     sub = wp[['rating', 'movement_energy']].dropna()
     if len(sub) >= 5:
@@ -190,7 +237,9 @@ def headline_tests(paired: pd.DataFrame):
     else:
         print(f"\n1. movement_energy → rating:  insufficient data (n={len(sub)})")
 
-    for i, extra in [(2, 'crowd_sync'), (3, 'beat_plv')]:
+    for i, extra in [(2, 'crowd_sync'), ('2b', 'residual_phase_sync'), ('2c', 'residual_energy_coupling'), (3, 'beat_plv')]:
+        if extra not in wp.columns:
+            continue
         sub = wp[['rating', 'movement_energy', extra]].dropna()
         if len(sub) < 8:
             print(f"{i}. {extra} beyond movement_energy: insufficient data (n={len(sub)})")
@@ -203,9 +252,31 @@ def headline_tests(paired: pd.DataFrame):
               f"(alone ρ={r:.3f}, p={p:.4f}, n={len(sub)})")
 
 
+def loudness_vs_movement(paired: pd.DataFrame):
+    """Is loudness a primary indicator, or do movement signals predict ratings better?
+    The vibe score gives loudness 30% of its weight; this tests that assumption (within-person)."""
+    print("\n5. Loudness vs movement (within-person R² for rating):")
+    movement = [c for c in ['movement_energy_z', 'beat_plv_z', 'rhythmicity_z'] if c in paired.columns]
+    if 'avg_db' not in paired.columns or not movement:
+        print("   insufficient columns")
+        return
+    wp = within_person(paired, ['avg_db'] + movement)
+    sub = wp[['rating', 'avg_db'] + movement].dropna()
+    if len(sub) < 10:
+        print(f"   insufficient data (n={len(sub)}, need 10)")
+        return
+    y = sub['rating'].to_numpy(float)
+    r_loud = _r2(y, sub[['avg_db']].to_numpy(float))
+    r_move = _r2(y, sub[movement].to_numpy(float))
+    r_both = _r2(y, sub[['avg_db'] + movement].to_numpy(float))
+    print(f"   loudness only     R²={r_loud:.3f}")
+    print(f"   movement only     R²={r_move:.3f}  ({', '.join(movement)})")
+    print(f"   movement beyond loudness ΔR²={r_both - r_loud:+.3f};  loudness beyond movement ΔR²={r_both - r_move:+.3f}  (n={len(sub)})")
+
+
 def moderators(paired: pd.DataFrame):
     """Does the signal work differently by platform, phone placement or dance affinity?"""
-    print("\n5. Moderators (Spearman ρ with rating):")
+    print("\n6. Moderators (Spearman ρ with rating):")
     if 'platform' in paired.columns:
         counts = paired['platform'].value_counts().to_dict()
         print(f"   ratings by platform: {counts}")
@@ -316,7 +387,9 @@ def main():
     if len(ratings) < 5:
         print(f"\nWARNING: Only {len(ratings)} ratings — need at least 5 for meaningful analysis")
 
-    paired = build_paired_dataset(windows, ratings, sessions)
+    clips_path = DATA_DIR / 'sensor_clips.csv'
+    clips = pd.read_csv(clips_path) if clips_path.exists() else None
+    paired = build_paired_dataset(windows, ratings, sessions, clips)
     print(f"Paired dataset: {len(paired)} matched window-rating pairs")
 
     results = compute_correlations(paired)
@@ -325,6 +398,7 @@ def main():
     print_key_findings(paired, results)
     segment_by_venue_type(paired, sessions)
     headline_tests(paired)
+    loudness_vs_movement(paired)
     moderators(paired)
     go_no_go_summary(results, paired)
 

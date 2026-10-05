@@ -25,6 +25,19 @@ Metrics per (event_code, minute):
                          devices on the minute's most common song_bpm are used.
   crowd_sync_clock       crowd_phase_sync_clock × mean(beat_plv).
 
+Residual social sync (residual_sync, per group and 5-minute block, from the 10 s clips):
+  Everyone who follows the beat looks "in sync" with everyone else, even total strangers. The
+  residual measures only the coordination the shared music does not explain:
+  residual_phase_sync       pairwise clock-phase agreement minus the same pair's agreement with
+                            one phone shifted by 1–3 slots. Each phone's own lock to the beat
+                            survives the shift; moment-to-moment coupling between the two does
+                            not. ≈ 0 for people who only follow the beat; > 0 when they drift,
+                            accent and recover together.
+  residual_energy_coupling  correlation of two phones' movement energy across slots after
+                            removing what the music's loudness (the group's bass envelope per
+                            slot) explains. ≈ 0 when everyone just reacts to the drops; > 0 when
+                            two people intensify and calm down together.
+
 Usage:
   python3 crowd_sync.py              (run fetch_data.py first; groups by group code)
   python3 crowd_sync.py --auto       (groups by the music instead, see auto_groups.py)
@@ -170,20 +183,11 @@ def clip_crowd_sync(clips: pd.DataFrame, windows: pd.DataFrame, sessions: pd.Dat
     """
     if clips.empty:
         return pd.DataFrame()
-    c = clips.copy()
-    c['clip_start'] = pd.to_datetime(c['clip_start'], utc=True, format='ISO8601')
-    c['minute'] = c['clip_start'].dt.floor('min')
-    c = c.merge(sessions[['id', 'device_id'] + (['event_code'] if group_by != 'auto' else [])]
-                .rename(columns={'id': 'session_id'}), on='session_id', how='inner')
-    if group_by == 'auto':
-        from auto_groups import auto_groups
-        groups = auto_groups(windows, sessions)
-        if groups.empty:
-            return pd.DataFrame()
-        c = c.merge(groups[['session_id', 'minute', 'auto_group']], on=['session_id', 'minute'], how='inner')
-        c = c.rename(columns={'auto_group': 'group'})
-    else:
-        c = c.rename(columns={'event_code': 'group'})
+    c = _clips_with_groups(clips, windows, sessions, group_by)
+    if c.empty:
+        return pd.DataFrame()
+    if 'phone_context' in c.columns:
+        c = c[c['phone_context'] != 'off_body']
     c = c.dropna(subset=['group', 'beat_phase_clock', 'beat_plv', 'song_isrc'])
     rows = []
     for (group, slot), g in c.groupby(['group', 'clip_start']):
@@ -205,6 +209,140 @@ def peak_moments(crowd: pd.DataFrame, top_fraction: float = 0.1) -> pd.DataFrame
         return valid
     cut = valid.groupby('event_code')['crowd_sync'].transform(lambda s: s.quantile(1 - top_fraction))
     return valid[valid['crowd_sync'] >= cut].sort_values(['event_code', 'minute'])
+
+
+# ── Residual social sync ──────────────────────────────────────────────────────
+
+RESIDUAL_BLOCK = '5min'
+RESIDUAL_SHIFTS = (1, 2, 3)      # slots (10 s each); both directions
+RESIDUAL_MIN_SLOTS = 12          # shared slots a pair needs in a block (2 of 5 minutes)
+SLOT_S = 10
+FRAMES_PER_SLOT = 40             # 250 ms bass-envelope frames per 10 s slot
+
+
+def _clips_with_groups(clips: pd.DataFrame, windows: pd.DataFrame, sessions: pd.DataFrame,
+                       group_by: str) -> pd.DataFrame:
+    """Clips with device_id, minute and their group (group code, or automatic group)."""
+    c = clips.copy()
+    c['clip_start'] = pd.to_datetime(c['clip_start'], utc=True, format='ISO8601')
+    c['minute'] = c['clip_start'].dt.floor('min')
+    c = c.merge(sessions[['id', 'device_id'] + (['event_code'] if group_by != 'auto' else [])]
+                .rename(columns={'id': 'session_id'}), on='session_id', how='inner')
+    if group_by == 'auto':
+        from auto_groups import auto_groups
+        groups = auto_groups(windows, sessions)
+        if groups.empty:
+            return pd.DataFrame()
+        c = c.merge(groups[['session_id', 'minute', 'auto_group']], on=['session_id', 'minute'], how='inner')
+        return c.rename(columns={'auto_group': 'group'})
+    return c.rename(columns={'event_code': 'group'})
+
+
+def slot_music(windows: pd.DataFrame) -> pd.DataFrame:
+    """Music loudness per session and 10 s slot: mean bass-envelope dB (relative to the minute)."""
+    from auto_groups import decode_envelope
+    rows = []
+    if 'bass_envelope' not in windows.columns:
+        return pd.DataFrame(columns=['session_id', 'clip_start', 'music_db'])
+    for _, w in windows.dropna(subset=['bass_envelope']).iterrows():
+        env = decode_envelope(w['bass_envelope'])
+        if env is None:
+            continue
+        minute = pd.to_datetime(w['window_start'], utc=True, format='ISO8601').floor('min')
+        for k in range(len(env) // FRAMES_PER_SLOT):
+            seg = env[k * FRAMES_PER_SLOT:(k + 1) * FRAMES_PER_SLOT]
+            if np.isfinite(seg).sum() >= FRAMES_PER_SLOT // 4:
+                rows.append({'session_id': w['session_id'], 'clip_start': minute + pd.Timedelta(seconds=SLOT_S * k),
+                             'music_db': float(np.nanmean(seg))})
+    return pd.DataFrame(rows, columns=['session_id', 'clip_start', 'music_db'])
+
+
+def _phase_agreement(a: np.ndarray, b: np.ndarray) -> tuple[float, int]:
+    ok = np.isfinite(a) & np.isfinite(b)
+    if ok.sum() < RESIDUAL_MIN_SLOTS:
+        return np.nan, int(ok.sum())
+    return float(np.abs(np.exp(1j * (a[ok] - b[ok])).mean())), int(ok.sum())
+
+
+def residual_phase(a: np.ndarray, b: np.ndarray) -> float:
+    """Pair agreement minus its mean agreement with b shifted by ±RESIDUAL_SHIFTS slots."""
+    obs, _ = _phase_agreement(a, b)
+    if not np.isfinite(obs):
+        return np.nan
+    surrogates = []
+    for k in RESIDUAL_SHIFTS:
+        for shifted_a, shifted_b in ((a[k:], b[:-k]), (a[:-k], b[k:])):
+            r, _ = _phase_agreement(shifted_a, shifted_b)
+            if np.isfinite(r):
+                surrogates.append(r)
+    return obs - float(np.mean(surrogates)) if surrogates else np.nan
+
+
+def residual_energy(a: np.ndarray, b: np.ndarray, music: np.ndarray) -> float:
+    """Correlation of two energy series after regressing each on the music loudness."""
+    ok = np.isfinite(a) & np.isfinite(b)
+    if ok.sum() < RESIDUAL_MIN_SLOTS:
+        return np.nan
+    have_music = ok & np.isfinite(music)
+    if have_music.sum() >= RESIDUAL_MIN_SLOTS and np.nanstd(music[have_music]) > 0:
+        ok = have_music
+        X = np.column_stack([np.ones(ok.sum()), music[ok]])
+        ra = a[ok] - X @ np.linalg.lstsq(X, a[ok], rcond=None)[0]
+        rb = b[ok] - X @ np.linalg.lstsq(X, b[ok], rcond=None)[0]
+    else:  # no envelope: only the mean is removed
+        ra, rb = a[ok] - a[ok].mean(), b[ok] - b[ok].mean()
+    if ra.std() == 0 or rb.std() == 0:
+        return np.nan
+    return float(np.corrcoef(ra, rb)[0, 1])
+
+
+def residual_sync(clips: pd.DataFrame, windows: pd.DataFrame, sessions: pd.DataFrame,
+                  group_by: str = 'event_code') -> pd.DataFrame:
+    """Residual social sync per (group, 5-minute block), averaged over the group's phone pairs."""
+    if clips.empty:
+        return pd.DataFrame()
+    c = _clips_with_groups(clips, windows, sessions, group_by)
+    if c.empty:
+        return pd.DataFrame()
+    c = c.dropna(subset=['group'])
+    if 'phone_context' in c.columns:
+        c = c[c['phone_context'] != 'off_body']  # a phone on a table is not a dancer
+    for col in ['beat_phase_clock', 'movement_energy', 'song_isrc']:
+        if col not in c.columns:
+            c[col] = np.nan
+    music = slot_music(windows) if not windows.empty else pd.DataFrame(columns=['session_id', 'clip_start', 'music_db'])
+    if not music.empty:
+        c = c.merge(music, on=['session_id', 'clip_start'], how='left')
+    else:
+        c['music_db'] = np.nan
+    c['block'] = c['clip_start'].dt.floor(RESIDUAL_BLOCK)
+
+    rows = []
+    for (group, block), g in c.groupby(['group', 'block']):
+        slots = pd.date_range(block, periods=int(pd.Timedelta(RESIDUAL_BLOCK).total_seconds() // SLOT_S),
+                              freq=f'{SLOT_S}s')
+        g = g.drop_duplicates(['device_id', 'clip_start'])
+        phase = g.pivot(index='device_id', columns='clip_start', values='beat_phase_clock').reindex(columns=slots)
+        song = g.pivot(index='device_id', columns='clip_start', values='song_isrc').reindex(columns=slots)
+        energy = g.pivot(index='device_id', columns='clip_start', values='movement_energy').reindex(columns=slots)
+        group_music = g.groupby('clip_start')['music_db'].mean().reindex(slots).to_numpy(dtype=float)
+        devices = list(energy.index)
+        phases, energies = [], []
+        for i in range(len(devices)):
+            for j in range(i + 1, len(devices)):
+                a, b = devices[i], devices[j]
+                # Clock phases compare only while both hear the same song
+                same = (song.loc[a] == song.loc[b]).to_numpy() & song.loc[a].notna().to_numpy()
+                pa = np.where(same, phase.loc[a].to_numpy(dtype=float), np.nan)
+                pb = np.where(same, phase.loc[b].to_numpy(dtype=float), np.nan)
+                phases.append(residual_phase(pa, pb))
+                energies.append(residual_energy(energy.loc[a].to_numpy(dtype=float),
+                                                energy.loc[b].to_numpy(dtype=float), group_music))
+        rows.append({'group': group, 'block_start': block, 'n_devices': len(devices),
+                     'n_pairs': len(phases),
+                     'residual_phase_sync': float(np.nanmean(phases)) if np.isfinite(phases).any() else np.nan,
+                     'residual_energy_coupling': float(np.nanmean(energies)) if np.isfinite(energies).any() else np.nan})
+    return pd.DataFrame(rows)
 
 
 # ── Synthetic self-test ───────────────────────────────────────────────────────
@@ -297,6 +435,41 @@ def selftest():
     assert cc.loc[2, 'n_devices'] == 3 and cc.loc[2, 'crowd_phase_sync_clock'] > 0.99, cc
     print(f"clip_crowd_sync     → 10 s slots: aligned {cc.loc[0, 'crowd_phase_sync_clock']:.2f}, spread "
           f"{cc.loc[1, 'crowd_phase_sync_clock']:.2f}, other-song phone left out ({cc.loc[2, 'n_devices']} devices)")
+
+    # Residual social sync: 4 phones over one 5-minute block (30 slots), same song throughout
+    def residual_case(coupled: bool, seed: int):
+        r = np.random.default_rng(seed)
+        n_slots = 30
+        music = r.normal(0, 3, n_slots)                        # drops and breakdowns (dB)
+        drift = np.cumsum(r.normal(0, 0.6, n_slots))           # a shared wander off the beat
+        shared_energy = r.normal(0, 1.0, n_slots)              # intensifying together
+        rows, wrows = [], []
+        for i in range(4):
+            phase = 1.0 + r.normal(0, 0.6, n_slots) + (drift if coupled else 0)
+            energy = 2.0 + 0.3 * music + r.normal(0, 1.0, n_slots) + (shared_energy if coupled else 0)
+            for k in range(n_slots):
+                rows.append({'id': f'c{i}-{k}', 'session_id': f's{i}',
+                             'clip_start': (slot + pd.Timedelta(seconds=10 * k)).isoformat(),
+                             'beat_plv': 0.7, 'beat_phase_clock': phase[k], 'movement_energy': energy[k],
+                             'song_isrc': 'S', 'phone_context': 'on_body_moving'})
+            for m in range(5):  # the room's bass envelope: each slot's frames at that slot's level
+                env = np.repeat(music[m * 6:(m + 1) * 6], FRAMES_PER_SLOT)
+                raw = np.clip(np.round((env + 24) / 48 * 254) + 1, 1, 255).astype(np.uint8)
+                import base64
+                wrows.append({'id': f'w{i}-{m}', 'session_id': f's{i}',
+                              'window_start': (slot + pd.Timedelta(minutes=m)).isoformat(),
+                              'bass_envelope': base64.b64encode(raw.tobytes()).decode()})
+        sess = pd.DataFrame({'id': [f's{i}' for i in range(4)], 'device_id': [f'd{i}' for i in range(4)], 'event_code': 'G-R'})
+        return residual_sync(pd.DataFrame(rows), pd.DataFrame(wrows), sess).iloc[0]
+
+    beat_only = [residual_case(False, k) for k in range(20)]
+    coupled = [residual_case(True, 100 + k) for k in range(20)]
+    bp = np.mean([r['residual_phase_sync'] for r in beat_only]); cp = np.mean([r['residual_phase_sync'] for r in coupled])
+    be = np.mean([r['residual_energy_coupling'] for r in beat_only]); ce = np.mean([r['residual_energy_coupling'] for r in coupled])
+    print(f"residual_sync       → beat-only crowd: phase {bp:+.3f}, energy {be:+.3f}; "
+          f"coupled crowd: phase {cp:+.3f}, energy {ce:+.3f}")
+    assert abs(bp) < 0.08 and abs(be) < 0.1, (bp, be)
+    assert cp > 0.12 and ce > 0.3, (cp, ce)
     print("selftest OK")
 
 
@@ -335,6 +508,11 @@ def main():
             cc.to_csv(OUTPUT_DIR / 'clip_crowd_sync.csv', index=False)
             print(f"10 s slots with ≥{MIN_DEVICES} devices: {int(cc['crowd_sync_clock'].notna().sum())} "
                   f"→ saved {OUTPUT_DIR}/clip_crowd_sync.csv")
+        rs = residual_sync(clips, windows, sessions, group_by=group_by)
+        if not rs.empty:
+            rs.to_csv(OUTPUT_DIR / 'residual_sync.csv', index=False)
+            print(f"Residual social sync: {int(rs['residual_phase_sync'].notna().sum())} group-blocks with phase, "
+                  f"{int(rs['residual_energy_coupling'].notna().sum())} with energy → saved {OUTPUT_DIR}/residual_sync.csv")
 
 
 if __name__ == '__main__':

@@ -36,6 +36,7 @@
       "permissions": [
         "RECORD_AUDIO",
         "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
         "BLUETOOTH",
         "BLUETOOTH_ADMIN",
         "BLUETOOTH_SCAN",
@@ -78,6 +79,15 @@
         {
           "cameraPermission": "Viibe Check uses the camera only to scan a friend's group QR code. No photos or video are taken.",
           "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Viibe Check uses your location only to recognise which club or bar you're in. Your location is never stored.",
+          "isIosBackgroundLocationEnabled": false,
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": false
         }
       ]
     ],

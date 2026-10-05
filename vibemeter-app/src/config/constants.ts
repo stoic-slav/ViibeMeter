@@ -83,6 +83,25 @@ export const SENSOR_CONFIG = {
   // BLE trend thresholds
   BLE_TREND_FILLING_DELTA: 3,
   BLE_TREND_THINNING_DELTA: -3,
+
+  // Auto-stop: a session ends itself when the night is clearly over
+  AUTO_STOP_QUIET_MINUTES: 20,         // consecutive minutes without music…
+  AUTO_STOP_QUIET_WALKING_MINUTES: 10,  // …or this many if the phone is mostly walking (going home)
+  AUTO_STOP_WALKING_SHARE: 0.6,         // share of those minutes that must be walking
+  AUTO_STOP_QUIET_DB: 60,               // a minute counts as quiet below this dB with no music
+  AUTO_STOP_MAX_SESSION_MS: 8 * 3600_000,
+  AUTO_STOP_LOW_BATTERY_PCT: 10,        // and not charging
+
+  // Venue identification: re-check when the app comes to the foreground, at most this often
+  VENUE_RECHECK_MS: 600_000,
+} as const;
+
+/** Give-to-get: contributing at a venue unlocks the live view for the rest of the night. */
+export const LIVE_ACCESS = {
+  FREE_NIGHT_PASSES: 2,                 // for new users, before they have contributed
+  UNLOCK_MINUTES: 10,                   // valid minutes tonight that unlock the view
+  NIGHT_ENDS_HOUR: 6,                   // a "night" runs until 06:00 local time
+  MIN_ON_BODY_SHARE: 0.5,               // a valid minute is mostly on a body…
 } as const;
 
 export const SUPABASE_CONFIG = {

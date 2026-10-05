@@ -15,7 +15,7 @@ Left sidebar → **Test Information**. Fill in and **Save**:
 | Privacy Policy URL | `https://github.com/stoic-slav/ViibeMeter/blob/master/docs/PRIVACY.md` |
 
 **Beta App Description:**
-> Viibe Check is a research app that measures the "vibe" at parties, bars and clubs from your phone's sensors. During a session it listens to the music (tempo, loudness, song recognition), measures how you move and whether you move on the beat, and asks you every 5 minutes to rate the vibe. No audio or Bluetooth identities are stored or uploaded, and the app does not use location; only summary numbers are. We use the data to test whether sensors can predict how people rate a night out.
+> Viibe Check is a research app that measures the "vibe" at parties, bars and clubs from your phone's sensors. During a session it listens to the music (tempo, loudness, song recognition), measures how you move and whether you move on the beat, and asks you every 5 minutes to rate the vibe. No audio, Bluetooth identities or location coordinates are stored or uploaded; only summary numbers and the name of the venue are. We use the data to test whether sensors can predict how people rate a night out.
 
 **Beta App Review Information:**
 
@@ -29,7 +29,7 @@ Left sidebar → **Test Information**. Fill in and **Save**:
 **Review Notes:**
 > No account is needed. Tap Start Session, answer the one-time dance question, enter any venue name, choose where the phone is, and start. Play any music nearby. Every 5 minutes a notification asks "How's the vibe right now?"; press and hold it to rate with 💀, 🙂 or 🔥.
 >
-> Background modes: a session measures continuously for the length of a night out, usually with the phone locked in a pocket. The microphone stays on during the session (audio background mode) to measure loudness, tempo and beat timing. Audio is analysed on the device in a few-second in-memory buffer and never stored or uploaded; song recognition uses ShazamKit, which sends only a fingerprint. Bluetooth counts nearby devices to estimate crowd size; no identifiers are stored. The app does not use location. The camera is used only to scan a friend's group QR code (tap GROUP on the meter screen, then Scan). The session ends when the user taps Stop, which turns all sensors off.
+> Background modes: a session measures continuously for the length of a night out, usually with the phone locked in a pocket. The microphone stays on during the session (audio background mode) to measure loudness, tempo and beat timing. Audio is analysed on the device in a few-second in-memory buffer and never stored or uploaded; song recognition uses ShazamKit, which sends only a fingerprint. Bluetooth counts nearby devices to estimate crowd size; no identifiers are stored. Location (While Using only, no background location) is used once at session start, and when the app is opened, to recognise which club or bar the user is in: the rounded position is looked up in Google Maps by our server and discarded; only the venue's name and place ID are stored. The camera is used only to scan a friend's group QR code (tap GROUP on the meter screen, then Scan). The session ends when the user taps Stop, or automatically after about 20 minutes without music, 8 hours, or at 10% battery, which turns all sensors off.
 
 ## 2. External group with a public link
 1. Left sidebar → **External Testing** → **+** (Add group) → name it `Public`.

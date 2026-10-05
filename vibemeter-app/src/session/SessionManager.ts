@@ -2,8 +2,9 @@ import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import * as Crypto from 'expo-crypto';
 import * as Battery from 'expo-battery';
-import { Session, VenueType, PhonePlacement } from '../types';
-import { saveSession, updateSessionEnd, getSessions, updateSessionEventCode } from '../storage/LocalBuffer';
+import { Session, VenueType, PhonePlacement, EndReason } from '../types';
+import { saveSession, updateSessionEnd, getSessions, updateSessionEventCode, updateSessionVenue } from '../storage/LocalBuffer';
+import { Venue } from './VenueLocator';
 import { generateGroupCode } from './GroupCode';
 import { getDeviceId } from '../storage/DeviceIdentity';
 import { getDanceAffinity } from '../storage/UserProfile';
@@ -25,7 +26,11 @@ export class SessionManager {
   async startSession(
     venueName: string | null,
     venueType: VenueType | null,
-    options: { eventCode?: string | null; phonePlacement?: PhonePlacement | null } = {},
+    options: {
+      eventCode?: string | null; phonePlacement?: PhonePlacement | null;
+      // The auto-identified venue; when the user typed their own name, venueName differs from it
+      venue?: Venue | null;
+    } = {},
   ): Promise<Session> {
     if (this.activeSession) {
       console.warn(`${LOG_TAG} Session already active, ending it first`);
@@ -53,6 +58,8 @@ export class SessionManager {
       danceAffinity,
       ...(await readBattery()).asStart,
       batteryEndPct: null,
+      ...venueFields(venueName, options.venue ?? null),
+      endReason: null,
     };
 
     await saveSession(session);
@@ -65,7 +72,7 @@ export class SessionManager {
     return session;
   }
 
-  async endSession(): Promise<Session | null> {
+  async endSession(reason: EndReason = 'user'): Promise<Session | null> {
     if (!this.activeSession) {
       console.warn(`${LOG_TAG} No active session to end`);
       return null;
@@ -79,7 +86,7 @@ export class SessionManager {
     const battery = await readBattery();
     // Low Power Mode at either end marks the session (it slows sampling down)
     const lowPowerMode = this.activeSession.lowPowerMode || battery.lowPowerMode;
-    await updateSessionEnd(this.activeSession.id, endedAt, dwellMinutes, battery.pct, lowPowerMode);
+    await updateSessionEnd(this.activeSession.id, endedAt, dwellMinutes, battery.pct, lowPowerMode, reason);
 
     const ended: Session = {
       ...this.activeSession,
@@ -87,9 +94,10 @@ export class SessionManager {
       dwellMinutes,
       batteryEndPct: battery.pct,
       lowPowerMode,
+      endReason: reason,
     };
 
-    console.log(`${LOG_TAG} Session ended: ${ended.id}, dwell=${dwellMinutes}min`);
+    console.log(`${LOG_TAG} Session ended: ${ended.id}, dwell=${dwellMinutes}min, reason=${reason}`);
     this.activeSession = null;
 
     // Sync the update
@@ -107,9 +115,32 @@ export class SessionManager {
     syncSessions().catch(err => console.warn(`${LOG_TAG} Sync error:`, err));
   }
 
+  /**
+   * A venue identified after the start (the lookup was still running, or the user had no venue
+   * yet). The session keeps its first venue; later moves show up per window (venue_place_id).
+   */
+  async setVenueIfMissing(venue: Venue): Promise<void> {
+    const s = this.activeSession;
+    if (!s || s.venuePlaceId || s.venueSource === 'manual') return;
+    this.activeSession = { ...s, venueName: s.venueName ?? venue.name, venuePlaceId: venue.placeId, venueSource: 'auto', venueDistanceM: venue.distanceM };
+    await updateSessionVenue(s.id, this.activeSession.venueName, venue.placeId, venue.distanceM);
+    syncSessions().catch(err => console.warn(`${LOG_TAG} Sync error:`, err));
+  }
+
   async getPastSessions(): Promise<any[]> {
     return getSessions();
   }
+}
+
+/**
+ * The auto-identified venue counts only if the user kept its name. A name they typed instead
+ * (usually because the lookup found the wrong place) is "manual", with no place ID.
+ */
+function venueFields(venueName: string | null, venue: Venue | null): Pick<Session, 'venuePlaceId' | 'venueSource' | 'venueDistanceM'> {
+  if (venue && (!venueName || venueName === venue.name)) {
+    return { venuePlaceId: venue.placeId, venueSource: 'auto', venueDistanceM: venue.distanceM };
+  }
+  return { venuePlaceId: null, venueSource: venueName ? 'manual' : null, venueDistanceM: null };
 }
 
 /**

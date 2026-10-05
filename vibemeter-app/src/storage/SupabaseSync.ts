@@ -58,6 +58,10 @@ export async function syncSessions(): Promise<void> {
     battery_start_pct: r.battery_start_pct ?? null,
     battery_end_pct: r.battery_end_pct ?? null,
     low_power_mode: r.low_power_mode == null ? null : r.low_power_mode === 1,
+    venue_place_id: r.venue_place_id ?? null,
+    venue_source: r.venue_source ?? null,
+    venue_distance_m: r.venue_distance_m ?? null,
+    end_reason: r.end_reason ?? null,
   }));
 
   await withRetry(async () => {
@@ -133,6 +137,9 @@ export async function syncSensorWindows(): Promise<void> {
     computed_movement_score: r.computed_movement_score,
     computed_music_score: r.computed_music_score,
     computed_vibe_score: r.computed_vibe_score,
+    venue_place_id: r.venue_place_id ?? null,
+    phone_context: r.phone_context ?? null,
+    on_body_share: r.on_body_share ?? null,
   }));
 
   await withRetry(async () => {
@@ -191,6 +198,7 @@ export async function syncClips(): Promise<void> {
       movement_energy: r.movement_energy ?? null,
       movement_bpm: r.movement_bpm ?? null,
       song_isrc: r.song_isrc ?? null,
+      phone_context: r.phone_context ?? null,
     }));
     await withRetry(async () => {
       // The app may only insert clips (no read access, so no upsert). A batch that hits a clip

@@ -54,6 +54,10 @@ export interface SensorWindow {
   songStartSpreadMs: number | null;   // max − min of this window's estimates (accuracy check)
   // 240 × 250 ms bass-loudness frames, relative to the window median, base64 (room fingerprint)
   bassEnvelope: string | null;
+  // Venue the phone was in (Google place ID), phone context, share of cycles on a body
+  venuePlaceId: string | null;
+  phoneContext: PhoneContext | null;
+  onBodyShare: number | null;
 
   // Density
   bleDeviceCount: number | null;
@@ -92,6 +96,17 @@ export type MovementClassification =
 
 export type MovementAxis = 'vertical' | 'horizontal';
 
+/**
+ * Where the phone is, judged from its motion each 10 s cycle: lying still off the body (a table,
+ * a bag on the floor), on a body but still, on a body and moving, or not enough samples.
+ */
+export type PhoneContext = 'off_body' | 'on_body_still' | 'on_body_moving' | 'uncertain';
+
+/** Why a session ended: the Stop button, or one of the auto-stop rules. */
+export type EndReason = 'user' | 'no_music' | 'max_duration' | 'low_battery';
+
+export type VenueSource = 'auto' | 'manual';
+
 export type PhonePlacement = 'pocket' | 'hand' | 'bag';
 
 export type CrowdTrend = 'filling' | 'stable' | 'thinning' | 'unknown';
@@ -128,6 +143,10 @@ export interface Session {
   batteryStartPct: number | null;        // 0–100; null if unknown or charging
   batteryEndPct: number | null;
   lowPowerMode: boolean | null;
+  venuePlaceId: string | null;           // Google place ID of the club or bar, null if none found
+  venueSource: VenueSource | null;       // auto-identified, or typed by the user
+  venueDistanceM: number | null;         // distance from the phone to the place at identification
+  endReason: EndReason | null;
 }
 
 /**
@@ -144,6 +163,7 @@ export interface SensorClip {
   movementEnergy: number | null;
   movementBpm: number | null;
   songIsrc: string | null;
+  phoneContext: PhoneContext | null;
 }
 
 export interface SubjectiveRating {
@@ -230,6 +250,7 @@ export interface MotionMetrics {
   movementEnergy: number | null; // RMS of gravity-removed acceleration (m/s²)
   movementAxis: MovementAxis | null;
   movementSeries: { t: number; v: number }[]; // on-device only, used for beat sync, never stored
+  phoneContext: PhoneContext;
 }
 
 export interface VibeScoreBreakdown {

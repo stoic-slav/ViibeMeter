@@ -8,6 +8,7 @@ import {
   computeVariance,
   computeGyroMagnitude,
   classifyMovement,
+  classifyPhoneContext,
 } from '../processing/MovementClassifier';
 
 const LOG_TAG = '[MotionTracker]';
@@ -156,13 +157,18 @@ export class MotionTracker {
         this.isStationary = false; this.stationaryStartTime = 0;
       }
 
+      const phoneContext = classifyPhoneContext(
+        accelSamples.map(a => ({ x: a.accelX, y: a.accelY, z: a.accelZ })), gyroActivityAvg,
+        movementEnergy,
+      );
+
       const stepCadence = cadenceResult[0].status === 'fulfilled' ? (cadenceResult[0].value as number | null) : null;
 
       return {
         accelMagnitudeAvg, accelMagnitudeMax, accelVariance,
         gyroActivityAvg, gyroActivityMax, movementClassification,
         stepCadence, movementBpm, rhythmicity,
-        movementEnergy, movementAxis, movementSeries,
+        movementEnergy, movementAxis, movementSeries, phoneContext,
       };
     } catch (err) {
       console.warn(`${LOG_TAG} Error sampling motion:`, err);

@@ -12,6 +12,7 @@ import { sensorOrchestrator } from '../src/sensors/SensorOrchestrator';
 import { sessionManager } from '../src/session/SessionManager';
 import { vibePrompt, RATING_OPTIONS, RatingValue } from '../src/notifications/VibePrompt';
 import { GroupSheet } from '../src/components/GroupQR';
+import { stopEverything, onSessionEnded } from '../src/session/SessionControl';
 
 /* ── Design tokens ─────────────────────────────────────────── */
 const A   = '#00E8A0';
@@ -803,6 +804,7 @@ export default function MeterScreen() {
   const [infoModal, setInfoModal] = useState<{ label: string; info: string } | null>(null);
   const [stopping, setStopping] = useState(false);
   const [showGroup, setShowGroup] = useState(false);
+  const [, setEndedTick] = useState(0);
   const [groupCode, setGroupCode] = useState<string | null>(null);
   const openGroup = () => { setGroupCode(sessionManager.currentSession?.eventCode ?? null); setShowGroup(true); };
   const joinGroup = async (code: string) => {
@@ -836,9 +838,12 @@ export default function MeterScreen() {
     });
     const cur = sensorOrchestrator.currentVibeScore;
     if (cur > 0) setVibeScore(cur);
+    // Auto-stop ends the session without the Stop button: redraw as inactive
+    const offEnded = onSessionEnded(() => { setShowPrompt(false); setEndedTick(t => t + 1); });
     return () => {
       sensorOrchestrator.setVibeUpdateCallback((() => {}) as any);
       appStateSub.remove();
+      offEnded();
     };
   }, []);
 
@@ -855,9 +860,7 @@ export default function MeterScreen() {
         text: 'Stop', style: 'destructive', onPress: async () => {
           setStopping(true);
           try {
-            const session = await sessionManager.endSession();
-            await sensorOrchestrator.stopSession();
-            vibePrompt.stopPromptSchedule();
+            const session = await stopEverything('user');
             router.push({ pathname: '/summary', params: { sessionId: session?.id } });
           } finally {
             setStopping(false);

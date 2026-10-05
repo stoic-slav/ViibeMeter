@@ -1,5 +1,5 @@
 import * as SQLite from 'expo-sqlite';
-import { SensorWindow, SensorClip, Session, SubjectiveRating } from '../types';
+import { SensorWindow, SensorClip, Session, SubjectiveRating, EndReason } from '../types';
 
 let db: SQLite.SQLiteDatabase | null = null;
 
@@ -154,6 +154,15 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
     ['sessions', 'battery_start_pct', 'REAL'],
     ['sessions', 'battery_end_pct', 'REAL'],
     ['sessions', 'low_power_mode', 'INTEGER'],
+    // venue identification, auto-stop, phone context
+    ['sessions', 'venue_place_id', 'TEXT'],
+    ['sessions', 'venue_source', 'TEXT'],
+    ['sessions', 'venue_distance_m', 'REAL'],
+    ['sessions', 'end_reason', 'TEXT'],
+    ['sensor_windows', 'venue_place_id', 'TEXT'],
+    ['sensor_windows', 'phone_context', 'TEXT'],
+    ['sensor_windows', 'on_body_share', 'REAL'],
+    ['sensor_clips', 'phone_context', 'TEXT'],
   ];
   for (const [table, col, type] of migrations) {
     await database.runAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`).catch(() => {});
@@ -168,8 +177,9 @@ export async function saveSession(session: Session): Promise<void> {
     `INSERT OR REPLACE INTO sessions
       (id, device_id, venue_name, venue_type, started_at, ended_at, dwell_minutes,
        auto_detected, venue_latitude, venue_longitude, device_model, os_version,
-       event_code, phone_placement, dance_affinity, battery_start_pct, battery_end_pct, low_power_mode)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       event_code, phone_placement, dance_affinity, battery_start_pct, battery_end_pct, low_power_mode,
+       venue_place_id, venue_source, venue_distance_m, end_reason)
+     VALUES (${Array(22).fill('?').join(',')})`,
     [
       session.id,
       session.deviceId,
@@ -189,6 +199,10 @@ export async function saveSession(session: Session): Promise<void> {
       session.batteryStartPct,
       session.batteryEndPct,
       session.lowPowerMode == null ? null : session.lowPowerMode ? 1 : 0,
+      session.venuePlaceId,
+      session.venueSource,
+      session.venueDistanceM,
+      session.endReason,
     ]
   );
 }
@@ -199,12 +213,24 @@ export async function updateSessionEnd(
   dwellMinutes: number,
   batteryEndPct: number | null,
   lowPowerMode: boolean | null,
+  endReason: EndReason,
 ): Promise<void> {
   const database = await getDb();
   await database.runAsync(
     `UPDATE sessions SET ended_at = ?, dwell_minutes = ?, battery_end_pct = ?,
-       low_power_mode = COALESCE(?, low_power_mode), synced = 0 WHERE id = ?`,
-    [endedAt.getTime(), dwellMinutes, batteryEndPct, lowPowerMode == null ? null : lowPowerMode ? 1 : 0, sessionId]
+       low_power_mode = COALESCE(?, low_power_mode), end_reason = ?, synced = 0 WHERE id = ?`,
+    [endedAt.getTime(), dwellMinutes, batteryEndPct, lowPowerMode == null ? null : lowPowerMode ? 1 : 0, endReason, sessionId]
+  );
+}
+
+/** The venue was identified after the session started (or the phone moved to another one). */
+export async function updateSessionVenue(
+  id: string, venueName: string | null, placeId: string | null, distanceM: number | null,
+): Promise<void> {
+  const database = await getDb();
+  await database.runAsync(
+    `UPDATE sessions SET venue_name = ?, venue_place_id = ?, venue_source = 'auto', venue_distance_m = ?, synced = 0 WHERE id = ?`,
+    [venueName, placeId, distanceM, id]
   );
 }
 
@@ -249,8 +275,9 @@ export async function saveSensorWindow(w: SensorWindow): Promise<void> {
        ble_device_count, ble_count_delta, ble_count_trend,
        gps_is_at_venue, gps_accuracy_meters, screen_off_ratio, camera_activations,
        computed_energy_score, computed_density_score, computed_movement_score,
-       computed_music_score, computed_vibe_score)
-     VALUES (${Array(54).fill('?').join(',')})`,
+       computed_music_score, computed_vibe_score,
+       venue_place_id, phone_context, on_body_share)
+     VALUES (${Array(57).fill('?').join(',')})`,
     [
       w.id, w.sessionId, w.windowStart.getTime(), w.windowEnd.getTime(),
       w.avgDb, w.maxDb, w.dbVariance,
@@ -268,6 +295,7 @@ export async function saveSensorWindow(w: SensorWindow): Promise<void> {
       w.gpsAccuracyMeters, w.screenOffRatio, w.cameraActivations,
       w.computedEnergyScore, w.computedDensityScore, w.computedMovementScore,
       w.computedMusicScore, w.computedVibeScore,
+      w.venuePlaceId, w.phoneContext, w.onBodyShare,
     ]
   );
 }
@@ -278,9 +306,9 @@ export async function saveClip(c: SensorClip): Promise<void> {
   const database = await getDb();
   await database.runAsync(
     `INSERT OR REPLACE INTO sensor_clips
-      (id, session_id, clip_start, beat_plv, beat_phase_clock, movement_energy, movement_bpm, song_isrc)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [c.id, c.sessionId, c.clipStart, c.beatPlv, c.beatPhaseClock, c.movementEnergy, c.movementBpm, c.songIsrc]
+      (id, session_id, clip_start, beat_plv, beat_phase_clock, movement_energy, movement_bpm, song_isrc, phone_context)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [c.id, c.sessionId, c.clipStart, c.beatPlv, c.beatPhaseClock, c.movementEnergy, c.movementBpm, c.songIsrc, c.phoneContext]
   );
 }
 
@@ -344,6 +372,21 @@ export async function getNearestWindowId(sessionId: string, timestamp: Date): Pr
     [sessionId, ts]
   );
   return row?.id ?? null;
+}
+
+/**
+ * Give-to-get credit: minutes since `sinceMs` measured at an identified venue, with the phone
+ * mostly on a body and audio present (a phone left on a table earns nothing).
+ */
+export async function countValidContributionMinutes(sinceMs: number, minOnBodyShare: number): Promise<number> {
+  const database = await getDb();
+  const row = await database.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM sensor_windows
+      WHERE window_start >= ? AND venue_place_id IS NOT NULL AND avg_db IS NOT NULL
+        AND on_body_share >= ?`,
+    [sinceMs, minOnBodyShare]
+  );
+  return row?.n ?? 0;
 }
 
 export async function deleteOldSyncedWindows(olderThanMs: number = 86400000): Promise<void> {

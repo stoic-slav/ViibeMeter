@@ -14,7 +14,7 @@ They want the agent to drive the work end to end and give only minimal direction
 ViibeMeter is an iOS/Android app that passively measures "vibe" at venues using phone sensors (microphone, accelerometer/gyroscope, BLE) and uploads aggregated metrics to Supabase. It is a research MVP for validating whether passive sensor data correlates with subjective crowd-energy ratings. The central hypothesis is that people moving in sync with the music, and with each other, signals a high vibe.
 
 ## Working rules
-- **Privacy:** never store raw audio, BLE device identifiers or GPS coordinates (the app does not use location at all since build 8; keep it that way unless the owner decides otherwise). Only aggregated per-window metrics (dB levels, BPM, device counts, movement stats, beat-sync scalars) are stored and uploaded. Do not add raw data storage.
+- **Privacy:** never store raw audio, BLE device identifiers or location coordinates. Since build 15 the app uses location "While Using" only, to recognise the venue: the position, rounded to ~11 m, goes to the `identify-venue` Edge Function, which asks Google Maps and returns the place; the coordinates are never stored, logged or uploaded to the database, only the Google place ID, venue name and distance. No background location. Only aggregated per-window metrics (dB levels, BPM, device counts, movement stats, beat-sync scalars) are stored and uploaded. Do not add raw data storage.
 - **Do not run `npx expo prebuild --clean`.** It wipes the local iOS build patches (see "iOS build quirks").
 - **Beat sync, movement energy and crowd sync are collect-only.** Do not add them to the composite vibe score until the analysis validates them.
 - **Singleton services:** do not re-instantiate them (see "Architecture").
@@ -79,9 +79,15 @@ All core services are singletons. Do not re-instantiate them:
 | `LocalBuffer` | SQLite CRUD for sessions, windows, ratings (tables use a `synced` flag) |
 | `SupabaseSync` | Retry-aware batch upload (3 attempts, retry delays). Sessions, windows and ratings go through `SECURITY DEFINER` upload functions (`upload_sessions`, `upload_sensor_windows`, `upload_ratings`); clips use a plain insert |
 | `DeviceIdentity` | Persistent anonymous UUID via Expo SecureStore |
+| `VenueLocator` | Venue lookup: one "While Using" location fix, rounded to ~11 m, sent to the `identify-venue` Edge Function (closest Google Maps night club within 150 m, else bar or pub); keeps only the place |
 | `VibePrompt` | Vibe prompt every 5 min: notification category `vibe-rating` with three rating actions (answerable from the lock screen), a response listener, a pending prompt that stays until answered, and rating recording |
 
-`src/storage/UserProfile.ts` holds the one-time dance-affinity answer (SecureStore).
+`src/storage/UserProfile.ts` holds the one-time dance-affinity answer (SecureStore). `src/session/SessionControl.ts` (imported in `index.ts`) is the one way a session ends: `stopEverything(reason)` for the Stop button and auto-stop, plus `onSessionEnded` for open screens.
+
+### Venue, phone context and auto-stop (build 15)
+- **Venue:** the start screen looks the venue up and pre-fills its name (a typed name is `venue_source = 'manual'`, with no place ID). During a session the orchestrator looks it up again when the app comes to the foreground (at most every 10 min, `VENUE_RECHECK_MS`), so each window's `venue_place_id` follows people between clubs; the session keeps its first venue. The Edge Function (`supabase/functions/identify-venue`, secret `GOOGLE_PLACES_KEY`) upserts the place into `venues`.
+- **Phone context** (`classifyPhoneContext` in `MovementClassifier.ts`, per 10 s cycle): `off_body` (tilt and motion almost constant: a table, a bag on the floor), `on_body_still`, `on_body_moving`, `uncertain`. Stored per clip, and per window as the dominant context plus `on_body_share`. The analysis drops `off_body`; the live view and give-to-get count only on-body minutes. Thresholds are first guesses, to check on a device.
+- **Auto-stop** (`SensorOrchestrator.checkAutoStop`, once a minute): no music and below 60 dB for 20 consecutive minutes (10 if most of them are walking), 8 h, or battery ≤ 10% and not charging. It ends the session through `SessionControl` with `end_reason` (`user`, `no_music`, `max_duration`, `low_battery`) and posts a notification. Constants `AUTO_STOP_*`.
 
 ### Scoring system (`src/processing/VibeScoreEngine.ts`)
 Each signal produces a 0–5 component score via piecewise linear curves defined in `src/config/constants.ts`. Composite = weighted sum:
@@ -131,6 +137,8 @@ Three SQLite tables in `LocalBuffer`, mirrored in Supabase:
 - `sensor_windows`: one row per window (component scores, composite, FFT metrics, movement energy/BPM/rhythmicity, beat-sync scalars).
 - `subjective_ratings`: one row per vibe rating. Since build 12 the scale has three levels, 💀 Dead / 🙂 Decent / 🔥 Best, stored as `rating` 1 / 3 / 5 with `rating_scale = 3`; earlier rows used 1–5. `rating_source` is `lockscreen` (a notification button) or `app` (the in-app sheet). Music and crowd sub-ratings are no longer asked, so they are null.
 
+Server-only tables (no anon access; read and written through functions): `venues` (public Google Maps places: place ID, name, types, location) and `live_views` (which venues a phone's live view showed, for the "does it change where people go?" question). `live_venues()` returns per-venue aggregates from the last 15 minutes of on-body phones (contributors, dancing share, energy level against each phone's own normal, momentum, genre, tempo, BLE crowd, confidence); `log_live_view()` inserts a view. Both are `SECURITY DEFINER`.
+
 All tables have a `synced INTEGER DEFAULT 0` column. Sync deletes old synced windows to conserve space. SQLite has no `ADD COLUMN IF NOT EXISTS`, so schema upgrades go through the migration list in `LocalBuffer.ts`, which ignores duplicate-column errors.
 
 Supabase migrations live in `vibemeter-app/supabase/migrations/`. Apply new ones to the live project and commit the SQL, so the repo and database stay in step.
@@ -148,8 +156,9 @@ These patches were applied to fix build issues. Do not revert:
 ## Analysis scripts
 Python scripts in `analysis/` query Supabase and run statistical analysis:
 - `fetch_data.py`: pulls sessions, sensor windows and ratings to CSV (paginated).
-- `correlations.py`: per-signal Pearson/Spearman, within-person correlations, headline tests (movement energy; crowd sync and beat lock beyond movement energy), moderators by platform, placement and dance affinity.
-- `crowd_sync.py`: per group and minute crowd phase sync (heard-beat and clock versions), tempo agreement and combined crowd sync. `--auto` groups by music instead of group codes.
+- `correlations.py`: per-signal Pearson/Spearman, within-person correlations, per-person baselines (`<signal>_z`), headline tests (movement energy; crowd sync, residual sync and beat lock beyond movement energy), loudness against movement signals, moderators by platform, placement and dance affinity.
+- `crowd_sync.py`: per group and minute crowd phase sync (heard-beat and clock versions), tempo agreement and combined crowd sync. `--auto` groups by music instead of group codes. `residual_sync` measures coordination beyond the shared beat, per group and 5-minute block: pairwise clock-phase agreement minus a time-shifted surrogate, and movement-energy correlation after removing what the music's bass loudness explains.
+- `engagement.py`: per session and 15-minute block, dancing share, longest dancing streak, returns after breaks, and dancing through song changes (off-body minutes left out).
 - `auto_groups.py`: automatic grouping of phones from shared song playbacks and bass envelopes; validation against group codes, per evidence source; `--selftest` runs synthetic venues and DJ sets.
 - `optimize_weights.py`: Ridge and Random Forest weight analysis.
 - `monitoring_queries.sql`: data quality checks.
