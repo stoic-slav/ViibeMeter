@@ -27,7 +27,7 @@ Left sidebar → **Test Information**. Fill in and **Save**:
 | Sign-in required | **No** (leave username and password empty) |
 
 **Review Notes:**
-> No account is needed. Tap Start Session, answer the one-time dance question, enter any venue name, choose where the phone is, and start. Play any music nearby. Every 5 minutes a notification asks "How's the vibe right now?"; press and hold it to rate with 💀, 🙂 or 🔥.
+> No account is needed. Tap Start Session, answer the one-time dance question, enter any venue name, choose where the phone is, and start. Play any music nearby. Every 5 minutes a notification asks "How's the vibe right now?"; press and hold it to rate with 💀, 🙂 or 🔥. The Live tab shows anonymous, aggregated activity at venues where other testers run sessions; it unlocks after 10 minutes of a session at a venue, or with one of two free Night Passes (tap "Use a free Night Pass" to review it).
 >
 > Background modes: a session measures continuously for the length of a night out, usually with the phone locked in a pocket. The microphone stays on during the session (audio background mode) to measure loudness, tempo and beat timing. Audio is analysed on the device in a few-second in-memory buffer and never stored or uploaded; song recognition uses ShazamKit, which sends only a fingerprint. Bluetooth counts nearby devices to estimate crowd size; no identifiers are stored. Location (While Using only, no background location) is used once at session start, and when the app is opened, to recognise which club or bar the user is in: the rounded position is looked up in Google Maps by our server and discarded; only the venue's name and place ID are stored. The camera is used only to scan a friend's group QR code (tap GROUP on the meter screen, then Scan). The session ends when the user taps Stop, or automatically after about 20 minutes without music, 8 hours, or at 10% battery, which turns all sensors off.
 
@@ -38,7 +38,7 @@ Left sidebar → **Test Information**. Fill in and **Save**:
 4. Copy the link (`https://testflight.apple.com/join/…`) and send it to testers with `TESTER_GUIDE.md`.
 
 **What to Test:**
-> Start a session when you arrive somewhere with music, keep the phone in your pocket, and leave it running with the screen locked. Answer the "How's the vibe right now?" notification every 5 minutes: press and hold it on the lock screen and tap 💀, 🙂 or 🔥, no need to unlock. Tap Stop when you leave. With friends, one of you taps GROUP on the meter screen and the others scan the QR code. Tell us if the session stops on its own, if a prompt never appears, or if the battery drain feels too high.
+> Start a session when you arrive somewhere with music, keep the phone in your pocket, and leave it running with the screen locked. Answer the "How's the vibe right now?" notification every 5 minutes: press and hold it on the lock screen and tap 💀, 🙂 or 🔥, no need to unlock. Tap Stop when you leave. With friends, one of you taps GROUP on the meter screen and the others scan the QR code. Check the Live tab to see which venues are moving. Tell us if the venue name is wrong, if the session stops on its own while music is playing, if a prompt never appears, or if the battery drain feels too high.
 
 ## Notes
 - Internal testers (people added as App Store Connect users) get builds without review; external and public-link testers need the review above.

@@ -32,7 +32,7 @@ The first time you open it, allow **microphone, motion, Bluetooth and notificati
 **When you arrive:**
 1. Open Viibe Check and tap **Start Session**.
 2. The first time only, answer how much you enjoy dancing (1–5).
-3. Optional: type the venue name.
+3. The app recognises the club or bar you're in (allow location when it asks). If it picked the wrong place, type the right name.
 4. Where the phone will be: **Pocket** is preselected and best, so keep it there all night if you can.
 5. With friends? One person starts a session and taps **GROUP** on the meter screen to show a QR code. Everyone else scans it, either with the phone's Camera app or with **Scan a friend's group QR** in Viibe Check. You can also scan after starting. If you forget, that's fine: the app can often work out who was together from the music.
 6. Tap **Start Session** and put the phone in your pocket.
@@ -43,8 +43,10 @@ The first time you open it, allow **microphone, motion, Bluetooth and notificati
 - Keep the app running. Locking the screen is fine; force-closing it stops the measurement.
 - **Android:** a "Viibe Check is measuring" notification stays visible during the session. That's what keeps it measuring with the screen off, so leave it there. If your phone asks about battery optimisation for Viibe Check, choose **Don't optimise** / **Unrestricted**.
 
+**Deciding where to go next:** the **Live** tab shows which venues are moving right now, from phones already there: how many are dancing, the energy, whether it's rising, the music and how crowded it is. Run a session at a venue for 10 minutes and the Live tab unlocks for the rest of the night. You also get 2 free Night Passes to try it.
+
 **When you leave:**
-1. Open Viibe Check and tap **Stop**.
+1. Open Viibe Check and tap **Stop**. If you forget, the session stops by itself after about 20 minutes without music.
 2. Look at the Summary to see how the sensors read your night.
 
 ---

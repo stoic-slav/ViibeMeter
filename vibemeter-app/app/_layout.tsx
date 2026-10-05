@@ -68,6 +68,14 @@ export default function RootLayout() {
           tabBarIcon: ({ color }) => <TabIcon label="◉" color={color} />,
         }}
       />
+      <Tabs.Screen
+        name="live"
+        options={{
+          title: 'Live',
+          tabBarLabel: 'Live',
+          tabBarIcon: ({ color }) => <TabIcon label="✦" color={color} />,
+        }}
+      />
       {/* Deep link target for group QR codes (vibemeter://join?code=…); not a tab */}
       <Tabs.Screen name="join" options={{ href: null, headerShown: false }} />
       <Tabs.Screen
