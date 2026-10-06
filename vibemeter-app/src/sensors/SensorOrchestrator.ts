@@ -47,7 +47,7 @@ export class SensorOrchestrator {
 
   private onVibeUpdate: VibeUpdateCallback | null = null;
   private onAutoStop: ((reason: EndReason) => void) | null = null;
-  private onVenueChange: ((venue: Venue) => void) | null = null;
+  private onVenueProposal: ((venue: Venue) => Promise<boolean>) | null = null;
 
   // Venue the phone is in now (per window), phone context per cycle, auto-stop state
   private currentVenue: Venue | null = null;
@@ -102,9 +102,12 @@ export class SensorOrchestrator {
     this.onAutoStop = cb;
   }
 
-  /** Called when a venue lookup during the session finds a venue. */
-  setVenueChangeHandler(cb: (venue: Venue) => void): void {
-    this.onVenueChange = cb;
+  /**
+   * Called when a lookup during the session finds a different venue; resolves true when the
+   * user confirms it (SessionControl asks). Unconfirmed venues are never recorded.
+   */
+  setVenueProposalHandler(cb: (venue: Venue) => Promise<boolean>): void {
+    this.onVenueProposal = cb;
   }
 
   async startSession(session: Session): Promise<void> {
@@ -188,16 +191,23 @@ export class SensorOrchestrator {
     console.log(`${LOG_TAG} Sensors stopped`);
   }
 
-  /** Look the venue up again; people move between clubs during a night. */
+  /**
+   * Look the venue up again (people move between clubs) and propose a different one to the
+   * user. No result keeps the current venue; a place the user declined is not proposed again.
+   */
   private recheckVenue(): void {
     if (!this.venueRecheck) return;
-    venueLocator.identify().then(venue => {
-      if (venue === undefined || !this.isRunning) return; // lookup failed: keep what we had
-      if (venue?.placeId !== this.currentVenue?.placeId) {
-        console.log(`${LOG_TAG} Venue now: ${venue?.name ?? 'none'}`);
+    venueLocator.identify().then(async venue => {
+      if (!venue || !this.isRunning) return;
+      if (venue.placeId === this.currentVenue?.placeId || venueLocator.isDeclined(venue.placeId)) return;
+      const yes = (await this.onVenueProposal?.(venue)) ?? false;
+      if (!this.isRunning) return;
+      if (yes) {
+        console.log(`${LOG_TAG} Venue now: ${venue.name} (confirmed)`);
+        this.currentVenue = venue;
+      } else {
+        venueLocator.decline(venue.placeId);
       }
-      this.currentVenue = venue;
-      if (venue) this.onVenueChange?.(venue);
     });
   }
 

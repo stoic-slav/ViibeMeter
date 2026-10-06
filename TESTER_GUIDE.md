@@ -32,7 +32,7 @@ The first time you open it, allow **microphone, motion, Bluetooth and notificati
 **When you arrive:**
 1. Open Viibe Check and tap **Start Session**.
 2. The first time only, answer how much you enjoy dancing (1–5).
-3. The app recognises the club or bar you're in (allow location when it asks). If it picked the wrong place, type the right name.
+3. The app looks up the club or bar you're in (allow location when it asks) and asks **"Are you at …?"**. Tap **Yes** if it's right; **No** leaves it blank, and you can type the name yourself.
 4. Where the phone will be: **Pocket** is preselected and best, so keep it there all night if you can.
 5. With friends? One person starts a session and taps **GROUP** on the meter screen to show a QR code. Everyone else scans it, either with the phone's Camera app or with **Scan a friend's group QR** in Viibe Check. You can also scan after starting. If you forget, that's fine: the app can often work out who was together from the music.
 6. Tap **Start Session** and put the phone in your pocket.

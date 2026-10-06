@@ -3,6 +3,7 @@ import { EndReason, Session } from '../types';
 import { sessionManager } from './SessionManager';
 import { sensorOrchestrator } from '../sensors/SensorOrchestrator';
 import { vibePrompt } from '../notifications/VibePrompt';
+import { confirmVenue } from './VenueLocator';
 
 /**
  * The one way a session ends, from the Stop button or an auto-stop rule (no music for 20 min,
@@ -41,6 +42,9 @@ export function onSessionEnded(listener: (session: Session | null, reason: EndRe
 sensorOrchestrator.setAutoStopHandler(reason => {
   stopEverything(reason).catch(err => console.warn('[SessionControl] Auto-stop failed:', err));
 });
-sensorOrchestrator.setVenueChangeHandler(venue => {
-  sessionManager.setVenueIfMissing(venue).catch(() => {});
+// A venue found during the session is linked only after the user confirms it
+sensorOrchestrator.setVenueProposalHandler(async venue => {
+  const yes = await confirmVenue(venue);
+  if (yes) await sessionManager.setVenueIfMissing(venue).catch(() => {});
+  return yes;
 });

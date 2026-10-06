@@ -87,7 +87,9 @@
           "locationWhenInUsePermission": "Viibe Check uses your location only to recognise which club or bar you're in. Your location is never stored.",
           "isIosBackgroundLocationEnabled": false,
           "isAndroidBackgroundLocationEnabled": false,
-          "isAndroidForegroundServiceEnabled": false
+          "isAndroidForegroundServiceEnabled": false,
+          "locationAlwaysAndWhenInUsePermission": false,
+          "locationAlwaysPermission": false
         }
       ]
     ],

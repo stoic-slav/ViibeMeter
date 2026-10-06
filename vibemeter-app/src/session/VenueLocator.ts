@@ -1,3 +1,4 @@
+import { Alert } from 'react-native';
 import * as Location from 'expo-location';
 import { supabase } from '../config/supabase';
 
@@ -12,15 +13,42 @@ export interface Venue {
 }
 
 /**
- * Which club (or else bar) the phone is in. One position fix, rounded to ~11 m, goes to the
- * identify-venue Edge Function, which asks Google Maps for the closest night club within 150 m,
- * then the closest bar or pub. The position is discarded straight away: only the place is kept.
- * Location is "While Using" only; there is no background location.
+ * Ask the user whether they are at the proposed place. Nothing is linked to a venue without a
+ * "Yes": "No", or dismissing the question, leaves the venue blank.
+ */
+export function confirmVenue(v: Venue): Promise<boolean> {
+  return new Promise(resolve => {
+    let answered = false;
+    const answer = (yes: boolean) => { if (!answered) { answered = true; resolve(yes); } };
+    Alert.alert(
+      `Are you at ${v.name}?`,
+      `This is the closest club or bar on the map${v.distanceM != null ? ` (${v.distanceM} m away)` : ''}. Confirm it to link your session to it.`,
+      [
+        { text: 'No', style: 'cancel', onPress: () => answer(false) },
+        { text: 'Yes', onPress: () => answer(true) },
+      ],
+      { cancelable: true, onDismiss: () => answer(false) },
+    );
+  });
+}
+
+/**
+ * Which club (or else bar) the phone is probably in, proposed to the user to confirm
+ * (confirmVenue). One position fix, rounded to ~11 m, goes to the identify-venue Edge Function,
+ * which asks Google Maps for the closest night club within 150 m, then the closest bar or pub.
+ * The position is discarded straight away: only the place is kept. Location is "While Using"
+ * only; there is no background location.
  */
 export class VenueLocator {
   private last: Venue | null = null;
   private lastCheckAt = 0;
   private inFlight: Promise<Venue | null | undefined> | null = null;
+  // Places the user said they are not at; not proposed again until the next session's start screen
+  private declined = new Set<string>();
+
+  decline(placeId: string): void { this.declined.add(placeId); }
+  isDeclined(placeId: string): boolean { return this.declined.has(placeId); }
+  resetDeclined(): void { this.declined.clear(); }
 
   /** The venue from the latest successful lookup (null: none found nearby). */
   get current(): Venue | null { return this.last; }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, TextInput, StyleSheet,
   ScrollView, Alert, Platform,
@@ -13,10 +13,10 @@ import { PhonePlacement } from '../src/types';
 import { getDeviceId } from '../src/storage/DeviceIdentity';
 import { GroupScanner } from '../src/components/GroupQR';
 import { getPendingGroupCode, onPendingGroupCode, setPendingGroupCode, parseGroupCode } from '../src/session/GroupCode';
-import { venueLocator, Venue } from '../src/session/VenueLocator';
+import { venueLocator, confirmVenue, Venue } from '../src/session/VenueLocator';
 
 type StartOptions = { venueName: string; eventCode: string; phonePlacement: PhonePlacement | null; venue: Venue | null };
-type VenueLookup = 'looking' | 'found' | 'none' | 'off';
+type VenueLookup = 'looking' | 'found' | 'declined' | 'none' | 'off';
 
 const PLACEMENTS: { value: PhonePlacement; label: string }[] = [
   { value: 'pocket', label: 'Pocket' },
@@ -175,21 +175,34 @@ function AffinityScreen({ onDone }: { onDone: (value: number) => void }) {
 /* ── Venue input screen ────────────────────────────────────── */
 function VenueScreen({ onStart, onSkip, loading }: {
   onStart: (opts: StartOptions) => void;
-  onSkip: () => void;
+  onSkip: (venue: Venue | null) => void;
   loading: boolean;
 }) {
   const [name, setName] = useState('');
-  // The club (or else bar) the phone is in, from Google Maps; the user can overwrite the name
+  // The closest club (or else bar) on Google Maps, proposed to the user: only a "Yes" links the
+  // session to it; "No" or no answer leaves the venue blank. The user can also type a name.
   const [venue, setVenue] = useState<Venue | null>(null);
   const [lookup, setLookup] = useState<VenueLookup>('looking');
+  const nameRef = useRef('');
+  nameRef.current = name;
   useEffect(() => {
     let alive = true;
-    venueLocator.identify().then(v => {
+    venueLocator.resetDeclined();
+    venueLocator.identify().then(async v => {
       if (!alive) return;
       if (v === undefined) { setLookup('off'); return; }
-      setVenue(v);
-      setLookup(v ? 'found' : 'none');
-      if (v) setName(n => n || v.name);
+      if (!v) { setLookup('none'); return; }
+      if (nameRef.current) { setLookup('declined'); return; } // already typed their own name
+      const yes = await confirmVenue(v);
+      if (!alive) return;
+      if (yes) {
+        setVenue(v);
+        setName(v.name);
+        setLookup('found');
+      } else {
+        venueLocator.decline(v.placeId);
+        setLookup('declined');
+      }
     });
     return () => { alive = false; };
   }, []);
@@ -228,8 +241,9 @@ function VenueScreen({ onStart, onSkip, loading }: {
         <Text style={[s.hint, { marginTop: 6 }]}>
           {lookup === 'looking' ? 'Looking for the club you\'re in…'
             : lookup === 'found' && venue ? (name === venue.name
-                ? `📍 Found on the map${venue.distanceM != null ? ` · ${venue.distanceM} m away` : ''}`
-                : `📍 Map says ${venue.name}; your name is used instead`)
+                ? `📍 Confirmed${venue.distanceM != null ? ` · ${venue.distanceM} m away` : ''}`
+                : `📍 Your name is used instead of ${venue.name}`)
+            : lookup === 'declined' ? (name ? '' : 'Venue left blank. Type the name if you like.')
             : lookup === 'none' ? 'No club or bar found nearby. Type the name if you like.'
             : 'Couldn\'t recognise the venue (location off or no connection). Type the name if you like.'}
         </Text>
@@ -306,7 +320,7 @@ function VenueScreen({ onStart, onSkip, loading }: {
         >
           <Text style={s.startBtnText}>{loading ? 'Starting…' : '▶  START SESSION'}</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={onSkip} style={{ alignItems: 'center', paddingVertical: 8 }}>
+        <TouchableOpacity onPress={() => onSkip(venue)} style={{ alignItems: 'center', paddingVertical: 8 }}>
           <Text style={{ fontFamily: MONO, fontSize: 11, color: TXD }}>skip →</Text>
         </TouchableOpacity>
       </View>
@@ -362,9 +376,8 @@ export default function HomeScreen() {
       <VenueScreen
         loading={loading}
         onStart={handleStartSession}
-        onSkip={() => {
-          // Skipping the form still keeps the auto-identified venue
-          const v = venueLocator.current;
+        onSkip={v => {
+          // Skipping the form still keeps a venue the user confirmed
           handleStartSession({ venueName: v?.name ?? '', eventCode: '', phonePlacement: null, venue: v });
         }}
       />
