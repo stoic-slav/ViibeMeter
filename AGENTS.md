@@ -13,6 +13,15 @@ They want the agent to drive the work end to end and give only minimal direction
 ## Project overview
 ViibeMeter is an iOS/Android app that passively measures "vibe" at venues using phone sensors (microphone, accelerometer/gyroscope, BLE) and uploads aggregated metrics to Supabase. It is a research MVP for validating whether passive sensor data correlates with subjective crowd-energy ratings. The central hypothesis is that people moving in sync with the music, and with each other, signals a high vibe.
 
+## Product and UX direction (owner-agreed, 6 Oct 2026)
+The consumer value is **"the best parties near me, for me, right now"**, but the app is in Phase 1: its job is to collect rated nights (sessions + 💀/🙂/🔥 ratings) to prove that sensors predict enjoyment. Design every screen so that starting a session and answering prompts stays effortless. Rules for UX work:
+- **Contribution comes first.** The top of Home is always "You're at <confirmed venue>? Start session". Without contributors there is no live data for anyone.
+- **Never show an empty or dead state as the main content.** "Live near you" appears only when real live data exists; venues without data are hidden, never shown as dead.
+- **Rank by fit, not by an unproven vibe score.** Fit = genre (a one-time pick of 2–3 genres, then learned from the `song_genre` of the user's own sessions) + distance, with the reason shown ("techno · matches you · 6 min walk · 70% dancing · 9 phones"). Live activity is shown as separate indicators (dancing, energy, momentum, music, crowd, contributors/confidence), not one score, until the Phase 1 analysis validates which signals predict ratings; only then may a validated signal enter the ranking. No global "best party" leaderboard (unproven, and it sends everyone to one club).
+- **Give-to-get stays:** venue names and distance are free; the indicators unlock after 10 contribution minutes or with a Night Pass.
+- **No heat map yet.** It needs roughly 10+ live venues on a typical night in one city to beat the list (and a maps library, possibly another paid Google API). Add it then, as its own tab.
+- **Planned order:** (1) merge the Live tab into Home (session card on top, "Live near you" top 3–5 by fit below) with the genre pick, tabs Home / Meter / History; (2) check the list with the first real nights; (3) add validated signals to the ranking after the Phase 1 analysis; (4) heat-map tab once coverage justifies it.
+
 ## Working rules
 - **Privacy:** never store raw audio, BLE device identifiers or location coordinates. Since build 15 the app uses location "While Using" only, to recognise the venue: the position, rounded to ~11 m, goes to the `identify-venue` Edge Function, which asks Google Maps and returns the place; the coordinates are never stored, logged or uploaded to the database, only the Google place ID, venue name and distance. No background location. Only aggregated per-window metrics (dB levels, BPM, device counts, movement stats, beat-sync scalars) are stored and uploaded. Do not add raw data storage.
 - **Do not run `npx expo prebuild --clean`.** It wipes the local iOS build patches (see "iOS build quirks").
