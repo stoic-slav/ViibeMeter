@@ -105,7 +105,7 @@ export type PhoneContext = 'off_body' | 'on_body_still' | 'on_body_moving' | 'un
 /** Why a session ended: the Stop button, or one of the auto-stop rules. */
 export type EndReason = 'user' | 'no_music' | 'max_duration' | 'low_battery';
 
-export type VenueSource = 'auto' | 'manual';
+export type VenueSource = 'auto' | 'manual' | 'qr'; // Google proposal confirmed, typed, or venue QR scanned
 
 export type PhonePlacement = 'pocket' | 'hand' | 'bag';
 

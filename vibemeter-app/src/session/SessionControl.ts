@@ -4,6 +4,7 @@ import { sessionManager } from './SessionManager';
 import { sensorOrchestrator } from '../sensors/SensorOrchestrator';
 import { vibePrompt } from '../notifications/VibePrompt';
 import { confirmVenue } from './VenueLocator';
+import { ScanResult, setPendingGroupCode, setPendingVenue } from './GroupCode';
 
 /**
  * The one way a session ends, from the Stop button or an auto-stop rule (no music for 20 min,
@@ -48,3 +49,27 @@ sensorOrchestrator.setVenueProposalHandler(async venue => {
   if (yes) await sessionManager.setVenueIfMissing(venue).catch(() => {});
   return yes;
 });
+
+/**
+ * A scanned QR code or opened join link, during a session or before one. A friend's code joins
+ * their group; a venue code confirms the venue and joins the venue's crowd group for tonight
+ * (unless the phone is in a friend's group). Returns a short message for the user.
+ */
+export async function applyScan(scan: ScanResult): Promise<string> {
+  if (scan.kind === 'group') {
+    if (sessionManager.isSessionActive) {
+      await sessionManager.setEventCode(scan.code);
+      return `This session is now in group ${scan.code}.`;
+    }
+    setPendingGroupCode(scan.code);
+    return `You'll join group ${scan.code} when you start.`;
+  }
+  const venue = { placeId: scan.placeId, name: scan.name, distanceM: null };
+  if (sessionManager.isSessionActive) {
+    const joined = await sessionManager.applyVenueCode(venue);
+    sensorOrchestrator.setConfirmedVenue(venue);
+    return joined ? `📍 You're at ${venue.name}. Joined tonight's crowd there.` : `📍 You're at ${venue.name}. You stay in your friends' group.`;
+  }
+  setPendingVenue(venue);
+  return `📍 You're at ${venue.name}. It's set for your session.`;
+}

@@ -78,6 +78,8 @@ export default function RootLayout() {
       />
       {/* Deep link target for group QR codes (vibemeter://join?code=…); not a tab */}
       <Tabs.Screen name="join" options={{ href: null, headerShown: false }} />
+      {/* Make a venue's QR code (opened from the Group sheet); not a tab */}
+      <Tabs.Screen name="venue-code" options={{ href: null, title: 'Venue code' }} />
       <Tabs.Screen
         name="summary"
         options={{

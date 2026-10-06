@@ -12,7 +12,8 @@ import { sensorOrchestrator } from '../src/sensors/SensorOrchestrator';
 import { sessionManager } from '../src/session/SessionManager';
 import { vibePrompt, RATING_OPTIONS, RatingValue } from '../src/notifications/VibePrompt';
 import { GroupSheet } from '../src/components/GroupQR';
-import { stopEverything, onSessionEnded } from '../src/session/SessionControl';
+import { ScanResult } from '../src/session/GroupCode';
+import { stopEverything, onSessionEnded, applyScan } from '../src/session/SessionControl';
 
 /* ── Design tokens ─────────────────────────────────────────── */
 const A   = '#00E8A0';
@@ -807,10 +808,10 @@ export default function MeterScreen() {
   const [, setEndedTick] = useState(0);
   const [groupCode, setGroupCode] = useState<string | null>(null);
   const openGroup = () => { setGroupCode(sessionManager.currentSession?.eventCode ?? null); setShowGroup(true); };
-  const joinGroup = async (code: string) => {
-    await sessionManager.setEventCode(code);
-    setGroupCode(sessionManager.currentSession?.eventCode ?? code);
-    Alert.alert('Joined group', `This session is now in group ${code}.`);
+  const onGroupScan = async (scan: ScanResult) => {
+    const msg = await applyScan(scan);
+    setGroupCode(sessionManager.currentSession?.eventCode ?? null);
+    return msg;
   };
 
   const isActive = sessionManager.isSessionActive;
@@ -956,7 +957,8 @@ export default function MeterScreen() {
         </>
       )}
 
-      <GroupSheet visible={showGroup} code={groupCode} onClose={() => setShowGroup(false)} onJoin={joinGroup} />
+      <GroupSheet visible={showGroup} code={groupCode} onClose={() => setShowGroup(false)} onScan={onGroupScan}
+        onMakeVenueCode={() => { setShowGroup(false); router.push('/venue-code'); }} />
 
       {/* Info modal */}
       {infoModal && (

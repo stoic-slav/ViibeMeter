@@ -226,11 +226,12 @@ export async function updateSessionEnd(
 /** The venue was identified after the session started (or the phone moved to another one). */
 export async function updateSessionVenue(
   id: string, venueName: string | null, placeId: string | null, distanceM: number | null,
+  source: 'auto' | 'qr' = 'auto',
 ): Promise<void> {
   const database = await getDb();
   await database.runAsync(
-    `UPDATE sessions SET venue_name = ?, venue_place_id = ?, venue_source = 'auto', venue_distance_m = ?, synced = 0 WHERE id = ?`,
-    [venueName, placeId, distanceM, id]
+    `UPDATE sessions SET venue_name = ?, venue_place_id = ?, venue_source = ?, venue_distance_m = ?, synced = 0 WHERE id = ?`,
+    [venueName, placeId, source, distanceM, id]
   );
 }
 

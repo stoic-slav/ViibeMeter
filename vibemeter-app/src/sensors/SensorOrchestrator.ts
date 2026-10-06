@@ -191,6 +191,14 @@ export class SensorOrchestrator {
     console.log(`${LOG_TAG} Sensors stopped`);
   }
 
+  /** A venue confirmed outside the lookup (its QR code was scanned): later windows carry it. */
+  setConfirmedVenue(venue: Venue): void {
+    if (!this.isRunning) return;
+    this.currentVenue = venue;
+    this.venueRecheck = true; // a later move to another club can still be proposed
+    console.log(`${LOG_TAG} Venue now: ${venue.name} (venue code)`);
+  }
+
   /**
    * Look the venue up again (people move between clubs) and propose a different one to the
    * user. No result keeps the current venue; a place the user declined is not proposed again.

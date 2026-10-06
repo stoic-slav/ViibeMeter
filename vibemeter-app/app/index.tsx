@@ -9,14 +9,22 @@ import { sensorOrchestrator } from '../src/sensors/SensorOrchestrator';
 import { vibePrompt } from '../src/notifications/VibePrompt';
 import { getRecentVenues } from '../src/storage/LocalBuffer';
 import { getDanceAffinity, setDanceAffinity } from '../src/storage/UserProfile';
-import { PhonePlacement } from '../src/types';
+import { PhonePlacement, VenueSource } from '../src/types';
 import { getDeviceId } from '../src/storage/DeviceIdentity';
-import { GroupScanner } from '../src/components/GroupQR';
-import { getPendingGroupCode, onPendingGroupCode, setPendingGroupCode, parseGroupCode } from '../src/session/GroupCode';
+import { GroupSheet } from '../src/components/GroupQR';
+import {
+  getPendingGroupCode, onPendingGroupCode, setPendingGroupCode, parseGroupCode, getDraftGroupCode,
+  getPendingVenue, onPendingVenue, setPendingVenue, venueGroupCode,
+} from '../src/session/GroupCode';
+import { applyScan } from '../src/session/SessionControl';
+import { nightBounds } from '../src/storage/LiveAccess';
 import { venueLocator, confirmVenue, Venue } from '../src/session/VenueLocator';
 
-type StartOptions = { venueName: string; eventCode: string; phonePlacement: PhonePlacement | null; venue: Venue | null };
-type VenueLookup = 'looking' | 'found' | 'declined' | 'none' | 'off';
+type StartOptions = {
+  venueName: string; eventCode: string; phonePlacement: PhonePlacement | null; venue: Venue | null;
+  venueSource?: VenueSource; groupKind?: 'friend' | 'venue';
+};
+type VenueLookup = 'looking' | 'found' | 'qr' | 'declined' | 'none' | 'off';
 
 const PLACEMENTS: { value: PhonePlacement; label: string }[] = [
   { value: 'pocket', label: 'Pocket' },
@@ -173,28 +181,44 @@ function AffinityScreen({ onDone }: { onDone: (value: number) => void }) {
 }
 
 /* ── Venue input screen ────────────────────────────────────── */
-function VenueScreen({ onStart, onSkip, loading }: {
+function VenueScreen({ onStart, loading }: {
   onStart: (opts: StartOptions) => void;
-  onSkip: (venue: Venue | null) => void;
   loading: boolean;
 }) {
+  const router = useRouter();
   const [name, setName] = useState('');
   // The closest club (or else bar) on Google Maps, proposed to the user: only a "Yes" links the
   // session to it; "No" or no answer leaves the venue blank. The user can also type a name.
+  // A scanned venue code sets the venue directly, without the proposal.
   const [venue, setVenue] = useState<Venue | null>(null);
   const [lookup, setLookup] = useState<VenueLookup>('looking');
   const nameRef = useRef('');
   nameRef.current = name;
+  const qrRef = useRef<Venue | null>(getPendingVenue());
+  // With a venue code (and no friend's code), the session joins the venue's crowd group: show that
+  const [crowdCode, setCrowdCode] = useState<string | null>(null);
+  const applyQrVenue = (v: Venue | null) => {
+    qrRef.current = v;
+    if (!v) { setCrowdCode(null); return; }
+    setVenue(v);
+    setName(v.name);
+    setLookup('qr');
+    venueGroupCode(v.placeId, nightBounds().start).then(setCrowdCode);
+  };
+  useEffect(() => {
+    applyQrVenue(getPendingVenue());
+    return onPendingVenue(applyQrVenue);
+  }, []);
   useEffect(() => {
     let alive = true;
     venueLocator.resetDeclined();
     venueLocator.identify().then(async v => {
-      if (!alive) return;
+      if (!alive || qrRef.current) return; // the venue's code already said where we are
       if (v === undefined) { setLookup('off'); return; }
       if (!v) { setLookup('none'); return; }
       if (nameRef.current) { setLookup('declined'); return; } // already typed their own name
       const yes = await confirmVenue(v);
-      if (!alive) return;
+      if (!alive || qrRef.current) return;
       if (yes) {
         setVenue(v);
         setName(v.name);
@@ -210,14 +234,22 @@ function VenueScreen({ onStart, onSkip, loading }: {
   const [joinedCode, setJoinedCode] = useState<string | null>(getPendingGroupCode());
   const [typing, setTyping] = useState(false);
   const [typedCode, setTypedCode] = useState('');
-  const [scanning, setScanning] = useState(false);
+  const [showGroup, setShowGroup] = useState(false);
   useEffect(() => onPendingGroupCode(setJoinedCode), []);
   const eventCode = joinedCode ?? parseGroupCode(typedCode) ?? '';
   // Pocket is the recommended placement, so it is preselected
   const [placement, setPlacement] = useState<PhonePlacement | null>('pocket');
-  const start = (venueName: string) => {
+  const start = async (venueName: string) => {
+    const qr = qrRef.current; // read before clearing: clearing the pending venue resets qrRef
     setPendingGroupCode(null);
-    onStart({ venueName, eventCode, phonePlacement: placement, venue });
+    setPendingVenue(null);
+    // A venue code joins the venue's crowd group for tonight, unless a friend's code was joined
+    if (qr && !eventCode) {
+      const code = crowdCode ?? await venueGroupCode(qr.placeId, nightBounds().start);
+      onStart({ venueName, eventCode: code, phonePlacement: placement, venue, venueSource: 'qr', groupKind: 'venue' });
+      return;
+    }
+    onStart({ venueName, eventCode, phonePlacement: placement, venue, venueSource: qr ? 'qr' : 'auto', groupKind: 'friend' });
   };
   const [recentVenues, setRecentVenues] = useState<string[]>([]);
   useEffect(() => { getRecentVenues(3).then(setRecentVenues); }, []);
@@ -243,6 +275,7 @@ function VenueScreen({ onStart, onSkip, loading }: {
             : lookup === 'found' && venue ? (name === venue.name
                 ? `📍 Confirmed${venue.distanceM != null ? ` · ${venue.distanceM} m away` : ''}`
                 : `📍 Your name is used instead of ${venue.name}`)
+            : lookup === 'qr' && venue ? (name === venue.name ? '📍 From the venue\'s code' : `📍 Your name is used instead of ${venue.name}`)
             : lookup === 'declined' ? (name ? '' : 'Venue left blank. Type the name if you like.')
             : lookup === 'none' ? 'No club or bar found nearby. Type the name if you like.'
             : 'Couldn\'t recognise the venue (location off or no connection). Type the name if you like.'}
@@ -269,8 +302,8 @@ function VenueScreen({ onStart, onSkip, loading }: {
             </TouchableOpacity>
           </View>
         ) : (
-          <TouchableOpacity style={s.recentRow} onPress={() => setScanning(true)}>
-            <Text style={s.recentText}>📷  Scan a friend's group QR</Text>
+          <TouchableOpacity style={s.recentRow} onPress={() => setShowGroup(true)}>
+            <Text style={s.recentText}>👥  GROUP: show my code or scan one</Text>
           </TouchableOpacity>
         )}
         {!joinedCode && (typing ? (
@@ -290,12 +323,14 @@ function VenueScreen({ onStart, onSkip, loading }: {
           </TouchableOpacity>
         ))}
         <Text style={[s.hint, { marginTop: 6 }]}>
-          Not needed: you get your own group, and friends can scan it from the meter screen. Groups let us measure how in sync the crowd is.
+          Not needed: you get your own group. Show your code so friends can join, or scan a friend's or the venue's code. Groups let us measure how in sync the crowd is.
         </Text>
-        <GroupScanner
-          visible={scanning}
-          onClose={() => setScanning(false)}
-          onCode={c => { setScanning(false); setPendingGroupCode(c); }}
+        <GroupSheet
+          visible={showGroup}
+          code={joinedCode ?? crowdCode ?? getDraftGroupCode()}
+          onClose={() => setShowGroup(false)}
+          onScan={applyScan}
+          onMakeVenueCode={() => { setShowGroup(false); router.push('/venue-code'); }}
         />
 
         {recentVenues.length > 0 && <Text style={[s.formLabel, { marginTop: 20 }]}>RECENT</Text>}
@@ -320,7 +355,7 @@ function VenueScreen({ onStart, onSkip, loading }: {
         >
           <Text style={s.startBtnText}>{loading ? 'Starting…' : '▶  START SESSION'}</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => onSkip(venue)} style={{ alignItems: 'center', paddingVertical: 8 }}>
+        <TouchableOpacity onPress={() => start(venue?.name ?? '')} style={{ alignItems: 'center', paddingVertical: 8 }}>
           <Text style={{ fontFamily: MONO, fontSize: 11, color: TXD }}>skip →</Text>
         </TouchableOpacity>
       </View>
@@ -347,11 +382,14 @@ export default function HomeScreen() {
     setStep(affinity == null ? 'affinity' : 'venue');
   };
 
-  const handleStartSession = async ({ venueName, eventCode, phonePlacement, venue }: StartOptions) => {
+  const handleStartSession = async (opts: StartOptions) => {
+    const { venueName, eventCode, phonePlacement, venue } = opts;
     if (loading) return;
     setLoading(true);
     try {
-      const session = await sessionManager.startSession(venueName.trim() || null, null, { eventCode, phonePlacement, venue });
+      const session = await sessionManager.startSession(venueName.trim() || null, null, {
+        eventCode, phonePlacement, venue, venueSource: opts.venueSource, groupKind: opts.groupKind,
+      });
       await sensorOrchestrator.startSession(session);
       vibePrompt.startPromptSchedule(session.id);
       setStep('sessions');
@@ -376,10 +414,6 @@ export default function HomeScreen() {
       <VenueScreen
         loading={loading}
         onStart={handleStartSession}
-        onSkip={v => {
-          // Skipping the form still keeps a venue the user confirmed
-          handleStartSession({ venueName: v?.name ?? '', eventCode: '', phonePlacement: null, venue: v });
-        }}
       />
     );
   }
