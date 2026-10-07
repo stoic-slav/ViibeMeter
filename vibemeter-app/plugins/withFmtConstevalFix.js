@@ -13,7 +13,7 @@ const SNIPPET = `
     fmt_base = File.join(installer.sandbox.root.to_s, 'fmt', 'include', 'fmt', 'base.h')
     if File.exist?(fmt_base)
       fmt_src = File.read(fmt_base)
-      unless fmt_src.include?('consteval is broken in Apple clang')
+      unless fmt_src.include?('Apple clang (all versions)')
         fmt_src = fmt_src.sub('#elif FMT_MSC_VERSION && FMT_MSC_VERSION < 1929',
           "#elif defined(__apple_build_version__)\\n#  define FMT_USE_CONSTEVAL 0  // consteval is broken in Apple clang (all versions).\\n#elif FMT_MSC_VERSION && FMT_MSC_VERSION < 1929")
         File.chmod(0644, fmt_base) rescue nil
