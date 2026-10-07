@@ -51,6 +51,7 @@ bash ../deploy.sh            # JS-only fast deploy to a plugged-in iPhone (needs
 
 eas build --platform ios                          # cloud build for TestFlight (download the .ipa and upload with Transporter)
 eas build --platform android --profile preview    # installable Android APK
+LANG=en_US.UTF-8 eas build --platform ios --local --output ~/Downloads/ViibeCheck-buildN.ipa   # free local build (needs fastlane; the EAS free plan has a monthly iOS build quota)
 ```
 
 **Checks:** there are no test or lint scripts. `npx -p typescript@5.9 tsc --noEmit` (from `vibemeter-app/`) is the primary correctness check; the pinned TypeScript 5.3 cannot parse Expo's `module: preserve`. On this Mac, run `pod install` with `LANG=en_US.UTF-8`. For the analysis scripts, from `analysis/`: `python3 crowd_sync.py --selftest` (install deps with `pip install -r requirements.txt`, ideally in a virtualenv).
@@ -164,6 +165,7 @@ These patches were applied to fix build issues. Do not revert:
 - `ios/Pods/fmt/base.h`: `FMT_USE_CONSTEVAL` disabled for Xcode 26/Clang compatibility
 - `ios/VibeMeter/VibeMeter.entitlements`: APS push removed (Personal Team signing)
 - `react-native/scripts/react-native-xcode.sh`: `ip.txt` write made non-fatal
+- `plugins/withFmtConstevalFix.js` (config plugin): applies the fmt consteval fix on every fresh prebuild, so local EAS builds with Xcode 26 compile
 
 ## Analysis scripts
 Python scripts in `analysis/` query Supabase and run statistical analysis:
