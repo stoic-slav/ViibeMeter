@@ -86,7 +86,7 @@ function ScanView({ active, onScan, hint }: {
 }
 
 /**
- * The Group sheet, before and during a session: SHOW MY CODE (a QR friends scan to join, with how
+ * The Group sheet, before and during a session: SHARE (shows your code: a QR friends scan to join, with how
  * many phones are in the group) or SCAN (a friend's code, or a venue's code, which confirms the
  * venue and joins its crowd for the night).
  */
@@ -126,7 +126,7 @@ export function GroupSheet({ visible, code, onClose, onScan, onMakeVenueCode }: 
         <View style={st.toggle}>
           {(['show', 'scan'] as const).map(m => (
             <TouchableOpacity key={m} style={[st.toggleBtn, mode === m && st.toggleOn]} onPress={() => setMode(m)} activeOpacity={0.8}>
-              <Text style={[st.toggleText, mode === m && { color: '#030904' }]}>{m === 'show' ? 'SHOW MY CODE' : 'SCAN'}</Text>
+              <Text style={[st.toggleText, mode === m && { color: '#030904' }]}>{m === 'show' ? 'SHARE' : 'SCAN'}</Text>
             </TouchableOpacity>
           ))}
         </View>

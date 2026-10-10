@@ -303,7 +303,7 @@ function VenueScreen({ onStart, loading }: {
           </View>
         ) : (
           <TouchableOpacity style={s.recentRow} onPress={() => setShowGroup(true)}>
-            <Text style={s.recentText}>👥  GROUP: show my code or scan one</Text>
+            <Text style={s.recentText}>👥  GROUP: share or scan</Text>
           </TouchableOpacity>
         )}
         {!joinedCode && (typing ? (
