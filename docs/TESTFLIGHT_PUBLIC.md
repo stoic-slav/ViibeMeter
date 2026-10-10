@@ -1,5 +1,7 @@
 # Public TestFlight link: setup
 
+**The public link (enabled):** https://testflight.apple.com/join/arweYPp8. It stays the same for every later build, as long as the Public Link stays enabled in the `Public` group. Add each new build to that group (**Builds → +**) so testers get it.
+
 A public link lets anyone with an iPhone install Viibe Check through TestFlight without being added by email. Apple must approve the build once (Beta App Review, usually within a day). Later builds of the same version often skip review.
 
 Everything is in App Store Connect → **Apps → Viibe Check → TestFlight**.

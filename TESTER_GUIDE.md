@@ -20,7 +20,7 @@ The experiment tests whether the sensor measurements match your honest ratings, 
 
 ## Install
 
-- **iPhone:** open the TestFlight invite link (or scan the QR code) → install **TestFlight** from the App Store if asked → tap **Install** next to Viibe Check.
+- **iPhone:** open https://testflight.apple.com/join/arweYPp8 → install **TestFlight** from the App Store if asked → tap **Accept**, then **Install**. It's the same link for every update; new versions arrive through the TestFlight app.
 - **Android:** open the APK download link on your phone → allow "install from unknown sources" when asked → install.
 
 The first time you open it, allow **microphone, motion, Bluetooth and notifications**. Each one feeds a signal; the app still works if you refuse one, it just measures less.
