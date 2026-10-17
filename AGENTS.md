@@ -92,6 +92,8 @@ All core services are singletons. Do not re-instantiate them:
 | `VenueLocator` | Venue lookup: one "While Using" location fix, rounded to ~11 m, sent to the `identify-venue` Edge Function (closest Google Maps night club within 150 m, else bar or pub); keeps only the place |
 | `VibePrompt` | Vibe prompt every 5 min: notification category `vibe-rating` with three rating actions (answerable from the lock screen), a response listener, a pending prompt that stays until answered, and rating recording |
 
+**Consent and data rights (GDPR, since build 22):** before the first session `app/index.tsx` shows a consent screen (18+ confirmation; microphone required, motion / Bluetooth / location optional). Choices live in `src/storage/Consent.ts` (SecureStore, `CONSENT_VERSION`; bump it when what is collected changes) and are enforced by `sensorAllowed()` in `SensorOrchestrator` (motion, BLE) and `VenueLocator` (location). Each session stores `consent_version` and `sensors` (e.g. `mic,motion,ble,loc`). Start is blocked without microphone permission (on iPhone the open mic keeps the session alive when locked). `app/privacy.tsx` (link "privacy & data" on Home) changes choices and runs `deleteMyData()` (`src/storage/DataDeletion.ts` → `delete_my_data` RPC, local wipe, new device ID). Retention: `apply_retention` deletes sessions (cascading to windows, clips, ratings) after 24 months. DPIA draft: `docs/DPIA.md`.
+
 `src/storage/UserProfile.ts` holds the one-time dance-affinity answer (SecureStore). `src/session/SessionControl.ts` (imported in `index.ts`) is the one way a session ends: `stopEverything(reason)` for the Stop button and auto-stop, plus `onSessionEnded` for open screens.
 
 ### Venue, phone context and auto-stop (build 15)

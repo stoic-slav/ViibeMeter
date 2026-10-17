@@ -163,6 +163,9 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
     ['sensor_windows', 'phone_context', 'TEXT'],
     ['sensor_windows', 'on_body_share', 'REAL'],
     ['sensor_clips', 'phone_context', 'TEXT'],
+    // consent recorded per session
+    ['sessions', 'consent_version', 'INTEGER'],
+    ['sessions', 'sensors', 'TEXT'],
   ];
   for (const [table, col, type] of migrations) {
     await database.runAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`).catch(() => {});
@@ -178,8 +181,8 @@ export async function saveSession(session: Session): Promise<void> {
       (id, device_id, venue_name, venue_type, started_at, ended_at, dwell_minutes,
        auto_detected, venue_latitude, venue_longitude, device_model, os_version,
        event_code, phone_placement, dance_affinity, battery_start_pct, battery_end_pct, low_power_mode,
-       venue_place_id, venue_source, venue_distance_m, end_reason)
-     VALUES (${Array(22).fill('?').join(',')})`,
+       venue_place_id, venue_source, venue_distance_m, end_reason, consent_version, sensors)
+     VALUES (${Array(24).fill('?').join(',')})`,
     [
       session.id,
       session.deviceId,
@@ -203,6 +206,8 @@ export async function saveSession(session: Session): Promise<void> {
       session.venueSource,
       session.venueDistanceM,
       session.endReason,
+      session.consentVersion,
+      session.sensors,
     ]
   );
 }
@@ -455,5 +460,13 @@ export async function markRatingsSynced(ids: string[]): Promise<void> {
   await database.runAsync(
     `UPDATE subjective_ratings SET synced = 1 WHERE id IN (${placeholders})`,
     ids
+  );
+}
+
+/** "Delete my data": removes every session, window, clip and rating stored on this phone. */
+export async function wipeLocalData(): Promise<void> {
+  const database = await getDb();
+  await database.execAsync(
+    `DELETE FROM sensor_clips; DELETE FROM sensor_windows; DELETE FROM subjective_ratings; DELETE FROM sessions;`
   );
 }

@@ -62,6 +62,8 @@ export async function syncSessions(): Promise<void> {
     venue_source: r.venue_source ?? null,
     venue_distance_m: r.venue_distance_m ?? null,
     end_reason: r.end_reason ?? null,
+    consent_version: r.consent_version ?? null,
+    sensors: r.sensors ?? null,
   }));
 
   await withRetry(async () => {

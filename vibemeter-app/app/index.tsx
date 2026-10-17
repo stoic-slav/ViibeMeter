@@ -1,14 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, TextInput, StyleSheet,
-  ScrollView, Alert, Platform,
+  ScrollView, Alert, Platform, Switch, Linking,
 } from 'react-native';
+import { Audio } from 'expo-av';
 import { useRouter } from 'expo-router';
 import { sessionManager } from '../src/session/SessionManager';
 import { sensorOrchestrator } from '../src/sensors/SensorOrchestrator';
 import { vibePrompt } from '../src/notifications/VibePrompt';
 import { getRecentVenues } from '../src/storage/LocalBuffer';
 import { getDanceAffinity, setDanceAffinity } from '../src/storage/UserProfile';
+import { getConsent, saveConsent } from '../src/storage/Consent';
+import { SensorRow, SENSOR_TEXT, PRIVACY_URL } from '../src/components/SensorConsent';
 import { PhonePlacement, VenueSource } from '../src/types';
 import { getDeviceId } from '../src/storage/DeviceIdentity';
 import { GroupSheet } from '../src/components/GroupQR';
@@ -147,6 +150,51 @@ function SessionsScreen({ onStart, pastSessions, loading }: {
             anonymous id · {deviceId}
           </Text>
         )}
+        <TouchableOpacity onPress={() => router.push('/privacy')} style={{ alignItems: 'center', paddingTop: 8 }}>
+          <Text style={[s.hint, { textDecorationLine: 'underline' }]}>privacy & data</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+/* ── Consent (first start; GDPR) ────────────────────────────── */
+function ConsentScreen({ onDone }: { onDone: () => void }) {
+  const [adult, setAdult] = useState(false);
+  const [motion, setMotion] = useState(true);
+  const [bluetooth, setBluetooth] = useState(true);
+  const [location, setLocation] = useState(true);
+  return (
+    <View style={s.container}>
+      <View style={s.header}>
+        <Text style={s.wordmark}>VIIBE CHECK</Text>
+        <Text style={s.title}>Before you start</Text>
+      </View>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, gap: 12, paddingBottom: 12 }}>
+        <Text style={s.consentLead}>
+          Viibe Check is a research app. During a session it turns your phone's sensors into summary numbers. No audio, no device names and no location history are ever stored. Choose what you allow:
+        </Text>
+        <SensorRow title="Microphone" body={SENSOR_TEXT.mic} value locked />
+        <SensorRow title="Motion" body={SENSOR_TEXT.motion} value={motion} onChange={setMotion} />
+        <SensorRow title="Bluetooth" body={SENSOR_TEXT.bluetooth} value={bluetooth} onChange={setBluetooth} />
+        <SensorRow title="Location" body={SENSOR_TEXT.location} value={location} onChange={setLocation} />
+        <TouchableOpacity style={[s.sensorRow, adult && s.recentRowSelected]} onPress={() => setAdult(a => !a)} activeOpacity={0.8}>
+          <Text style={[s.sensorTitle, { flex: 1 }]}>{adult ? '☑' : '☐'}  I'm 18 or older</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => Linking.openURL(PRIVACY_URL)}>
+          <Text style={[s.hint, { textDecorationLine: 'underline' }]}>Read the privacy policy</Text>
+        </TouchableOpacity>
+        <Text style={s.hint}>You can change these choices, or delete all your data, at any time under "privacy & data" on the home screen.</Text>
+      </ScrollView>
+      <View style={{ padding: 20, paddingBottom: 28 }}>
+        <TouchableOpacity
+          style={[s.startBtn, !adult && { opacity: 0.4 }]}
+          disabled={!adult}
+          activeOpacity={0.85}
+          onPress={async () => { await saveConsent({ motion, bluetooth, location }); onDone(); }}
+        >
+          <Text style={s.startBtnText}>AGREE AND CONTINUE</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -366,7 +414,7 @@ function VenueScreen({ onStart, loading }: {
 /* ── Main screen (two-step: sessions → venue) ──────────────── */
 export default function HomeScreen() {
   const router = useRouter();
-  const [step, setStep]             = useState<'sessions' | 'affinity' | 'venue'>('sessions');
+  const [step, setStep]             = useState<'sessions' | 'consent' | 'affinity' | 'venue'>('sessions');
   const [pastSessions, setPastSessions] = useState<any[]>([]);
   const [loading, setLoading]       = useState(false);
 
@@ -378,6 +426,7 @@ export default function HomeScreen() {
   }, []);
 
   const handleNewSession = async () => {
+    if (!(await getConsent())) { setStep('consent'); return; }
     const affinity = await getDanceAffinity();
     setStep(affinity == null ? 'affinity' : 'venue');
   };
@@ -385,6 +434,17 @@ export default function HomeScreen() {
   const handleStartSession = async (opts: StartOptions) => {
     const { venueName, eventCode, phonePlacement, venue } = opts;
     if (loading) return;
+    // The microphone is required: on iPhone the open mic is what keeps a session measuring
+    // with the phone locked. Without it the session would silently stop measuring.
+    const mic = await Audio.requestPermissionsAsync().catch(() => null);
+    if (!mic?.granted) {
+      Alert.alert(
+        'Microphone needed',
+        'Viibe Check needs the microphone to measure the music, and to keep measuring while your phone is locked. Audio is analysed on the phone and never recorded or uploaded.',
+        [{ text: 'Cancel', style: 'cancel' }, { text: 'Open Settings', onPress: () => Linking.openSettings() }],
+      );
+      return;
+    }
     setLoading(true);
     try {
       const session = await sessionManager.startSession(venueName.trim() || null, null, {
@@ -400,6 +460,10 @@ export default function HomeScreen() {
       setLoading(false);
     }
   };
+
+  if (step === 'consent') {
+    return <ConsentScreen onDone={handleNewSession} />;
+  }
 
   if (step === 'affinity') {
     return (
@@ -428,6 +492,10 @@ export default function HomeScreen() {
 }
 
 const s = StyleSheet.create({
+  consentLead: { color: TXM, fontSize: 14, lineHeight: 20 },
+  sensorRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: S1, borderWidth: 1, borderColor: S2, borderRadius: 14, padding: 14 },
+  sensorTitle: { color: TX, fontSize: 15, fontWeight: '600' },
+  sensorBody: { color: TXD, fontSize: 12, lineHeight: 17 },
   container: { flex: 1, backgroundColor: '#060608' },
 
   header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 10 },

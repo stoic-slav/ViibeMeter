@@ -1,8 +1,12 @@
 # Viibe Check privacy policy
 
-*Last updated: 6 October 2026*
+*Last updated: 17 October 2026*
 
 Viibe Check is a research app. It tests whether phone sensors can measure the atmosphere ("vibe") at bars, clubs and parties, by comparing sensor readings with the ratings you give in the app. This page explains what it collects and what it never collects.
+
+**Who can use it:** people aged 18 or over. Before your first session the app asks you to confirm your age and to choose which sensors it may use.
+
+**Legal basis:** your consent (GDPR Art. 6(1)(a)), given per sensor in the app and withdrawable at any time. The microphone is required for a session; motion, Bluetooth and location are optional.
 
 ## What the app collects
 
@@ -43,7 +47,7 @@ To measure whether a crowd moves in sync, we need to know which phones were at t
 
 ## How long we keep data
 
-Besides the per-minute summaries, the app saves a few numbers for every 10 seconds (how well your movement matches the beat, how much you move, your movement tempo, and the song's ISRC code). These 10-second readings and the bass-loudness curves are **deleted automatically after 90 days**. The per-minute summaries and ratings are kept for the research.
+Besides the per-minute summaries, the app saves a few numbers for every 10 seconds (how well your movement matches the beat, how much you move, your movement tempo, and the song's ISRC code). These 10-second readings and the bass-loudness curves are **deleted automatically after 90 days**. Everything else (sessions, per-minute summaries and ratings) is **deleted automatically after 24 months**.
 
 ## Where data goes
 
@@ -57,7 +61,9 @@ Viibe Check can show which venues are lively right now. It is built only from **
 
 - Sensors run only while you have a session open. Stop the session and collection stops. A session also **stops by itself** after about 20 minutes without music (10 if you're walking, for example on your way home), after 8 hours, or when your battery drops to 10%.
 - You can refuse any permission in iOS or Android settings. The app then works with fewer signals.
-- To have your data deleted, contact us and give the anonymous ID shown in the app. Uninstalling the app also deletes everything stored on the phone.
+- **Change what the app may use** at any time under **privacy & data** on the home screen: switch motion, Bluetooth or location off and they are no longer used from the next measurement.
+- **Delete your data yourself:** **privacy & data → Delete my data** removes every session, rating and measurement uploaded from your phone, wipes the phone's copy and gives you a new anonymous ID. You can also contact us with the anonymous ID shown in the app.
+- Uninstalling the app deletes everything stored on the phone (data already uploaded stays until you delete it or it expires).
 
 ## Contact
 

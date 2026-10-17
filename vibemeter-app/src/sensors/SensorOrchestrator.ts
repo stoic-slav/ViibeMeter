@@ -13,6 +13,7 @@ import { saveSensorWindow, deleteOldSyncedWindows, saveClip, deleteOldSyncedClip
 import { encodeEnvelope, BASS_FRAME_MS, FRAMES_PER_WINDOW } from '../processing/BassEnvelope';
 import { syncAll } from '../storage/SupabaseSync';
 import { venueLocator, Venue } from '../session/VenueLocator';
+import { sensorAllowed } from '../storage/Consent';
 
 const LOG_TAG = '[SensorOrchestrator]';
 const FOREGROUND_SCAN_DEBOUNCE_MS = 10_000;
@@ -363,7 +364,8 @@ export class SensorOrchestrator {
     const skipMotion = this.motionTracker.isLongTermStationary() && this.cycleCount % 3 !== 0;
     const [audioRes, motionRes] = await Promise.allSettled([
       this.audioAnalyzer.analyze(cycleStartMs),
-      skipMotion ? Promise.resolve(null) : this.motionTracker.sample(),
+      // Motion is skipped when the user switched it off in their consent
+      skipMotion || !sensorAllowed('motion') ? Promise.resolve(null) : this.motionTracker.sample(),
     ]);
     const audio = audioRes.status === 'fulfilled' ? audioRes.value : null;
     const motion = motionRes.status === 'fulfilled' ? motionRes.value : null;
@@ -487,6 +489,7 @@ export class SensorOrchestrator {
   }
 
   private async collectBLESample(): Promise<void> {
+    if (!sensorAllowed('bluetooth')) return; // switched off in the user's consent
     // iOS does not let apps discover arbitrary nearby devices in the background, and Android
     // pauses unfiltered scans with the screen off, so a locked-phone scan finds 0. Record no
     // measurement rather than an empty room.

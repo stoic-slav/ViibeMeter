@@ -87,6 +87,17 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, eu-west-3. Free tier, pauses when idle.
 - **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
+### Next build (22): P0 from the 17 Oct feedback: consent, mic required, deletion, retention
+- **Context:** a friend's feedback session (17 Oct) and the agreed 90-day plan (strategy doc "MVP scope and 90-day pilot"). P0 = compliance + mic requirement + Live Activity rating. Outreach drafts for labs (UCLouvain Rhythm & Brains, imec-SMIT VUB, IPEM Ghent), the Brussels Night Council and C12: `docs/outreach/drafts-2026-10.md`. Owner picks: students, city centre, C12.
+- **Consent screen** before the first session: 18+ checkbox, microphone required, motion/Bluetooth/location toggles (whole row toggles; the native switch is display-only because synthetic taps on it were unreliable and a tap could toggle twice). Stored in SecureStore; enforced in the orchestrator and VenueLocator. Sessions store `consent_version` and `sensors` (migration `20261017153439`).
+- **Mic required:** Start asks for microphone permission and blocks with "Microphone needed … Open Settings" if refused (verified in the simulator by revoking the permission).
+- **Privacy & data screen:** consent toggles, anonymous ID, privacy-policy link, "Delete my data" (confirm dialog → `delete_my_data` RPC, local wipe, new ID, consent and dance answer cleared).
+- **Retention:** `apply_retention` now also deletes sessions older than 24 months.
+- **Verified:** server deletion with a throwaway device via the public key (session and rating gone, second call 0, bad ID refused); in the simulator: consent flow, toggles, stored consent on the session, privacy screen, delete confirmation (cancelled, so no simulator data deleted), mic-refused block. **Not verified:** a full in-app deletion on a device (do it with a test install), Android permission behaviour.
+- **Docs:** `docs/PRIVACY.md` (18+, consent basis, in-app deletion, 24 months), `docs/DPIA.md` draft (needs legal review).
+- **Still to do in P0:** Live Activity rating buttons (iPhone), Android device test.
+- **Side note:** a simulator session from 10 Oct stayed open for 693 minutes; the 8 h auto-stop did not fire while the simulator app was suspended. Check on a device whether auto-stop runs during long locked sessions.
+
 ### Build 17 (6 Oct; TestFlight build number 21): Group sheet with Show/Scan, venue QR codes
 - **Built locally** (`eas build --platform ios --local`, fastlane from Homebrew) because the EAS free plan's iOS builds for October were used up (resets 1 Nov). The remote build number advanced on each attempt, so this build is **21**. Local builds use Xcode 26.6, which needs `plugins/withFmtConstevalFix.js` (patches React Native's fmt 11 consteval check in a Podfile post_install); cloud builds used an older Xcode and never needed it.
 - **Group sheet** (`GroupSheet`): one modal with SHARE | SCAN from the start screen and the meter. A draft group code exists before the start (`getDraftGroupCode`). "N phones measuring in this group" from `group_size(code)` (migration `20261006211208`: also adds `venue_source = 'qr'`).

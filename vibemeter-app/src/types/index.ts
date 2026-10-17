@@ -147,6 +147,8 @@ export interface Session {
   venueSource: VenueSource | null;       // auto-identified, or typed by the user
   venueDistanceM: number | null;         // distance from the phone to the place at identification
   endReason: EndReason | null;
+  consentVersion: number | null;         // consent the user accepted for this session
+  sensors: string | null;                // sensors allowed, e.g. 'mic,motion,ble,loc'
 }
 
 /**

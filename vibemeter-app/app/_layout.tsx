@@ -80,6 +80,8 @@ export default function RootLayout() {
       <Tabs.Screen name="join" options={{ href: null, headerShown: false }} />
       {/* Make a venue's QR code (opened from the Group sheet); not a tab */}
       <Tabs.Screen name="venue-code" options={{ href: null, title: 'Venue code' }} />
+      {/* Consent choices, anonymous ID and data deletion (from the home screen); not a tab */}
+      <Tabs.Screen name="privacy" options={{ href: null, title: 'Privacy & data' }} />
       <Tabs.Screen
         name="summary"
         options={{

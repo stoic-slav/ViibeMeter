@@ -1,6 +1,7 @@
 import { Alert } from 'react-native';
 import * as Location from 'expo-location';
 import { supabase } from '../config/supabase';
+import { sensorAllowed } from '../storage/Consent';
 
 const LOG_TAG = '[VenueLocator]';
 const TIMEOUT_MS = 8000;
@@ -71,6 +72,7 @@ export class VenueLocator {
 
   private async lookup(): Promise<Venue | null | undefined> {
     this.lastCheckAt = Date.now();
+    if (!sensorAllowed('location')) return undefined; // switched off in the user's consent
     const perm = await Location.getForegroundPermissionsAsync();
     const granted = perm.granted || (perm.canAskAgain && (await Location.requestForegroundPermissionsAsync()).granted);
     if (!granted) return undefined;

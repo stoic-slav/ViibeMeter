@@ -7,6 +7,7 @@ import { saveSession, updateSessionEnd, getSessions, updateSessionEventCode, upd
 import { Venue } from './VenueLocator';
 import { getDraftGroupCode, clearDraftGroupCode, venueGroupCode } from './GroupCode';
 import { nightBounds } from '../storage/LiveAccess';
+import { getConsent, sensorsLabel } from '../storage/Consent';
 import { getDeviceId } from '../storage/DeviceIdentity';
 import { getDanceAffinity } from '../storage/UserProfile';
 import { syncSessions } from '../storage/SupabaseSync';
@@ -46,6 +47,7 @@ export class SessionManager {
 
     const deviceId = await getDeviceId();
     const danceAffinity = await getDanceAffinity();
+    const consent = await getConsent();
     const session: Session = {
       id: Crypto.randomUUID(),
       deviceId,
@@ -68,6 +70,8 @@ export class SessionManager {
       batteryEndPct: null,
       ...venueFields(venueName, options.venue ?? null, options.venueSource ?? 'auto'),
       endReason: null,
+      consentVersion: consent?.version ?? null,
+      sensors: consent ? sensorsLabel(consent) : null,
     };
 
     await saveSession(session);

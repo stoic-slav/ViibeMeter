@@ -29,3 +29,9 @@ export async function setDanceAffinity(value: number): Promise<void> {
     // Keep in-memory value for this app run
   }
 }
+
+/** After "Delete my data": the question is asked again. */
+export async function clearDanceAffinity(): Promise<void> {
+  cachedDanceAffinity = undefined;
+  await SecureStore.deleteItemAsync(DANCE_AFFINITY_KEY).catch(() => {});
+}

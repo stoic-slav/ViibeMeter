@@ -5,6 +5,12 @@ const DEVICE_ID_KEY = 'vibemeter_device_id';
 
 let cachedDeviceId: string | null = null;
 
+/** After "Delete my data": the next getDeviceId() creates a new, unrelated ID. */
+export async function resetDeviceId(): Promise<void> {
+  cachedDeviceId = null;
+  await SecureStore.deleteItemAsync(DEVICE_ID_KEY).catch(() => {});
+}
+
 /**
  * Returns a stable anonymous device ID. Generated once and persisted in SecureStore.
  */
