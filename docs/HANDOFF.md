@@ -155,12 +155,14 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - Migration files renamed to the versions Supabase recorded.
 
 ## Do next, in order
-1. **Device test of build 13** (owner): lock-screen rating buttons and vibration, tapping the notification opens the sheet, both ratings reach Supabase with the right `rating_source`. Also **retest beat sync** with songs Deezer lacks a tempo for: check `song_bpm_source = learned`, beat PLV present in dancing minutes, and higher on beat than off beat. Also tap GROUP and check the QR scans with the Camera app: same protocol, pocket, about 10 minutes. Check that the on-beat minutes now have beat PLV above the off-beat ones, and that dB is close to the Watch reading.
-2. If PLV still does not separate on-beat from off-beat, look at movement peak detection (`findMovementPeaks`) and the movement axis choice next.
-3. **Android on a friend's phone:** install the current APK (see Distribution), run a locked 10-minute session and check that windows are continuous and motion is non-zero. If the service fails to start, look for `SessionService` in logcat. Calibrate the Android dB offset too.
-4. **Pilot at a real venue with ≥3 phones** on one event code (crowd sync), ratings every 5 minutes. Testers install through the public TestFlight link once build 13 is approved (group `Public`).
-5. **Analysis:** `fetch_data.py`, then `correlations.py` and `crowd_sync.py`.
-6. **Validation night for automatic grouping:** 3–5 phones in one room, plus one phone in another room playing the same playlist 1 minute later. Then run `auto_groups.py` (and `validate_by_source`) and `crowd_sync.py --auto`.
+1. **First real rated night (owner, highest value):** 2–3 friends on build 22 via the public TestFlight link, one shared group code (GROUP → SHARE/SCAN), a city-centre venue (C12 or a student night), ratings every 5 minutes, Stop when leaving. Add 20–30 minutes in a quiet bar for contrast. Without rated nights nothing can be validated.
+2. **Stop the open session on the owner's iPhone 16** (session `d345a62e`, 16 Oct: no windows synced and no end).
+3. **Outreach (owner):** fill in contacts and send the drafts in `docs/outreach/drafts-2026-10.md` (Rhythm & Brains UCLouvain, imec-SMIT VUB, C12 / Deep in House, Brussels Night Council).
+4. **Build 23: Live Activity rating buttons** (iOS 17 interactive Live Activity, 💀/🙂/🔥 on the lock screen without a long-press). Needs a widget extension target; the owner signs in to Apple once so EAS can register the extension's bundle ID and profile.
+5. **After the first night:** `monitoring_queries.sql` data-quality checks, then `fetch_data.py`, `correlations.py`, `crowd_sync.py`, `engagement.py`. Report what holds up, including against the busyness proxy (loudness + crowd size).
+6. **Android on a friend's phone:** install the APK, run a locked 10-minute session, check windows are continuous and motion is non-zero (`SessionService` in logcat if it fails). Calibrate the Android dB offset.
+7. **Validation night for automatic grouping:** 3–5 phones in one room, plus one phone in another room playing the same playlist 1 minute later; then `auto_groups.py` and `crowd_sync.py --auto`.
+8. **Later:** lockdown step 2b (drop anon SELECT/UPDATE once everyone is on build ≥14); legal review of `docs/DPIA.md`; Home redesign (Live merged into Home, ranked by fit) after real nights.
 
 ## Known caveats
 - Battery: on iOS the mic is open for the whole session, and on Android a wake lock is held while the session service runs.
