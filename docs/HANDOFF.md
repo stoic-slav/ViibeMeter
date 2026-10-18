@@ -87,7 +87,8 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, eu-west-3. Free tier, pauses when idle.
 - **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
-### Build 23 (18 Oct, in progress): lock-screen rating card (Live Activity), closing interrupted sessions
+### Build 23 (18 Oct, built locally): lock-screen rating card (Live Activity), closing interrupted sessions
+- **Status:** built with `eas build --local` after the owner signed in to Apple once; EAS registered `com.leogerasimov.vibemeter.card` and its App Store profile (push notifications: not set up, not needed). `~/Downloads/ViibeCheck-build23.ipa`, checked: build 23 for both app and card, card signed for team APRS7H5DD6, `RateVibeIntent` in the app's metadata, only the While-Using location string. Future local builds can run non-interactively again.
 - **Plan and owner decisions:** `docs/plans/build-23-live-activity.md` (buttons always work, highlighted when due; the vibrating notification stays; card shows venue + timer + STOP).
 - **What was built:**
   - widget extension `targets/live-activity` (target `ViibeCard`, bundle ID `com.leogerasimov.vibemeter.card`, `@bacons/apple-targets` 5.0.0);
@@ -118,7 +119,6 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
   - a real device: Face ID on STOP, buzzing, battery effect of the 5-minute card updates;
   - iOS 16.2–16.x (card without buttons);
   - the EAS signing of the new extension.
-- **Owner step before the build:** EAS must create the card's bundle ID and provisioning profile, which needs an interactive Apple sign-in once (`npx eas-cli credentials --platform ios`, or an interactive `eas build`).
 
 ### Build 22 (18 Oct, built locally): P0 from the 17 Oct feedback: consent, mic required, deletion, retention
 - **Status:** built with `eas build --local` (build number 22, version 0.2.0, only the While-Using location string), `~/Downloads/ViibeCheck-build22.ipa`; owner uploads with Transporter and adds it to the TestFlight `Public` group.
@@ -188,14 +188,15 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - Migration files renamed to the versions Supabase recorded.
 
 ## Do next, in order
-1. **First real rated night (owner, highest value):** 2–3 friends on build 22 via the public TestFlight link, one shared group code (GROUP → SHARE/SCAN), a city-centre venue (C12 or a student night), ratings every 5 minutes, Stop when leaving. Add 20–30 minutes in a quiet bar for contrast. Without rated nights nothing can be validated.
+1. **First real rated night (owner, highest value):** 2–3 friends on build 23 (or 22) via the public TestFlight link, one shared group code (GROUP → SHARE/SCAN), a city-centre venue (C12 or a student night), ratings every 5 minutes, Stop when leaving. Add 20–30 minutes in a quiet bar for contrast. Without rated nights nothing can be validated.
 2. ~~Stop the open session on the owner's iPhone 16~~: deleted on 18 Oct at the owner's request (session `697b622b`, device `d345a62e`, an 80-second test with one rating and no windows).
 3. **Outreach (owner):** fill in contacts and send the drafts in `docs/outreach/drafts-2026-10.md` (Rhythm & Brains UCLouvain, imec-SMIT VUB, C12 / Deep in House, Brussels Night Council).
-4. **Build 23: Live Activity rating buttons** (plan with the owner's decisions: `docs/plans/build-23-live-activity.md`; also closes sessions left open when the app is killed) (iOS 17 interactive Live Activity, 💀/🙂/🔥 on the lock screen without a long-press). Needs a widget extension target; the owner signs in to Apple once so EAS can register the extension's bundle ID and profile.
+4. **Build 23** (lock-screen rating card, built 18 Oct): owner uploads with Transporter and adds it to the Public group; then test on a real iPhone (Face ID on STOP, buzzing, battery).
 5. **After the first night:** `monitoring_queries.sql` data-quality checks, then `fetch_data.py`, `correlations.py`, `crowd_sync.py`, `engagement.py`. Report what holds up, including against the busyness proxy (loudness + crowd size).
 6. **Android on a friend's phone:** install the APK, run a locked 10-minute session, check windows are continuous and motion is non-zero (`SessionService` in logcat if it fails). Calibrate the Android dB offset.
 7. **Validation night for automatic grouping:** 3–5 phones in one room, plus one phone in another room playing the same playlist 1 minute later; then `auto_groups.py` and `crowd_sync.py --auto`.
-8. **Later:** lockdown step 2b (drop anon SELECT/UPDATE once everyone is on build ≥14); legal review of `docs/DPIA.md`; Home redesign (Live merged into Home, ranked by fit) after real nights.
+8. **Build 24: weekend-night reminder and opt-in "Going out" standby** (plan: `docs/plans/build-24-going-out-standby.md`). Venue beacons for partner venues: `docs/ideas/venue-beacons.md` (raise with C12).
+9. **Later:** lockdown step 2b (drop anon SELECT/UPDATE once everyone is on build ≥14); legal review of `docs/DPIA.md`; Home redesign (Live merged into Home, ranked by fit) after real nights.
 
 ## Known caveats
 - Battery: on iOS the mic is open for the whole session, and on Android a wake lock is held while the session service runs.
