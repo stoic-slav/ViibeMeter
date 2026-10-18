@@ -111,11 +111,12 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
     - relaunching closed the session as `interrupted` at its last rating, uploaded it, and removed the card;
     - the same launch closed the simulator's two old open sessions (4 and 6 Oct).
   - **Metadata:** `Metadata.appintents` of both the app and the card lists `RateVibeIntent`.
-- **Fixed after the first check:** a grey card no longer shows a running timer or STOP; the expanded island's top text is inset from its corners.
+- **Fixed after the first check:** a grey card no longer shows a running timer or STOP; the expanded island's top text is inset from its corners. Both rechecked in the simulator.
+- **Killed app, card still live:** a tap within the 15 minutes woke the app in the background (verified). It dropped the tap (no session running), closed the old session as `interrupted` and removed the card.
+- **iOS prompts:** iOS asks a second time later: "Do you want to continue to allow Live Activities…? Don't Allow / Always Allow". The tester guide says to allow both.
 - **Not verified:**
   - a real device: Face ID on STOP, buzzing, battery effect of the 5-minute card updates;
   - iOS 16.2–16.x (card without buttons);
-  - a tap on a grey card from a killed app (expected: the app wakes, drops the tap, removes the card);
   - the EAS signing of the new extension.
 - **Owner step before the build:** EAS must create the card's bundle ID and provisioning profile, which needs an interactive Apple sign-in once (`npx eas-cli credentials --platform ios`, or an interactive `eas build`).
 
