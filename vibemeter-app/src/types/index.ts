@@ -102,8 +102,11 @@ export type MovementAxis = 'vertical' | 'horizontal';
  */
 export type PhoneContext = 'off_body' | 'on_body_still' | 'on_body_moving' | 'uncertain';
 
-/** Why a session ended: the Stop button, or one of the auto-stop rules. */
-export type EndReason = 'user' | 'no_music' | 'max_duration' | 'low_battery';
+/**
+ * Why a session ended: the Stop button, one of the auto-stop rules, or 'interrupted' (the app was
+ * killed mid-session; the session is closed at the next launch).
+ */
+export type EndReason = 'user' | 'no_music' | 'max_duration' | 'low_battery' | 'interrupted';
 
 export type VenueSource = 'auto' | 'manual' | 'qr'; // Google proposal confirmed, typed, or venue QR scanned
 
@@ -180,10 +183,11 @@ export interface SubjectiveRating {
   responseTimeMs: number;
   ratingScale: 3 | 5;                 // 3: 💀/🙂/🔥 stored as 1/3/5 (build 12+); 5: the old 1–5 scale
   ratingSource: RatingSource;
+  prompted: boolean;                  // a prompt was waiting (card buttons also work unprompted)
 }
 
-/** Where a rating was given: a lock-screen notification button, or the in-app sheet. */
-export type RatingSource = 'lockscreen' | 'app';
+/** Where a rating was given: a notification button, the in-app sheet, or the lock-screen card (iOS 17+). */
+export type RatingSource = 'lockscreen' | 'app' | 'live_activity';
 
 // Raw sensor sample types (on-device only, never uploaded)
 export interface AudioSample {

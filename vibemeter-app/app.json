@@ -25,7 +25,8 @@
           "bluetooth-central",
           "fetch"
         ]
-      }
+      },
+      "appleTeamId": "APRS7H5DD6"
     },
     "android": {
       "adaptiveIcon": {
@@ -92,7 +93,9 @@
           "locationAlwaysPermission": false
         }
       ],
-      "./plugins/withFmtConstevalFix"
+      "./plugins/withFmtConstevalFix",
+      "@bacons/apple-targets",
+      "./plugins/withLiveActivityIntent"
     ],
     "scheme": "vibemeter",
     "extra": {

@@ -11,6 +11,7 @@ import { getConsent, sensorsLabel } from '../storage/Consent';
 import { getDeviceId } from '../storage/DeviceIdentity';
 import { getDanceAffinity } from '../storage/UserProfile';
 import { syncSessions } from '../storage/SupabaseSync';
+import { setCardVenue } from '../notifications/LockScreenCard';
 
 const LOG_TAG = '[SessionManager]';
 
@@ -141,6 +142,7 @@ export class SessionManager {
     const venueName = source === 'qr' ? venue.name : (s.venueName ?? venue.name);
     this.activeSession = { ...s, venueName, venuePlaceId: venue.placeId, venueSource: source, venueDistanceM: venue.distanceM };
     await updateSessionVenue(s.id, venueName, venue.placeId, venue.distanceM, source);
+    setCardVenue(venueName);
     syncSessions().catch(err => console.warn(`${LOG_TAG} Sync error:`, err));
   }
 

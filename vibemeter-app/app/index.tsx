@@ -451,7 +451,7 @@ export default function HomeScreen() {
         eventCode, phonePlacement, venue, venueSource: opts.venueSource, groupKind: opts.groupKind,
       });
       await sensorOrchestrator.startSession(session);
-      vibePrompt.startPromptSchedule(session.id);
+      vibePrompt.startPromptSchedule(session.id, { startedAt: session.startedAt, venue: session.venueName });
       setStep('sessions');
       router.push('/meter');
     } catch (err) {

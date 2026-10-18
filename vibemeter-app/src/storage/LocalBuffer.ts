@@ -166,6 +166,8 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
     // consent recorded per session
     ['sessions', 'consent_version', 'INTEGER'],
     ['sessions', 'sensors', 'TEXT'],
+    // build 23: lock-screen card ratings can be unprompted
+    ['subjective_ratings', 'prompted', 'INTEGER'],
   ];
   for (const [table, col, type] of migrations) {
     await database.runAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`).catch(() => {});
@@ -229,6 +231,32 @@ export async function updateSessionEnd(
 }
 
 /** The venue was identified after the session started (or the phone moved to another one). */
+/**
+ * Sessions the app never ended (it was swiped away or killed by iOS mid-session) are closed at
+ * the next launch: ended at their last window or rating, else at their start, as 'interrupted'.
+ * `activeId` (a session started meanwhile) is left alone. Returns how many were closed.
+ */
+export async function closeInterruptedSessions(activeId: string | null): Promise<number> {
+  const database = await getDb();
+  const open = await database.getAllAsync<{ id: string; started_at: number }>(
+    `SELECT id, started_at FROM sessions WHERE ended_at IS NULL AND id != ?`, [activeId ?? '']
+  );
+  for (const s of open) {
+    const last = await database.getFirstAsync<{ w: number | null; r: number | null }>(
+      `SELECT (SELECT MAX(window_end) FROM sensor_windows WHERE session_id = ?) AS w,
+              (SELECT MAX(rated_at) FROM subjective_ratings WHERE session_id = ?) AS r`,
+      [s.id, s.id]
+    );
+    const endedAt = Math.max(s.started_at, last?.w ?? 0, last?.r ?? 0);
+    await database.runAsync(
+      `UPDATE sessions SET ended_at = ?, dwell_minutes = ?, end_reason = 'interrupted', synced = 0
+       WHERE id = ? AND ended_at IS NULL`,
+      [endedAt, Math.round((endedAt - s.started_at) / 60000), s.id]
+    );
+  }
+  return open.length;
+}
+
 export async function updateSessionVenue(
   id: string, venueName: string | null, placeId: string | null, distanceM: number | null,
   source: 'auto' | 'qr' = 'auto',
@@ -411,8 +439,8 @@ export async function saveRating(rating: SubjectiveRating): Promise<void> {
   await database.runAsync(
     `INSERT OR REPLACE INTO subjective_ratings
       (id, session_id, device_id, rating, music_rating, crowd_rating, rated_at, nearest_window_id, response_time_ms,
-       rating_scale, rating_source)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       rating_scale, rating_source, prompted)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       rating.id,
       rating.sessionId,
@@ -425,6 +453,7 @@ export async function saveRating(rating: SubjectiveRating): Promise<void> {
       rating.responseTimeMs,
       rating.ratingScale,
       rating.ratingSource,
+      rating.prompted ? 1 : 0,
     ]
   );
 }

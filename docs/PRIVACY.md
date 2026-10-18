@@ -27,7 +27,7 @@ While a session is running, the app turns sensor readings into **summary numbers
 **How the venue is recognised.** When you start a session, and when you open the app during one, the app takes one location reading, rounds it to about 11 metres, and sends it to our server, which asks Google Maps for the closest night club within 150 m (or else the closest bar or pub). The app then asks you whether you are there; only if you tap **Yes** is the place kept. **No** leaves the venue blank. If you scan a venue's Viibe Check code instead, that venue is used without a location lookup, and your session joins that night's group of phones at the venue. The Group screen shows only how many phones are measuring in your group, never who they are. Your coordinates are not stored, logged or uploaded to our database. Location is used only while the app is open ("While Using"), never in the background. You can refuse location and type the venue name yourself. See [Google's privacy policy](https://policies.google.com/privacy).
 
 You also give us:
-- your **vibe ratings** (💀 Dead, 🙂 Decent or 🔥 Best) during a session;
+- your **vibe ratings** (💀 Dead, 🙂 Decent or 🔥 Best) during a session, where you gave them (notification, app, or the lock-screen card on iPhone) and whether the app had just asked;
 - the **venue name**, recognised automatically or typed by you;
 - a **group code**: each session gets a random one, and friends who scan your QR code share it;
 - where you carry the phone (pocket, hand or bag);

@@ -5,6 +5,10 @@ import * as BackgroundFetch from 'expo-background-fetch';
 import { Platform } from 'react-native';
 import { vibePrompt } from '../src/notifications/VibePrompt';
 import { sensorOrchestrator } from '../src/sensors/SensorOrchestrator';
+import { sessionManager } from '../src/session/SessionManager';
+import { closeInterruptedSessions } from '../src/storage/LocalBuffer';
+import { syncSessions } from '../src/storage/SupabaseSync';
+import { endLeftoverCard } from '../src/notifications/LockScreenCard';
 
 const BACKGROUND_TASK = 'VIBEMETER_BACKGROUND_FETCH';
 
@@ -22,6 +26,15 @@ export default function RootLayout() {
   useEffect(() => {
     // Setup notifications
     vibePrompt.setup().catch(console.error);
+
+    // A session never ends by itself when the app is killed mid-session: close it now (as
+    // 'interrupted') and remove its lock-screen card
+    if (!sessionManager.isSessionActive) {
+      endLeftoverCard().catch(() => {});
+      closeInterruptedSessions(null)
+        .then(n => { if (n > 0) syncSessions().catch(() => {}); })
+        .catch(err => console.warn('[Layout] Closing interrupted sessions failed:', err));
+    }
 
     // Register background fetch task
     (BackgroundFetch as any).registerTaskAsync(BACKGROUND_TASK, {
@@ -82,6 +95,8 @@ export default function RootLayout() {
       <Tabs.Screen name="venue-code" options={{ href: null, title: 'Venue code' }} />
       {/* Consent choices, anonymous ID and data deletion (from the home screen); not a tab */}
       <Tabs.Screen name="privacy" options={{ href: null, title: 'Privacy & data' }} />
+      {/* The lock-screen card's STOP button (vibemeter://stop): asks to confirm; not a tab */}
+      <Tabs.Screen name="stop" options={{ href: null, headerShown: false }} />
       <Tabs.Screen
         name="summary"
         options={{

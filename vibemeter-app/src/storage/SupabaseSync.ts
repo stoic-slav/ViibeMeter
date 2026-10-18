@@ -171,6 +171,7 @@ export async function syncRatings(): Promise<void> {
     response_time_ms: r.response_time_ms,
     rating_scale: r.rating_scale ?? null,
     rating_source: r.rating_source ?? null,
+    prompted: r.prompted == null ? null : r.prompted === 1,
   }));
 
   await withRetry(async () => {

@@ -13,7 +13,7 @@ import { ScanResult, setPendingGroupCode, setPendingVenue } from './GroupCode';
 
 const listeners = new Set<(session: Session | null, reason: EndReason) => void>();
 
-const AUTO_STOP_TEXT: Record<Exclude<EndReason, 'user'>, string> = {
+const AUTO_STOP_TEXT: Record<Exclude<EndReason, 'user' | 'interrupted'>, string> = {
   no_music: 'No music for a while, so your session ended. Start a new one at the next place.',
   max_duration: 'Your session ran for 8 hours, so it ended.',
   low_battery: 'Your battery is low, so your session ended to save it.',
@@ -24,7 +24,7 @@ export async function stopEverything(reason: EndReason = 'user'): Promise<Sessio
   const session = await sessionManager.endSession(reason);
   await sensorOrchestrator.stopSession();
   vibePrompt.stopPromptSchedule();
-  if (reason !== 'user') {
+  if (reason !== 'user' && reason !== 'interrupted') {
     Notifications.scheduleNotificationAsync({
       content: { title: 'Viibe Check stopped', body: AUTO_STOP_TEXT[reason] },
       trigger: null,

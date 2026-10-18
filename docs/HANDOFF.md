@@ -87,6 +87,38 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, eu-west-3. Free tier, pauses when idle.
 - **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
+### Build 23 (18 Oct, in progress): lock-screen rating card (Live Activity), closing interrupted sessions
+- **Plan and owner decisions:** `docs/plans/build-23-live-activity.md` (buttons always work, highlighted when due; the vibrating notification stays; card shows venue + timer + STOP).
+- **What was built:**
+  - widget extension `targets/live-activity` (target `ViibeCard`, bundle ID `com.leogerasimov.vibemeter.card`, `@bacons/apple-targets` 5.0.0);
+  - local module `modules/live-activity` (`ViibeLiveActivity`);
+  - `plugins/withLiveActivityIntent.js` (compiles `RateVibeIntent.swift` into the app target too, sets `NSSupportsLiveActivities`);
+  - `src/notifications/LockScreenCard.ts` (driven by `VibePrompt`);
+  - `app/stop.tsx` (STOP deep link with confirmation);
+  - `closeInterruptedSessions` at launch;
+  - `ios.appleTeamId` in app.json.
+- **Database:** migration `20261018140457` (applied): `subjective_ratings.prompted`, `end_reason` may be `interrupted`. `rating_source` gains `live_activity` (no constraint).
+- **Verified in the simulator (iPhone 17, iOS 26.5):**
+  - **Lock-screen card and ratings:**
+    - the card appears at session start; iOS asks "Allow Live Activities from Viibe Check?" once;
+    - an unprompted 🔥 tap reached JS through the intent and uploaded (`live_activity`, `prompted = false`);
+    - at the prompt the card switched to "How's the vibe right now?" with highlighted buttons while the notification also fired;
+    - a 🙂 tap then uploaded with `prompted = true`, response 10 s, showed "Thanks 🙂" and cleared the notification.
+  - **STOP:** opened the app on "End this session?".
+  - **Dynamic Island:** compact (dot + timer) and expanded with working buttons.
+  - **Killed app:**
+    - after the app was killed, the card turned grey after 15 min ("Not measuring");
+    - relaunching closed the session as `interrupted` at its last rating, uploaded it, and removed the card;
+    - the same launch closed the simulator's two old open sessions (4 and 6 Oct).
+  - **Metadata:** `Metadata.appintents` of both the app and the card lists `RateVibeIntent`.
+- **Fixed after the first check:** a grey card no longer shows a running timer or STOP; the expanded island's top text is inset from its corners.
+- **Not verified:**
+  - a real device: Face ID on STOP, buzzing, battery effect of the 5-minute card updates;
+  - iOS 16.2–16.x (card without buttons);
+  - a tap on a grey card from a killed app (expected: the app wakes, drops the tap, removes the card);
+  - the EAS signing of the new extension.
+- **Owner step before the build:** EAS must create the card's bundle ID and provisioning profile, which needs an interactive Apple sign-in once (`npx eas-cli credentials --platform ios`, or an interactive `eas build`).
+
 ### Build 22 (18 Oct, built locally): P0 from the 17 Oct feedback: consent, mic required, deletion, retention
 - **Status:** built with `eas build --local` (build number 22, version 0.2.0, only the While-Using location string), `~/Downloads/ViibeCheck-build22.ipa`; owner uploads with Transporter and adds it to the TestFlight `Public` group.
 - **Context:** a friend's feedback session (17 Oct) and the agreed 90-day plan (strategy doc "MVP scope and 90-day pilot"). P0 = compliance + mic requirement + Live Activity rating. Outreach drafts for labs (UCLouvain Rhythm & Brains, imec-SMIT VUB, IPEM Ghent), the Brussels Night Council and C12: `docs/outreach/drafts-2026-10.md`. Owner picks: students, city centre, C12.

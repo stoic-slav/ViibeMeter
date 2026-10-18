@@ -5,6 +5,7 @@ import { SENSOR_CONFIG } from '../config/constants';
 import { saveRating, getNearestWindowId } from '../storage/LocalBuffer';
 import { syncRatings } from '../storage/SupabaseSync';
 import { getDeviceId } from '../storage/DeviceIdentity';
+import { startSessionCard, endSessionCard, setCardDue, showCardThanks, listenForCardRatings } from './LockScreenCard';
 
 const LOG_TAG = '[VibePrompt]';
 // Android channel settings are fixed once created, so vibration needs a new channel id
@@ -70,6 +71,12 @@ export class VibePrompt {
       })),
     ).catch(err => console.warn(`${LOG_TAG} Could not register rating buttons:`, err));
 
+    // Buttons on the lock-screen card (iOS 17+), including taps made while JS was not running
+    listenForCardRatings((value, atMs) => {
+      this.recordRating(value as RatingValue, 'live_activity', atMs)
+        .catch(err => console.warn(`${LOG_TAG} Card rating failed:`, err));
+    });
+
     this.responseSub?.remove();
     this.responseSub = Notifications.addNotificationResponseReceivedListener(r => this.handleResponse(r));
     // A tap that launched the app is delivered before the listener exists
@@ -114,7 +121,8 @@ export class VibePrompt {
     return Math.max(0, base + SENSOR_CONFIG.PROMPT_INTERVAL_MS - Date.now());
   }
 
-  startPromptSchedule(sessionId: string): void {
+  /** Starts the 5-minute prompts and the lock-screen card for a new session. */
+  startPromptSchedule(sessionId: string, card?: { startedAt: Date; venue: string | null }): void {
     this.stopPromptSchedule();
     this.sessionId = sessionId;
     this.sessionStartTime = Date.now();
@@ -125,6 +133,7 @@ export class VibePrompt {
       this.maybeShowPrompt();
     }, 60000); // Check every minute
 
+    if (card) startSessionCard(card.startedAt, card.venue).catch(() => {});
     console.log(`${LOG_TAG} Prompt schedule started for session ${sessionId}`);
   }
 
@@ -136,6 +145,7 @@ export class VibePrompt {
     this.promptShownAt = null;
     this.sessionStartTime = null;
     Notifications.dismissNotificationAsync(NOTIFICATION_IDENTIFIER).catch(() => {});
+    endSessionCard().catch(() => {});
   }
 
   private async maybeShowPrompt(): Promise<void> {
@@ -166,6 +176,7 @@ export class VibePrompt {
       trigger: { channelId: NOTIFICATION_CHANNEL }, // immediately, on the vibrating channel
     });
 
+    setCardDue(true);
     this.onPromptShown?.();
     console.log(`${LOG_TAG} Vibe prompt shown`);
   }
@@ -183,14 +194,16 @@ export class VibePrompt {
     }
   }
 
-  async recordRating(rating: RatingValue, source: RatingSource): Promise<void> {
+  /** `atMs`: when the rating was given, if earlier than now (a queued card tap). */
+  async recordRating(rating: RatingValue, source: RatingSource, atMs?: number): Promise<void> {
     if (!this.sessionId) {
       console.warn(`${LOG_TAG} No active session to record rating`);
       return;
     }
 
-    const responseTimeMs = this.promptShownAt ? Date.now() - this.promptShownAt : 0;
-    const ratedAt = new Date();
+    const ratedAt = new Date(atMs ?? Date.now());
+    const prompted = this.promptShownAt != null && this.promptShownAt <= ratedAt.getTime();
+    const responseTimeMs = prompted ? ratedAt.getTime() - this.promptShownAt! : 0;
     const deviceId = await getDeviceId();
     const nearestWindowId = await getNearestWindowId(this.sessionId, ratedAt);
 
@@ -206,12 +219,14 @@ export class VibePrompt {
       responseTimeMs,
       ratingScale: 3,
       ratingSource: source,
+      prompted,
     };
 
     this.promptShownAt = null;
     await saveRating(subjectiveRating);
     console.log(`${LOG_TAG} Rating recorded: ${rating} (${source}) after ${responseTimeMs}ms`);
     Notifications.dismissNotificationAsync(NOTIFICATION_IDENTIFIER).catch(() => {});
+    showCardThanks(rating);
     this.onRated?.();
 
     // Sync immediately — ratings are high-value data
@@ -221,6 +236,7 @@ export class VibePrompt {
   /** Dismiss the current prompt without rating. */
   skipPrompt(): void {
     this.promptShownAt = null;
+    setCardDue(false);
     Notifications.dismissNotificationAsync(NOTIFICATION_IDENTIFIER).catch(() => {});
   }
 }
