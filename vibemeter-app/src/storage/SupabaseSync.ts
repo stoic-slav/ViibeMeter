@@ -4,6 +4,7 @@ import {
   getUnsyncedWindows, markWindowsSynced,
   getUnsyncedRatings, markRatingsSynced,
   getUnsyncedClips, markClipsSynced,
+  getUnsyncedStandbyNights, markStandbyNightSynced,
 } from './LocalBuffer';
 import { SENSOR_CONFIG } from '../config/constants';
 import * as Application from 'expo-application';
@@ -64,6 +65,7 @@ export async function syncSessions(): Promise<void> {
     end_reason: r.end_reason ?? null,
     consent_version: r.consent_version ?? null,
     sensors: r.sensors ?? null,
+    start_source: r.start_source ?? null,
   }));
 
   await withRetry(async () => {
@@ -220,12 +222,42 @@ export async function syncClips(): Promise<void> {
   }
 }
 
+/** Going out standby evenings (counts only), through upload_standby_nights. */
+export async function syncStandbyNights(): Promise<void> {
+  const rows = await getUnsyncedStandbyNights();
+  if (rows.length === 0) return;
+  const payload = rows.map(r => ({
+    id: r.id,
+    device_id: r.device_id,
+    armed_at: new Date(r.armed_at).toISOString(),
+    ended_at: r.ended_at ? new Date(r.ended_at).toISOString() : null,
+    end_reason: r.end_reason ?? null,
+    prompts: r.prompts ?? 0,
+    accepted: r.accepted ?? 0,
+    declined: r.declined ?? 0,
+    ignored: r.ignored ?? 0,
+    checks: r.checks ?? 0,
+    music_minutes: r.music_minutes ?? 0,
+    moving_minutes: r.moving_minutes ?? 0,
+    party_minutes: r.party_minutes ?? 0,
+    battery_start_pct: r.battery_start_pct ?? null,
+    battery_end_pct: r.battery_end_pct ?? null,
+    app_version: APP_VERSION,
+  }));
+  await withRetry(async () => {
+    const { error } = await supabase.rpc('upload_standby_nights', { rows: payload });
+    if (error) throw new Error(`Standby upload failed: ${error.message}`);
+  });
+  for (const r of rows) await markStandbyNightSynced(r.id, { ended_at: r.ended_at ?? null, checks: r.checks ?? 0 });
+}
+
 export async function syncAll(): Promise<void> {
   try {
     await syncSessions();
     await syncSensorWindows();
     await syncClips();
     await syncRatings();
+    await syncStandbyNights();
   } catch (err) {
     console.error(`${LOG_TAG} Sync error:`, err);
     // Don't throw — sync failures are non-fatal, data is safe in SQLite

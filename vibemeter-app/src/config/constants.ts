@@ -96,6 +96,43 @@ export const SENSOR_CONFIG = {
   VENUE_RECHECK_MS: 600_000,
 } as const;
 
+/**
+ * "Going out" standby (iOS, build 24): listens on the phone without storing anything and asks
+ * "Start measuring?" when it sounds and moves like a party. First guesses, to tune with the
+ * standby_nights counts from real nights (docs/plans/build-24-going-out-standby.md).
+ */
+export const STANDBY = {
+  CHECK_INTERVAL_MS: 30_000,         // one 5 s audio + motion check this often
+  // A music minute: loud, with a beat
+  MUSIC_MIN_DB: 75,
+  MUSIC_MIN_CLARITY: 0.3,            // PCM beat clarity…
+  MUSIC_MIN_SUB_BASS: 0.25,          // …or this sub-bass share with the music detector on
+  // A moving minute: on a body, more than walking or standing, with a rhythm
+  MOVE_MIN_PLV: 0.4,                 // movement peaks locked to the heard beat…
+  MOVE_MIN_TEMPO_MATCH: 0.5,         // …or movement tempo agreeing with the music…
+  MOVE_MIN_RHYTHMICITY: 0.35,        // …or clearly periodic movement (60–180 BPM)
+  // Prompt when, over the last WINDOW minutes, enough were music and moving minutes
+  WINDOW_MINUTES: 6,
+  MIN_MUSIC_MINUTES: 5,
+  MIN_MOVING_MINUTES: 2,
+  NIGHT_START_HOUR: 21,              // local time, prompts only 21:00–06:00
+  NIGHT_END_HOUR: 6,
+  PROMPT_COOLDOWN_MS: 45 * 60_000,   // after a prompt (answered or not)
+  PROMPT_TIMEOUT_MS: 10 * 60_000,    // unanswered after this counts as ignored
+  MAX_PROMPTS_PER_NIGHT: 4,
+  // Standby ends by itself
+  MAX_DURATION_MS: 6 * 3600_000,
+  LOW_BATTERY_PCT: 20,               // and not charging
+  SAVE_EVERY_CHECKS: 10,             // upload the evening's counts (and check the battery) every ~5 min
+} as const;
+
+/** Weekend-night reminder ("Out tonight?"): default days (1 = Sunday … 7 = Saturday) and time. */
+export const NIGHT_REMINDER = {
+  DEFAULT_WEEKDAYS: [5, 6, 7],       // Thursday (student night in Brussels), Friday, Saturday
+  DEFAULT_HOUR: 22,
+  DEFAULT_MINUTE: 30,
+} as const;
+
 /** Give-to-get: contributing at a venue unlocks the live view for the rest of the night. */
 export const LIVE_ACCESS = {
   FREE_NIGHT_PASSES: 2,                 // for new users, before they have contributed

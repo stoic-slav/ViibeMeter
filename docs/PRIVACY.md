@@ -41,13 +41,17 @@ During a session the app listens continuously and analyses the sound on the phon
 
 To recognise songs on iPhone, the app uses Apple's ShazamKit. A clip is turned into an irreversible fingerprint on the phone, and only that fingerprint is sent to Apple to look up the song. Audio cannot be reconstructed from it. If a song is recognised, its ISRC code is sent to Deezer's public API to look up its tempo and popularity. See [Apple's privacy policy](https://www.apple.com/legal/privacy/) and [Deezer's privacy policy](https://www.deezer.com/legal/personal-datas).
 
+## Going out mode (iPhone, optional)
+
+If you turn on **Going out mode**, which is off unless you switch it on and asks for your agreement the first time, the app listens on your phone *before* a session, to notice when you're at a party. Every 30 seconds it analyses 5 seconds of sound (how loud it is, whether there is a beat and bass) and a few seconds of movement (whether you're dancing), on the phone. When both happen for a few minutes at night, it asks "Start measuring?" on your lock screen. Nothing it hears or feels on standby is recorded, stored or uploaded; no song recognition runs. We keep only counts per evening: when it was on and off, how often it asked and what you answered, how many minutes had music or movement, and your battery level at the start and end, so we can check that it doesn't ask at the wrong moments or drain your battery. The orange microphone dot stays on while it listens. It turns itself off at 06:00, after 6 hours or at 20% battery. You can turn it off on the lock screen, in the app, or withdraw it in **privacy & data**. Optional reminders ("Out tonight?") are local notifications on the days you choose.
+
 ## Being grouped with other phones
 
 To measure whether a crowd moves in sync, we need to know which phones were at the same event. This comes from the group code, and from the music itself: phones that heard the same playback of the same song at the same moment were very likely in the same place. Phones in the same room also hear the bass get louder and quieter at the same moments, so their bass-loudness curves match. So the data can show that two **anonymous** phones were at the same event at the same time, and which club or bar that was. It cannot show who you are or where you went outside the venues.
 
 ## How long we keep data
 
-Besides the per-minute summaries, the app saves a few numbers for every 10 seconds (how well your movement matches the beat, how much you move, your movement tempo, and the song's ISRC code). These 10-second readings and the bass-loudness curves are **deleted automatically after 90 days**. Everything else (sessions, per-minute summaries and ratings) is **deleted automatically after 24 months**.
+Besides the per-minute summaries, the app saves a few numbers for every 10 seconds (how well your movement matches the beat, how much you move, your movement tempo, and the song's ISRC code). These 10-second readings and the bass-loudness curves are **deleted automatically after 90 days**. Everything else (sessions, per-minute summaries, ratings and Going out counts) is **deleted automatically after 24 months**.
 
 ## Where data goes
 

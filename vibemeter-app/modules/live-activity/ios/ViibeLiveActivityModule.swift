@@ -2,8 +2,9 @@ import ActivityKit
 import ExpoModulesCore
 import Foundation
 
-/// Shared with `RateVibeIntent` (compiled into the app target): a tap on a card button is queued
-/// here and announced in-process, and JS drains the queue. Keep the names in sync.
+/// Shared with the card's intents (`RateVibeIntent`, `CardActionIntent`, compiled into the app
+/// target): a tap on a card button is queued here and announced in-process, and JS drains the
+/// queue. Keep the names in sync.
 private let pendingRatingsKey = "viibe.liveActivity.pendingRatings"
 private let ratingNotification = Notification.Name("ViibeLiveActivityRating")
 
@@ -12,10 +13,18 @@ private let ratingNotification = Notification.Name("ViibeLiveActivityRating")
 private let staleAfter: TimeInterval = 15 * 60
 
 struct CardState: Record {
+  @Field var mode: String = "session"
+  @Field var sessionStartedAtMs: Double? = nil
   @Field var venue: String? = nil
   @Field var due: Bool = false
   @Field var lastRating: Int? = nil
   @Field var thanksUntilMs: Double? = nil
+}
+
+/// Lights the screen and plays the alert sound with an update (the Going out prompt).
+struct CardAlert: Record {
+  @Field var title: String = ""
+  @Field var body: String = ""
 }
 
 /// The lock-screen Live Activity of a running session (iOS 16.2+; rating buttons need iOS 17).
@@ -61,10 +70,19 @@ public class ViibeLiveActivityModule: Module {
       }
     }
 
-    AsyncFunction("update") { (state: CardState) in
+    AsyncFunction("update") { (state: CardState, alert: CardAlert?) in
       guard #available(iOS 16.2, *) else { return }
       for activity in Activity<SessionActivityAttributes>.activities {
-        await activity.update(Self.content(state))
+        if let alert = alert {
+          let config = AlertConfiguration(
+            title: LocalizedStringResource(stringLiteral: alert.title),
+            body: LocalizedStringResource(stringLiteral: alert.body),
+            sound: .default
+          )
+          await activity.update(Self.content(state), alertConfiguration: config)
+        } else {
+          await activity.update(Self.content(state))
+        }
       }
     }
 
@@ -79,8 +97,8 @@ public class ViibeLiveActivityModule: Module {
       return 0
     }
 
-    /// Ratings tapped on the card since the last call, oldest first: [{ value, atMs }].
-    Function("takePendingRatings") { () -> [[String: Any]] in
+    /// Card button taps since the last call, oldest first: [{ action, value?, atMs }].
+    Function("takePendingActions") { () -> [[String: Any]] in
       let defaults = UserDefaults.standard
       let queue = defaults.array(forKey: pendingRatingsKey) as? [[String: Any]] ?? []
       defaults.removeObject(forKey: pendingRatingsKey)
@@ -91,6 +109,8 @@ public class ViibeLiveActivityModule: Module {
   @available(iOS 16.2, *)
   private static func content(_ s: CardState) -> ActivityContent<SessionActivityAttributes.ContentState> {
     let state = SessionActivityAttributes.ContentState(
+      mode: s.mode,
+      sessionStartedAt: s.sessionStartedAtMs.map { Date(timeIntervalSince1970: $0 / 1000) },
       venue: s.venue,
       due: s.due,
       lastRating: s.lastRating,

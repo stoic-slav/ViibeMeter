@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreMotion
 import ExpoModulesCore
 import ShazamKit
 
@@ -33,6 +34,7 @@ public class AudioCaptureModule: Module {
   // SHSession holds its delegate weakly, so keep both alive until the match finishes.
   private var inFlight: [UUID: (SHSession, MatchDelegate)] = [:]
   private let lock = NSLock()
+  private let activityManager = CMMotionActivityManager()
 
   public func definition() -> ModuleDefinition {
     Name("AudioCapture")
@@ -85,6 +87,25 @@ public class AudioCaptureModule: Module {
     /// (an irreversible fingerprint) leaves the device.
     AsyncFunction("matchRecent") { (seconds: Double, promise: Promise) in
       self.matchRecent(seconds: seconds, promise: promise)
+    }
+
+    /// Going out standby: whether iOS's motion coprocessor says the phone is in a vehicle now
+    /// (a car radio is not a party). False when unknown or Motion & Fitness is not allowed;
+    /// never asks for the permission, since standby runs in the background.
+    AsyncFunction("isInVehicle") { (promise: Promise) in
+      guard CMMotionActivityManager.isActivityAvailable(),
+            CMMotionActivityManager.authorizationStatus() == .authorized else {
+        promise.resolve(false)
+        return
+      }
+      let now = Date()
+      self.activityManager.queryActivityStarting(from: now.addingTimeInterval(-300), to: now, to: .main) { activities, _ in
+        guard let last = activities?.last else {
+          promise.resolve(false)
+          return
+        }
+        promise.resolve(last.automotive && last.confidence != .low)
+      }
     }
   }
 

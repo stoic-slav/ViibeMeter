@@ -23,6 +23,16 @@ private let options = [
 
 private let stopURL = URL(string: "vibemeter://stop")!
 
+/// The card has three modes: a running session (rating buttons, timer, STOP), Going out standby
+/// ("Standing by", TURN OFF) and the standby prompt ("Sounds like a party. Start measuring?").
+private extension ActivityViewContext where Attributes == SessionActivityAttributes {
+  var isSession: Bool { state.mode == "session" }
+  var isPrompt: Bool { state.mode == "prompt" }
+  var timerStart: Date { state.sessionStartedAt ?? attributes.startedAt }
+  var title: String { isSession ? (state.venue ?? "Viibe Check") : "Going out" }
+  var highlighted: Bool { isPrompt || (isSession && state.due) }
+}
+
 struct SessionLiveActivity: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: SessionActivityAttributes.self) { context in
@@ -32,19 +42,15 @@ struct SessionLiveActivity: Widget {
     } dynamicIsland: { context in
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
-          Text(context.state.venue ?? "Viibe Check")
+          Text(context.title)
             .font(.system(.caption, design: .monospaced).bold())
             .foregroundColor(.white)
             .lineLimit(1)
             .padding(.leading, 8)   // clear the island's rounded corner
         }
         DynamicIslandExpandedRegion(.trailing) {
-          if context.isStale {
-            Text("off")
-              .font(.system(.caption, design: .monospaced))
-              .foregroundColor(dim)
-          } else {
-            Text(context.attributes.startedAt, style: .timer)
+          if context.isSession && !context.isStale {
+            Text(context.timerStart, style: .timer)
               .font(.system(.caption, design: .monospaced))
               .monospacedDigit()
               .foregroundColor(dim)
@@ -56,21 +62,23 @@ struct SessionLiveActivity: Widget {
           CardBody(context: context)
         }
       } compactLeading: {
-        LiveDot(stale: context.isStale, due: context.state.due)
+        LiveDot(stale: context.isStale, on: context.isSession || context.isPrompt)
       } compactTrailing: {
         if context.isStale {
-          Text("off")
-            .font(.system(.caption2, design: .monospaced))
-            .foregroundColor(dim)
+          CompactLabel(text: "off", color: dim)
+        } else if context.isPrompt {
+          CompactLabel(text: "party?", color: accent)
+        } else if !context.isSession {
+          CompactLabel(text: "ready", color: dim)
         } else {
-          Text(context.attributes.startedAt, style: .timer)
+          Text(context.timerStart, style: .timer)
             .font(.system(.caption2, design: .monospaced))
             .monospacedDigit()
             .foregroundColor(accent)
             .frame(maxWidth: 52)
         }
       } minimal: {
-        LiveDot(stale: context.isStale, due: context.state.due)
+        LiveDot(stale: context.isStale, on: context.isSession || context.isPrompt)
       }
       .widgetURL(URL(string: "vibemeter://"))
     }
@@ -83,20 +91,20 @@ private struct LockScreenCard: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 8) {
-        LiveDot(stale: context.isStale, due: context.state.due)
-        Text(context.state.venue ?? "Viibe Check")
+        LiveDot(stale: context.isStale, on: context.isSession || context.isPrompt)
+        Text(context.title)
           .font(.system(.footnote, design: .monospaced).bold())
           .foregroundColor(.white)
           .lineLimit(1)
         // A stale card belongs to an app that stopped running: no counting timer, nothing to stop
-        if !context.isStale {
-          Text(context.attributes.startedAt, style: .timer)
+        if context.isSession && !context.isStale {
+          Text(context.timerStart, style: .timer)
             .font(.system(.footnote, design: .monospaced))
             .monospacedDigit()
             .foregroundColor(dim)
         }
         Spacer(minLength: 4)
-        if !context.isStale {
+        if context.isSession && !context.isStale {
           Link(destination: stopURL) {
             Text("STOP")
               .font(.system(.caption2, design: .monospaced).bold())
@@ -113,34 +121,104 @@ private struct LockScreenCard: View {
   }
 }
 
-/// The headline and the rating buttons, or the "not measuring" note once the app stopped updating.
+/// What the card shows below its header, by mode; a "not running" note once the app stopped updating.
 private struct CardBody: View {
   let context: ActivityViewContext<SessionActivityAttributes>
 
   var body: some View {
     if context.isStale {
-      Text("Not measuring. Open Viibe Check to start again.")
+      Text(context.isSession
+           ? "Not measuring. Open Viibe Check to start again."
+           : "Going out mode stopped. Open Viibe Check to turn it on again.")
         .font(.system(.footnote, design: .monospaced))
         .foregroundColor(dim)
+    } else if context.isPrompt {
+      PromptBody()
+    } else if !context.isSession {
+      StandbyBody()
     } else {
-      VStack(alignment: .leading, spacing: 8) {
-        Text(headline)
+      RatingBody(context: context)
+    }
+  }
+}
+
+/// Going out standby: listening on the phone, nothing stored, until it sounds like a party.
+private struct StandbyBody: View {
+  var body: some View {
+    HStack(alignment: .center, spacing: 10) {
+      VStack(alignment: .leading, spacing: 3) {
+        Text("Standing by")
           .font(.system(.subheadline, design: .monospaced).bold())
-          .foregroundColor(context.state.due ? accent : .white)
-        if #available(iOS 17.0, *) {
-          HStack(spacing: 8) {
-            ForEach(options) { option in
-              Button(intent: RateVibeIntent(value: option.value)) {
-                RatingLabel(option: option, due: context.state.due, chosen: chosen == option.value)
-              }
-              .buttonStyle(.plain)
-            }
-          }
-        } else {
-          Text("Long-press the notification to rate.")
-            .font(.system(.caption, design: .monospaced))
+          .foregroundColor(.white)
+        Text("We'll ask when it sounds and moves like a party.")
+          .font(.system(.caption, design: .monospaced))
+          .foregroundColor(dim)
+      }
+      Spacer(minLength: 4)
+      if #available(iOS 17.0, *) {
+        Button(intent: CardActionIntent(action: "standby_off")) {
+          Text("TURN OFF")
+            .font(.system(.caption2, design: .monospaced).bold())
             .foregroundColor(dim)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .overlay(Capsule().stroke(dim.opacity(0.5), lineWidth: 1))
         }
+        .buttonStyle(.plain)
+      }
+    }
+  }
+}
+
+/// "Sounds like a party. Start measuring?" Yes starts a session without unlocking.
+private struct PromptBody: View {
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Sounds like a party 🎶 Start measuring?")
+        .font(.system(.subheadline, design: .monospaced).bold())
+        .foregroundColor(accent)
+      if #available(iOS 17.0, *) {
+        HStack(spacing: 8) {
+          Button(intent: CardActionIntent(action: "start")) {
+            ActionLabel(text: "YES, START", primary: true)
+          }
+          .buttonStyle(.plain)
+          Button(intent: CardActionIntent(action: "not_now")) {
+            ActionLabel(text: "NOT NOW", primary: false)
+          }
+          .buttonStyle(.plain)
+        }
+      } else {
+        Text("Use the notification or open Viibe Check to start.")
+          .font(.system(.caption, design: .monospaced))
+          .foregroundColor(dim)
+      }
+    }
+  }
+}
+
+/// A running session: the headline and the rating buttons.
+private struct RatingBody: View {
+  let context: ActivityViewContext<SessionActivityAttributes>
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text(headline)
+        .font(.system(.subheadline, design: .monospaced).bold())
+        .foregroundColor(context.state.due ? accent : .white)
+      if #available(iOS 17.0, *) {
+        HStack(spacing: 8) {
+          ForEach(options) { option in
+            Button(intent: RateVibeIntent(value: option.value)) {
+              RatingLabel(option: option, due: context.state.due, chosen: chosen == option.value)
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      } else {
+        Text("Long-press the notification to rate.")
+          .font(.system(.caption, design: .monospaced))
+          .foregroundColor(dim)
       }
     }
   }
@@ -185,14 +263,42 @@ private struct RatingLabel: View {
   }
 }
 
+private struct ActionLabel: View {
+  let text: String
+  let primary: Bool
+
+  var body: some View {
+    Text(text)
+      .font(.system(.caption, design: .monospaced).bold())
+      .foregroundColor(primary ? card : .white)
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 12)
+      .background(
+        RoundedRectangle(cornerRadius: 12)
+          .fill(primary ? accent : Color.white.opacity(0.1))
+      )
+  }
+}
+
+private struct CompactLabel: View {
+  let text: String
+  let color: Color
+
+  var body: some View {
+    Text(text)
+      .font(.system(.caption2, design: .monospaced))
+      .foregroundColor(color)
+  }
+}
+
 private struct LiveDot: View {
   let stale: Bool
-  let due: Bool
+  let on: Bool
 
   var body: some View {
     Circle()
       .fill(stale ? dim : accent)
       .frame(width: 8, height: 8)
-      .opacity(due && !stale ? 1 : 0.85)
+      .opacity(stale || on ? 1 : 0.45)
   }
 }

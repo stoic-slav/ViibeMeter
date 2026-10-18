@@ -850,7 +850,14 @@ export default function MeterScreen() {
 
   useEffect(() => {
     if (!isActive) return;
-    const id = setInterval(() => setElapsedSeconds(s => s + 1), 1000);
+    // From the session's start, not the screen's: a session can start while the app is in the
+    // background (Going out prompt) or before this screen was opened
+    const tick = () => {
+      const startedAt = sessionManager.currentSession?.startedAt.getTime();
+      setElapsedSeconds(startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [isActive]);
 

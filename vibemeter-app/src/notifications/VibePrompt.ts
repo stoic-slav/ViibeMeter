@@ -5,7 +5,7 @@ import { SENSOR_CONFIG } from '../config/constants';
 import { saveRating, getNearestWindowId } from '../storage/LocalBuffer';
 import { syncRatings } from '../storage/SupabaseSync';
 import { getDeviceId } from '../storage/DeviceIdentity';
-import { startSessionCard, endSessionCard, setCardDue, showCardThanks, listenForCardRatings } from './LockScreenCard';
+import { startSessionCard, endSessionCard, setCardDue, showCardThanks, setCardActionHandler } from './LockScreenCard';
 
 const LOG_TAG = '[VibePrompt]';
 // Android channel settings are fixed once created, so vibration needs a new channel id
@@ -40,6 +40,14 @@ export class VibePrompt {
   private responseSub: { remove: () => void } | null = null;
 
   async setup(): Promise<void> {
+    // Rating buttons on the lock-screen card (iOS 17+), including taps made while JS was not
+    // running; _layout starts the card listener once every handler is set
+    setCardActionHandler('rate', tap => {
+      if (tap.value !== 1 && tap.value !== 3 && tap.value !== 5) return;
+      this.recordRating(tap.value, 'live_activity', tap.atMs)
+        .catch(err => console.warn(`${LOG_TAG} Card rating failed:`, err));
+    });
+
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
         shouldShowAlert: true,
@@ -70,12 +78,6 @@ export class VibePrompt {
         options: { opensAppToForeground: false },
       })),
     ).catch(err => console.warn(`${LOG_TAG} Could not register rating buttons:`, err));
-
-    // Buttons on the lock-screen card (iOS 17+), including taps made while JS was not running
-    listenForCardRatings((value, atMs) => {
-      this.recordRating(value as RatingValue, 'live_activity', atMs)
-        .catch(err => console.warn(`${LOG_TAG} Card rating failed:`, err));
-    });
 
     this.responseSub?.remove();
     this.responseSub = Notifications.addNotificationResponseReceivedListener(r => this.handleResponse(r));

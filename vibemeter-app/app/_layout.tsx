@@ -8,7 +8,10 @@ import { sensorOrchestrator } from '../src/sensors/SensorOrchestrator';
 import { sessionManager } from '../src/session/SessionManager';
 import { closeInterruptedSessions } from '../src/storage/LocalBuffer';
 import { syncSessions } from '../src/storage/SupabaseSync';
-import { endLeftoverCard } from '../src/notifications/LockScreenCard';
+import { endLeftoverCard, listenForCardActions } from '../src/notifications/LockScreenCard';
+import { standby } from '../src/session/Standby';
+import { setupNightReminder, scheduleNightReminders } from '../src/notifications/NightReminder';
+import { getStandbySettings } from '../src/storage/StandbySettings';
 
 const BACKGROUND_TASK = 'VIBEMETER_BACKGROUND_FETCH';
 
@@ -26,10 +29,17 @@ export default function RootLayout() {
   useEffect(() => {
     // Setup notifications
     vibePrompt.setup().catch(console.error);
+    standby.setup().catch(console.error);
+    // Card button taps reach VibePrompt (ratings) and Standby (start, not now, turn off)
+    listenForCardActions();
+    if (Platform.OS === 'ios') {
+      setupNightReminder().catch(console.error);
+      getStandbySettings().then(s => scheduleNightReminders(s.reminders)).catch(() => {});
+    }
 
     // A session never ends by itself when the app is killed mid-session: close it now (as
     // 'interrupted') and remove its lock-screen card
-    if (!sessionManager.isSessionActive) {
+    if (!sessionManager.isSessionActive && standby.current === 'off') {
       endLeftoverCard().catch(() => {});
       closeInterruptedSessions(null)
         .then(n => { if (n > 0) syncSessions().catch(() => {}); })
@@ -97,6 +107,8 @@ export default function RootLayout() {
       <Tabs.Screen name="privacy" options={{ href: null, title: 'Privacy & data' }} />
       {/* The lock-screen card's STOP button (vibemeter://stop): asks to confirm; not a tab */}
       <Tabs.Screen name="stop" options={{ href: null, headerShown: false }} />
+      {/* Going out mode (standby) and the weekend-night reminder; not a tab */}
+      <Tabs.Screen name="going-out" options={{ href: null, title: 'Going out' }} />
       <Tabs.Screen
         name="summary"
         options={{

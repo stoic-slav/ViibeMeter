@@ -1,5 +1,5 @@
 import * as SQLite from 'expo-sqlite';
-import { SensorWindow, SensorClip, Session, SubjectiveRating, EndReason } from '../types';
+import { SensorWindow, SensorClip, Session, SubjectiveRating, EndReason, StandbyNight } from '../types';
 
 let db: SQLite.SQLiteDatabase | null = null;
 
@@ -115,6 +115,25 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_sc_synced ON sensor_clips(synced, clip_start);
 
+    CREATE TABLE IF NOT EXISTS standby_nights (
+      id TEXT PRIMARY KEY,
+      device_id TEXT NOT NULL,
+      armed_at INTEGER NOT NULL,
+      ended_at INTEGER,
+      end_reason TEXT,
+      prompts INTEGER DEFAULT 0,
+      accepted INTEGER DEFAULT 0,
+      declined INTEGER DEFAULT 0,
+      ignored INTEGER DEFAULT 0,
+      checks INTEGER DEFAULT 0,
+      music_minutes INTEGER DEFAULT 0,
+      moving_minutes INTEGER DEFAULT 0,
+      party_minutes INTEGER DEFAULT 0,
+      battery_start_pct REAL,
+      battery_end_pct REAL,
+      synced INTEGER DEFAULT 0
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sw_session ON sensor_windows(session_id, window_start);
     CREATE INDEX IF NOT EXISTS idx_sw_synced ON sensor_windows(synced);
     CREATE INDEX IF NOT EXISTS idx_sr_session ON subjective_ratings(session_id);
@@ -168,6 +187,8 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
     ['sessions', 'sensors', 'TEXT'],
     // build 23: lock-screen card ratings can be unprompted
     ['subjective_ratings', 'prompted', 'INTEGER'],
+    // build 24: sessions started from a Going out prompt
+    ['sessions', 'start_source', 'TEXT'],
   ];
   for (const [table, col, type] of migrations) {
     await database.runAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`).catch(() => {});
@@ -183,8 +204,8 @@ export async function saveSession(session: Session): Promise<void> {
       (id, device_id, venue_name, venue_type, started_at, ended_at, dwell_minutes,
        auto_detected, venue_latitude, venue_longitude, device_model, os_version,
        event_code, phone_placement, dance_affinity, battery_start_pct, battery_end_pct, low_power_mode,
-       venue_place_id, venue_source, venue_distance_m, end_reason, consent_version, sensors)
-     VALUES (${Array(24).fill('?').join(',')})`,
+       venue_place_id, venue_source, venue_distance_m, end_reason, consent_version, sensors, start_source)
+     VALUES (${Array(25).fill('?').join(',')})`,
     [
       session.id,
       session.deviceId,
@@ -210,6 +231,7 @@ export async function saveSession(session: Session): Promise<void> {
       session.endReason,
       session.consentVersion,
       session.sensors,
+      session.startSource,
     ]
   );
 }
@@ -288,6 +310,51 @@ export async function getUnsyncedSessions(): Promise<any[]> {
 export async function markSessionSynced(id: string): Promise<void> {
   const database = await getDb();
   await database.runAsync(`UPDATE sessions SET synced = 1 WHERE id = ?`, [id]);
+}
+
+// ── Going out standby ─────────────────────────────────────────────────────────
+
+/** Insert or update a standby evening; it is uploaded again after every change. */
+export async function saveStandbyNight(n: StandbyNight): Promise<void> {
+  const database = await getDb();
+  await database.runAsync(
+    `INSERT OR REPLACE INTO standby_nights
+      (id, device_id, armed_at, ended_at, end_reason, prompts, accepted, declined, ignored, checks,
+       music_minutes, moving_minutes, party_minutes, battery_start_pct, battery_end_pct, synced)
+     VALUES (${Array(15).fill('?').join(',')}, 0)`,
+    [
+      n.id, n.deviceId, n.armedAt, n.endedAt, n.endReason, n.prompts, n.accepted, n.declined, n.ignored,
+      n.checks, n.musicMinutes, n.movingMinutes, n.partyMinutes, n.batteryStartPct, n.batteryEndPct,
+    ]
+  );
+}
+
+export async function getUnsyncedStandbyNights(): Promise<any[]> {
+  const database = await getDb();
+  return database.getAllAsync(`SELECT * FROM standby_nights WHERE synced = 0`);
+}
+
+export async function markStandbyNightSynced(id: string, uploaded: { ended_at: number | null; checks: number }): Promise<void> {
+  const database = await getDb();
+  // Only if unchanged since the upload read it (it is updated every check while standby runs)
+  await database.runAsync(
+    `UPDATE standby_nights SET synced = 1 WHERE id = ? AND checks = ? AND ended_at IS ?`,
+    [id, uploaded.checks, uploaded.ended_at]
+  );
+}
+
+/**
+ * A standby left running by an app that was killed: closed at the next launch as 'interrupted',
+ * ending after its last counted check (checks run every 30 s).
+ */
+export async function closeOpenStandbyNights(activeId: string | null, checkIntervalMs: number): Promise<number> {
+  const database = await getDb();
+  const r = await database.runAsync(
+    `UPDATE standby_nights SET ended_at = armed_at + checks * ?, end_reason = 'interrupted', synced = 0
+     WHERE ended_at IS NULL AND id != ?`,
+    [checkIntervalMs, activeId ?? '']
+  );
+  return r.changes;
 }
 
 // ── Sensor Windows ────────────────────────────────────────────────────────────
@@ -496,6 +563,6 @@ export async function markRatingsSynced(ids: string[]): Promise<void> {
 export async function wipeLocalData(): Promise<void> {
   const database = await getDb();
   await database.execAsync(
-    `DELETE FROM sensor_clips; DELETE FROM sensor_windows; DELETE FROM subjective_ratings; DELETE FROM sessions;`
+    `DELETE FROM sensor_clips; DELETE FROM sensor_windows; DELETE FROM subjective_ratings; DELETE FROM sessions; DELETE FROM standby_nights;`
   );
 }

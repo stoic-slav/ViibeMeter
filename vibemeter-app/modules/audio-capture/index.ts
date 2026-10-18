@@ -28,6 +28,7 @@ interface AudioCaptureNative {
   readRange(fromMs: number, toMs: number): Promise<RecentAudio>;
   getBassEnvelope(fromMs: number, toMs: number): Promise<(number | null)[]>;
   matchRecent(seconds: number): Promise<ShazamMatchResult>;
+  isInVehicle(): Promise<boolean>;
 }
 
 // iOS only. Null on Android and on builds made before this module existed.
@@ -63,4 +64,13 @@ export async function getBassEnvelope(fromMs: number, toMs: number): Promise<(nu
 
 export async function matchRecent(seconds: number): Promise<ShazamMatchResult | null> {
   return native ? native.matchRecent(seconds) : null;
+}
+
+/** iOS motion activity says the phone is in a vehicle (false when unknown or not allowed). */
+export async function isInVehicle(): Promise<boolean> {
+  try {
+    return native ? await native.isInVehicle() : false;
+  } catch {
+    return false;
+  }
 }

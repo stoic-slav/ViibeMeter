@@ -87,6 +87,38 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, eu-west-3. Free tier, pauses when idle.
 - **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
+### Build 24 (18 Oct): weekend-night reminder and opt-in "Going out" standby
+- **Plan with the owner's decisions:** `docs/plans/build-24-going-out-standby.md`. Movement condition added by the owner: loud music alone is not enough, some dancing rhythm is needed too.
+- **What was built:**
+  - `src/session/Standby.ts` + `StandbyRules.ts`, `SensorOrchestrator.startStandby/stopStandby` (light checks every 30 s, nothing stored);
+  - `isInVehicle` (Core Motion) in `audio-capture`;
+  - card modes standby/prompt with `CardActionIntent` (Yes, start / Not now / Turn off) and alerts;
+  - `startSessionFromStandby` reusing the open microphone; `app/going-out.tsx` (opt-in, on/off, reminder days and time); Home button "Going out tonight?"; a Privacy & data row to withdraw;
+  - `NightReminder.ts` (weekly local notifications);
+  - `standby_nights` + `sessions.start_source` (migrations `20261018183326`, `20261018183808`, applied; deletion and retention cover them);
+  - the meter timer now counts from the session's real start.
+- **Verified in the simulator:**
+  - **Prompting and starting:**
+    - the opt-in screen;
+    - standby card on the lock screen;
+    - with the 124 BPM test track played from the Mac (thresholds temporarily lowered: the Mac's speakers reach only ~50–60 dB at the simulator mic, and the simulator has no motion), the card switched to "Sounds like a party 🎶 Start measuring?" plus the notification;
+    - **Yes, start** on the locked screen started a session (`start_source = standby`) that reused the microphone and turned the card into the session card.
+  - **Other buttons:**
+    - card STOP → confirm ended the session, and standby ended as `session_ended`;
+    - **Not now** → back to standing by, logged as declined;
+    - **Turn off** → ended as `user`;
+    - card ratings still work (`live_activity`).
+  - **Saved counts:** `standby_nights` rows uploaded with correct counts.
+  - **Rule test:** `npx tsx scripts/standby-rules-test.ts` passes 21 cases (club dancing yes; loud bar without dancing, walking, standing, phone on a table, restaurant, quiet room no; night hours; 06:00 end).
+- **Not verified:**
+  - the movement rule on a real phone (the simulator has no motion);
+  - battery per hour on standby;
+  - the Live Activity alert's buzz in a pocket;
+  - the reminder firing (scheduling verified in the log only);
+  - the vehicle check.
+- **Look at after the first nights:** `standby_nights` (battery drain, prompts accepted vs declined/ignored, music-only minutes when no prompt came).
+- **Local project quirk:** re-running `expo prebuild` on a project that already has the card target fails in `@bacons/apple-targets` (`removeFromProject`); restore `ios/project.pbxproj.before-card` first (see AGENTS.md). EAS builds are unaffected.
+
 ### Build 23 (18 Oct, built locally): lock-screen rating card (Live Activity), closing interrupted sessions
 - **Status:** built with `eas build --local` after the owner signed in to Apple once; EAS registered `com.leogerasimov.vibemeter.card` and its App Store profile (push notifications: not set up, not needed). `~/Downloads/ViibeCheck-build23.ipa`, checked: build 23 for both app and card, card signed for team APRS7H5DD6, `RateVibeIntent` in the app's metadata, only the While-Using location string. Future local builds can run non-interactively again.
 - **Plan and owner decisions:** `docs/plans/build-23-live-activity.md` (buttons always work, highlighted when due; the vibrating notification stays; card shows venue + timer + STOP).
@@ -195,7 +227,7 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 5. **After the first night:** `monitoring_queries.sql` data-quality checks, then `fetch_data.py`, `correlations.py`, `crowd_sync.py`, `engagement.py`. Report what holds up, including against the busyness proxy (loudness + crowd size).
 6. **Android on a friend's phone:** install the APK, run a locked 10-minute session, check windows are continuous and motion is non-zero (`SessionService` in logcat if it fails). Calibrate the Android dB offset.
 7. **Validation night for automatic grouping:** 3–5 phones in one room, plus one phone in another room playing the same playlist 1 minute later; then `auto_groups.py` and `crowd_sync.py --auto`.
-8. **Build 24: weekend-night reminder and opt-in "Going out" standby** (plan: `docs/plans/build-24-going-out-standby.md`). Venue beacons for partner venues: `docs/ideas/venue-beacons.md` (raise with C12).
+8. **Build 24** (Going out standby + weekend reminder): owner uploads, then tests on a real iPhone: arm at home, check the prompt comes at a party with dancing and not in a loud bar without dancing, note battery. Venue beacons for partner venues: `docs/ideas/venue-beacons.md` (raise with C12).
 9. **Later:** lockdown step 2b (drop anon SELECT/UPDATE once everyone is on build ≥14); legal review of `docs/DPIA.md`; Home redesign (Live merged into Home, ranked by fit) after real nights.
 
 ## Known caveats

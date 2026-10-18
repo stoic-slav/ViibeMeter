@@ -5,6 +5,8 @@ import { getConsent, saveConsent, Consent } from '../src/storage/Consent';
 import { getDeviceId } from '../src/storage/DeviceIdentity';
 import { deleteMyData } from '../src/storage/DataDeletion';
 import { SensorRow, SENSOR_TEXT, PRIVACY_URL } from '../src/components/SensorConsent';
+import { getStandbySettings, saveStandbySettings } from '../src/storage/StandbySettings';
+import { standby } from '../src/session/Standby';
 
 const A = '#00E8A0';
 const DNG = '#e84560';
@@ -22,11 +24,20 @@ export default function PrivacyScreen() {
   const [consent, setConsent] = useState<Consent | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [standbyAllowed, setStandbyAllowed] = useState(false);
 
   useFocusEffect(useCallback(() => {
     getConsent().then(setConsent);
     getDeviceId().then(setDeviceId).catch(() => {});
+    getStandbySettings().then(st => setStandbyAllowed(st.acceptedAt != null));
   }, []));
+
+  // Withdrawing the Going out opt-in also turns standby off; it is asked again on the next use
+  const withdrawStandby = async () => {
+    await standby.disarm('user');
+    await saveStandbySettings({ acceptedAt: null });
+    setStandbyAllowed(false);
+  };
 
   const toggle = async (sensor: 'motion' | 'bluetooth' | 'location', value: boolean) => {
     if (!consent) return;
@@ -68,6 +79,17 @@ export default function PrivacyScreen() {
             <SensorRow title="Bluetooth" body={SENSOR_TEXT.bluetooth} value={consent.bluetooth} onChange={v => toggle('bluetooth', v)} />
             <SensorRow title="Location" body={SENSOR_TEXT.location} value={consent.location} onChange={v => toggle('location', v)} />
             <Text style={st.hint}>Agreed on {new Date(consent.acceptedAt).toLocaleDateString()} (version {consent.version}).</Text>
+            {Platform.OS === 'ios' && (
+              <SensorRow
+                title="Going out mode"
+                body={standbyAllowed
+                  ? 'Listening on standby before a session is allowed. Turn off to withdraw; you will be asked again next time.'
+                  : 'Not in use. Turn it on from "Going out tonight?" on Home; it asks first.'}
+                value={standbyAllowed}
+                // Turning it on happens on the Going out screen, which explains it first
+                onChange={v => { if (!v) withdrawStandby(); else router.push('/going-out'); }}
+              />
+            )}
           </>
         ) : (
           <Text style={st.hint}>You haven't agreed yet. You'll be asked when you start your first session.</Text>

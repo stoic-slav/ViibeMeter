@@ -74,6 +74,8 @@ export class AudioAnalyzer {
   private pendingCurves: number[][] = [];
   // Android: bass-envelope frames from each clip's PCM (iOS keeps them natively)
   private bassFrames: BassFrameStore = new Map();
+  // Going out standby: analyse only (no song recognition, no tempo learning, no stored frames)
+  private light = false;
 
   /**
    * iOS: open the microphone for the whole session. A continuously running audio input
@@ -116,7 +118,7 @@ export class AudioAnalyzer {
    * Android: streams raw PCM via react-native-audio-record for the same pipeline.
    * Cycles start on wall-clock multiples of 10 s, so every phone analyses the same seconds.
    */
-  async analyze(cycleStartMs: number = Date.now()): Promise<AudioMetrics | null> {
+  async analyze(cycleStartMs: number = Date.now(), opts: { light?: boolean } = {}): Promise<AudioMetrics | null> {
     if (this.isRecording) {
       console.warn(`${LOG_TAG} Already recording, skipping`);
       return null;
@@ -131,6 +133,7 @@ export class AudioAnalyzer {
 
       this.isRecording = true;
       this.freshMatch = null;
+      this.light = opts.light ?? false;
 
       return Platform.OS === 'android'
         ? await this.analyzeAndroid()
@@ -246,7 +249,7 @@ export class AudioAnalyzer {
       const knownBpm = this.currentSongBpm()?.bpm ?? null;
       const pcmBpm = detectBPM(pcmSamples, SENSOR_CONFIG.AUDIO_SAMPLE_RATE, knownBpm, this.phoneMoving);
       pulseClarity = pcmBpm.confidence;
-      if (pcmBpm.tempoCurve) {
+      if (pcmBpm.tempoCurve && !this.light) {
         this.pendingCurves.push(pcmBpm.tempoCurve);
         if (this.pendingCurves.length > MAX_PENDING_CURVES) this.pendingCurves.shift();
       }
@@ -279,7 +282,7 @@ export class AudioAnalyzer {
     const audioEvent = classifyAudioEvent(dbSamples, clapCount, avgDb, dbVariance, musicDetected);
 
     try {
-      await this.attemptRecognition(fileUri, audioClassification, avgDb, fileType);
+      if (!this.light) await this.attemptRecognition(fileUri, audioClassification, avgDb, fileType);
     } finally {
       // Raw audio must never persist on the device: drop the temp recording
       if (fileUri) await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});

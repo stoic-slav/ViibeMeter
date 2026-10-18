@@ -16,10 +16,11 @@ Why a DPIA: GDPR Art. 35 requires one when processing is likely to be high-risk.
 | Data per session | Start/end, dwell, optional venue name, confirmed venue (Google place ID) or none, group code, phone placement, dance affinity (1–5), battery level, consent version, sensors allowed |
 | Data per minute | Loudness, tempo, spectral summaries, movement energy/tempo/rhythmicity, beat-sync scalars, phone context (on body/off body), BLE device count (no IDs), song ISRC/genre/tempo, bass-loudness curve (4 values/s), venue place ID |
 | Data per 10 s | Beat sync, movement energy/tempo, song ISRC, phone context |
-| Ratings | 💀/🙂/🔥 with time and response time |
+| Ratings | 💀/🙂/🔥 with time, response time, where given (notification, app, lock-screen card) and whether a prompt was waiting |
+| Going out standby (build 24, opt-in, iPhone) | Per evening only: armed/ended time and reason, prompts asked/accepted/declined/ignored, number of checks, music/moving/party minutes, battery at start and end. Sessions record `start_source` (manual or standby). The standby checks themselves (5 s audio + motion every 30 s) are computed on the phone and discarded |
 | Not collected | Audio, BLE identifiers, location coordinates or traces, contacts, names, accounts |
 | Processors / recipients | Supabase (EU, Paris region: database, Edge Functions); Apple ShazamKit (audio fingerprint for song lookup); Deezer public API (ISRC lookup); Google Places API (rounded position → nearest venue, position not stored by us); Expo/EAS (build service, no user data) |
-| Retention | 10 s clips, bass curves and live-view logs: 90 days. Sessions, minute data and ratings: 24 months. Automatic (`apply_retention`, daily) |
+| Retention | 10 s clips, bass curves and live-view logs: 90 days. Sessions, minute data, ratings and standby evenings: 24 months. Automatic (`apply_retention`, daily) |
 
 ## 2. Necessity and proportionality
 
@@ -36,6 +37,7 @@ Why a DPIA: GDPR Art. 35 requires one when processing is likely to be high-risk.
 | Sensitive inferences (Art. 9) from venue type | Low–medium / high | Explicit consent text; no venue categories used in analysis by default; option to hide/delete a venue (to build) | Medium until "hide venue" exists |
 | Audio misuse | Low / high | Audio never stored or uploaded; in-memory ring buffer only; ShazamKit fingerprints only | Low |
 | Bystanders (people near the phone) | Low / medium | Only loudness/music features and BLE counts without IDs; no speech content | Low |
+| Listening outside a session (Going out standby) | Medium / medium | Separate opt-in with its own explanation; only loudness, beat and movement computed on the phone and discarded; no song recognition; only counts per evening stored; visible orange microphone dot and a lock-screen card with TURN OFF; ends at 06:00, after 6 h or at 20% battery; withdrawable in Privacy & data | Low |
 | Minors using the app | Medium / high | 18+ confirmation at first start; TestFlight distribution only | Medium: self-declaration only |
 | Data leak via the app's public key | Low / medium | Upload via `SECURITY DEFINER` functions, no deletes, venues/live_views not readable; step 2b (drop SELECT/UPDATE) pending once all testers are on build ≥14 | Low–medium until 2b |
 | Deletion abuse with someone's ID | Low / medium | IDs are random and only shown to their owner | Low |

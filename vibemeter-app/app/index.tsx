@@ -19,7 +19,8 @@ import {
   getPendingGroupCode, onPendingGroupCode, setPendingGroupCode, parseGroupCode, getDraftGroupCode,
   getPendingVenue, onPendingVenue, setPendingVenue, venueGroupCode,
 } from '../src/session/GroupCode';
-import { applyScan } from '../src/session/SessionControl';
+import { applyScan, notifySessionStarted } from '../src/session/SessionControl';
+import { standby, StandbyState } from '../src/session/Standby';
 import { nightBounds } from '../src/storage/LiveAccess';
 import { venueLocator, confirmVenue, Venue } from '../src/session/VenueLocator';
 
@@ -93,7 +94,9 @@ function SessionsScreen({ onStart, pastSessions, loading }: {
 }) {
   const router = useRouter();
   const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [standbyState, setStandbyState] = useState<StandbyState>(standby.current);
   useEffect(() => { getDeviceId().then(setDeviceId).catch(() => {}); }, []);
+  useEffect(() => standby.onChange(setStandbyState), []);
   return (
     <View style={s.container}>
       <View style={s.header}>
@@ -144,6 +147,14 @@ function SessionsScreen({ onStart, pastSessions, loading }: {
         >
           <Text style={s.startBtnText}>▶  START SESSION</Text>
         </TouchableOpacity>
+        {Platform.OS === 'ios' && (
+          // Going out mode: standby that asks "Start measuring?" when it sounds like a party
+          <TouchableOpacity style={s.goingOutBtn} onPress={() => router.push('/going-out')} activeOpacity={0.85}>
+            <Text style={s.goingOutText}>
+              {standbyState === 'off' ? '🎶  GOING OUT TONIGHT?' : '🎶  GOING OUT MODE IS ON'}
+            </Text>
+          </TouchableOpacity>
+        )}
         {deviceId && (
           // Shown so testers can quote it when asking for their data to be deleted
           <Text selectable style={{ marginTop: 10, textAlign: 'center', fontFamily: MONO, fontSize: 9, color: TXD }}>
@@ -452,6 +463,7 @@ export default function HomeScreen() {
       });
       await sensorOrchestrator.startSession(session);
       vibePrompt.startPromptSchedule(session.id, { startedAt: session.startedAt, venue: session.venueName });
+      notifySessionStarted(session);
       setStep('sessions');
       router.push('/meter');
     } catch (err) {
@@ -544,4 +556,10 @@ const s = StyleSheet.create({
     elevation: 8,
   },
   startBtnText: { fontFamily: MONO, fontSize: 13, fontWeight: '700', color: '#030904', letterSpacing: 3 },
+  goingOutBtn: {
+    width: '100%', height: 46, borderRadius: 14, marginTop: 10,
+    borderWidth: 1, borderColor: A + '55', backgroundColor: A + '10',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  goingOutText: { fontFamily: MONO, fontSize: 12, fontWeight: '700', color: A, letterSpacing: 2 },
 });

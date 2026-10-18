@@ -96,6 +96,23 @@ All core services are singletons. Do not re-instantiate them:
 
 **Lock-screen card (iOS Live Activity, since build 23):** while a session runs, the lock screen (and Dynamic Island) shows a card with the venue, a self-counting timer, STOP, and 💀/🙂/🔥 buttons that rate without unlocking (iOS 17+; iOS 16.2–16.x shows the card without buttons). `src/notifications/LockScreenCard.ts` mirrors the session onto it and is driven by `VibePrompt` (start/end with the prompt schedule; "How's the vibe right now?" with highlighted buttons while a prompt waits; "Thanks 🔥" after any rating; a light update every 5 min renews the card's 15-minute stale date, so a card from a killed app turns grey: "Not measuring"). The 5-minute notification stays as the vibrating reminder. Card ratings are stored with `rating_source = 'live_activity'`; every rating records `prompted` (a prompt was waiting), because card buttons also work unprompted. STOP opens `vibemeter://stop` (`app/stop.tsx`, needs the phone unlocked, then asks to confirm). At launch with no session running, `closeInterruptedSessions` (`LocalBuffer.ts`) closes sessions the app never ended (killed mid-session) with `end_reason = 'interrupted'`, and a leftover card is removed. iOS asks "Allow Live Activities from Viibe Check?" the first time a card appears.
 
+**Going out standby (iOS, since build 24; plan `docs/plans/build-24-going-out-standby.md`):**
+- **Switching it on:** opt-in on `app/going-out.tsx` (Home button "Going out tonight?", or the weekend reminder). The opt-in is stored separately from sensor consent, in `src/storage/StandbySettings.ts` (with the reminder days and time). The app must be in the foreground to start: iOS opens the microphone and starts a Live Activity only then.
+- **Service and checks:** `src/session/Standby.ts` (singleton `standby`) runs `sensorOrchestrator.startStandby`: every 30 s, a light check with no Shazam, no clips, no windows (`AudioAnalyzer.analyze(…, { light: true })` + `MotionTracker.sample` + beat sync).
+- **Detection rule** (`src/session/StandbyRules.ts`, constants `STANDBY`; test: `npx tsx scripts/standby-rules-test.ts`):
+  - a music minute: ≥ 75 dB with a beat;
+  - a moving minute: on a body, swaying/dancing/jumping, with a rhythm (PLV ≥ 0.4, tempo match ≥ 0.5, or rhythmicity ≥ 0.35 at 60–180 BPM);
+  - prompt when the last 6 minutes have ≥ 5 music and ≥ 2 moving minutes, at 21:00–06:00, not in a vehicle (`isInVehicle` in `audio-capture`, Core Motion);
+  - at most one prompt per 45 min and 4 per night.
+- **Prompt:**
+  - the lock-screen card switches to "Sounds like a party. Start measuring?" (ActivityKit alert), with a backup notification (category `standby-prompt`);
+  - **Yes** runs `startSessionFromStandby` (SessionControl), which reuses the open microphone and turns the standby card into the session card in place, all without unlocking;
+  - **Not now** waits out the cooldown.
+- **Ends by itself:** at 06:00, after 6 h, at ≤ 20% battery, or when its session ends.
+- **Logged:** counts per evening in `standby_nights` (`upload_standby_nights` RPC), and `sessions.start_source` (`manual` | `standby`). A standby left by a killed app is closed at launch as `interrupted`.
+- **Reminder:** weekly local notifications, `src/notifications/NightReminder.ts`.
+- **Card modes:** `session`, `standby`, `prompt` (`CardState.mode`). Buttons go through one action queue: `rate` → VibePrompt; `start`, `not_now`, `standby_off` → Standby, via `CardActionIntent`.
+
 `src/storage/UserProfile.ts` holds the one-time dance-affinity answer (SecureStore). `src/session/SessionControl.ts` (imported in `index.ts`) is the one way a session ends: `stopEverything(reason)` for the Stop button and auto-stop, plus `onSessionEnded` for open screens.
 
 ### Venue, phone context and auto-stop (build 15)
@@ -128,8 +145,8 @@ FFT-derived spectral metrics (sub-bass energy, spectral centroid, spectral flux,
 
 ### Local native modules (`vibemeter-app/modules/`, autolinked)
 - `audio-capture` (iOS, Swift): `AVAudioEngine` capture for the whole session into a 12 s in-memory ring buffer, plus ShazamKit matching. The continuously open mic, with `UIBackgroundModes: audio`, is what keeps iOS from suspending the app with the screen locked. Never write this audio to disk.
-- `live-activity` (iOS, Swift, module `ViibeLiveActivity`): starts, updates and ends the session's Live Activity (`SessionActivityAttributes`), and hands card button taps to JS (`takePendingRatings` + the `onRating` event).
-- **Widget extension `targets/live-activity`** (target `ViibeCard`, bundle ID `com.leogerasimov.vibemeter.card`, generated at prebuild by `@bacons/apple-targets`): the card's SwiftUI layout. `SessionActivityAttributes.swift` exists in both the module and the widget and must stay identical. The buttons run `RateVibeIntent` (a `LiveActivityIntent`), which iOS runs in the app's process and finds only in the app target's own App Intents metadata, so `plugins/withLiveActivityIntent.js` also compiles that file into the app target (and sets `NSSupportsLiveActivities`). The intent queues the tap in the app's UserDefaults and posts an in-process notification; no App Group and no push are needed (the app keeps running during a session).
+- `live-activity` (iOS, Swift, module `ViibeLiveActivity`): starts, updates (optionally with an alert) and ends the lock-screen card (`SessionActivityAttributes`, modes session/standby/prompt), and hands card button taps to JS (`takePendingActions` + the `onRating` event).
+- **Widget extension `targets/live-activity`** (target `ViibeCard`, bundle ID `com.leogerasimov.vibemeter.card`, generated at prebuild by `@bacons/apple-targets`): the card's SwiftUI layout. `SessionActivityAttributes.swift` exists in both the module and the widget and must stay identical. The buttons run `RateVibeIntent` and `CardActionIntent` (`LiveActivityIntent`s), which iOS runs in the app's process and finds only in the app target's own App Intents metadata, so `plugins/withLiveActivityIntent.js` also compiles those files into the app target (and sets `NSSupportsLiveActivities`). The intent queues the tap in the app's UserDefaults and posts an in-process notification; no App Group and no push are needed (the app keeps running during a session).
 - `session-service` (Android, Kotlin): a `microphone` foreground service with an ongoing notification, a headless JS task (`ViibeMeterSession`, registered in `index.ts`) that keeps JS timers running in the background, and native motion capture into an in-memory buffer, because `expo-sensors` stops in the background. `MotionTracker` reads that buffer while the service runs.
 
 ### Grouping phones at the same event
@@ -149,8 +166,8 @@ Each audio + motion cycle starts on a wall-clock multiple of 10 s (`SensorOrches
 **Movement tempo:** `computeMovementRhythm` looks for real autocorrelation peaks between 60 and 180 BPM, prefers the shorter period when it is nearly as strong, and reports a tempo only at rhythmicity ≥ 0.35 (slow sway used to read as 41–57 BPM).
 
 ### Storage schema
-Three SQLite tables in `LocalBuffer`, mirrored in Supabase:
-- `sessions`: one row per session (venue, start/end, device ID, `event_code`, `phone_placement`, `dance_affinity`, and for the battery check `battery_start_pct` / `battery_end_pct` (null while charging) and `low_power_mode`; drain query in `analysis/monitoring_queries.sql`).
+SQLite tables in `LocalBuffer`, mirrored in Supabase (plus `sensor_clips`, and `standby_nights` for Going out evenings since build 24):
+- `sessions`: one row per session (venue, start/end, device ID, `event_code`, `phone_placement`, `dance_affinity`, `start_source` (`manual` or `standby`), and for the battery check `battery_start_pct` / `battery_end_pct` (null while charging) and `low_power_mode`; drain query in `analysis/monitoring_queries.sql`).
 - `sensor_windows`: one row per window (component scores, composite, FFT metrics, movement energy/BPM/rhythmicity, beat-sync scalars).
 - `subjective_ratings`: one row per vibe rating. Since build 12 the scale has three levels, 💀 Dead / 🙂 Decent / 🔥 Best, stored as `rating` 1 / 3 / 5 with `rating_scale = 3`; earlier rows used 1–5. `rating_source` is `lockscreen` (a notification button), `app` (the in-app sheet) or `live_activity` (a lock-screen card button, build 23+); `prompted` (build 23+) says whether a prompt was waiting. Music and crowd sub-ratings are no longer asked, so they are null.
 
@@ -172,7 +189,7 @@ These patches were applied to fix build issues. Do not revert:
 - `ios/VibeMeter/VibeMeter.entitlements`: APS push removed (Personal Team signing)
 - `react-native/scripts/react-native-xcode.sh`: `ip.txt` write made non-fatal
 - `plugins/withFmtConstevalFix.js` (config plugin): applies the fmt consteval fix on every fresh prebuild, so local EAS builds with Xcode 26 compile
-- After changing `targets/`, `app.json` plugins or a local module, regenerate the local project with `npx expo prebuild -p ios --no-install` (never `--clean`), then `pod install`. The card target needs its own provisioning profile; EAS creates it from `extra.eas.build.experimental.ios.appExtensions`, which `@bacons/apple-targets` fills in
+- After changing `targets/`, `app.json` plugins or a local module, regenerate the local project with `npx expo prebuild -p ios --no-install` (never `--clean`), then `pod install`. If prebuild fails with `removeFromProject` (`@bacons/apple-targets` 5 cannot update an existing card target), first restore the project file saved before the card was added: `cp ios/project.pbxproj.before-card ios/VibeMeter.xcodeproj/project.pbxproj` (local, gitignored with `ios/`). EAS builds start from a fresh project and are unaffected. The card target needs its own provisioning profile; EAS creates it from `extra.eas.build.experimental.ios.appExtensions`, which `@bacons/apple-targets` fills in
 
 ## Analysis scripts
 Python scripts in `analysis/` query Supabase and run statistical analysis:

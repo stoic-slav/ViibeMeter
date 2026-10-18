@@ -1,11 +1,15 @@
-// The lock-screen card's rating buttons run RateVibeIntent, a LiveActivityIntent. iOS runs such
-// an intent in the app's process, and finds it only in the app target's own App Intents metadata
-// (not in a CocoaPods module), so the same Swift file that the widget target uses
-// (targets/live-activity, linked by @bacons/apple-targets) is also compiled into the app target.
+// The lock-screen card's buttons run RateVibeIntent and CardActionIntent, LiveActivityIntents. iOS
+// runs such an intent in the app's process, and finds it only in the app target's own App Intents
+// metadata (not in a CocoaPods module), so the same Swift files that the widget target uses
+// (targets/live-activity, linked by @bacons/apple-targets) are also compiled into the app target.
 // Also declares Live Activity support in the app's Info.plist.
 const { withInfoPlist, withXcodeProject, IOSConfig } = require('expo/config-plugins');
 
-const INTENT_FILE = '../targets/live-activity/RateVibeIntent.swift'; // relative to ios/ (the app group has no path)
+// Relative to ios/ (the app group has no path)
+const INTENT_FILES = [
+  '../targets/live-activity/RateVibeIntent.swift',
+  '../targets/live-activity/CardActionIntent.swift',
+];
 
 module.exports = function withLiveActivityIntent(config) {
   config = withInfoPlist(config, cfg => {
@@ -14,11 +18,13 @@ module.exports = function withLiveActivityIntent(config) {
   });
   return withXcodeProject(config, cfg => {
     const projectName = IOSConfig.XcodeUtils.getProjectName(cfg.modRequest.projectRoot);
-    IOSConfig.XcodeUtils.addBuildSourceFileToGroup({
-      filepath: INTENT_FILE,
-      groupName: projectName,
-      project: cfg.modResults,
-    });
+    for (const filepath of INTENT_FILES) {
+      IOSConfig.XcodeUtils.addBuildSourceFileToGroup({
+        filepath,
+        groupName: projectName,
+        project: cfg.modResults,
+      });
+    }
     return cfg;
   });
 };

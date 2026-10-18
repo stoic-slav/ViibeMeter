@@ -24,7 +24,7 @@ struct RateVibeIntent: LiveActivityIntent {
     let key = "viibe.liveActivity.pendingRatings"
     let defaults = UserDefaults.standard
     var queue = defaults.array(forKey: key) as? [[String: Any]] ?? []
-    queue.append(["value": value, "atMs": Date().timeIntervalSince1970 * 1000])
+    queue.append(["action": "rate", "value": value, "atMs": Date().timeIntervalSince1970 * 1000])
     defaults.set(queue, forKey: key)
     await MainActor.run {
       NotificationCenter.default.post(name: Notification.Name("ViibeLiveActivityRating"), object: nil)

@@ -2,8 +2,9 @@ import * as Crypto from 'expo-crypto';
 import { AppState, Platform } from 'react-native';
 import { startSessionService, stopSessionService } from '../../modules/session-service';
 import * as Battery from 'expo-battery';
-import { SensorWindow, Session, VibeScoreBreakdown, SensorReading, LiveDashboardData, TrendDir, AudioMetrics, MotionMetrics, MovementAxis, PhoneContext, EndReason } from '../types';
-import { SENSOR_CONFIG } from '../config/constants';
+import { SensorWindow, Session, VibeScoreBreakdown, SensorReading, LiveDashboardData, TrendDir, AudioMetrics, MotionMetrics, MovementAxis, PhoneContext, EndReason, MovementClassification } from '../types';
+import { SENSOR_CONFIG, STANDBY } from '../config/constants';
+import { isCapturing } from '../../modules/audio-capture';
 import { AudioAnalyzer } from './AudioAnalyzer';
 import { MotionTracker } from './MotionTracker';
 import { BLEScanner } from './BLEScanner';
@@ -24,6 +25,21 @@ const MINUTE_MS = 60_000;
 const CYCLE_START_TOLERANCE_MS = 500;
 
 type VibeUpdateCallback = (window: SensorWindow, breakdown: VibeScoreBreakdown, live: LiveDashboardData) => void;
+
+/** One Going out standby check: what a 5 s audio + motion capture heard and felt. Never stored. */
+export interface StandbyCheck {
+  atMs: number;
+  avgDb: number | null;
+  musicDetected: boolean;
+  pulseClarity: number | null;
+  subBass: number | null;
+  phoneContext: PhoneContext | null;
+  movementClass: MovementClassification | null;
+  rhythmicity: number | null;
+  movementBpm: number | null;
+  plv: number | null;
+  tempoMatch: number | null;
+}
 // Steps per minute above which a moving phone counts as walking (for the going-home auto-stop)
 const WALKING_CADENCE_SPM = 80;
 
@@ -84,6 +100,10 @@ export class SensorOrchestrator {
   private windowVibeHistory: { t: number; score: number }[] = [];
 
   public isRunning = false;
+  // Going out standby: the microphone is open and a light check runs every 30 s, with no session
+  public isStandby = false;
+  private standbyTimer: ReturnType<typeof setTimeout> | null = null;
+  private onStandbyCheck: ((check: StandbyCheck) => void) | null = null;
   private lastVibeScore: number = 0;
   private lastBreakdown: VibeScoreBreakdown | null = null;
 
@@ -113,6 +133,8 @@ export class SensorOrchestrator {
 
   async startSession(session: Session): Promise<void> {
     if (this.isRunning) await this.stopSession();
+    // From standby: the microphone is already open (and can't be reopened in the background)
+    if (this.isStandby) await this.stopStandby(true);
 
     this.currentSession = session;
     this.isRunning = true;
@@ -190,6 +212,78 @@ export class SensorOrchestrator {
     this.windowStartTime = null;
 
     console.log(`${LOG_TAG} Sensors stopped`);
+  }
+
+  /**
+   * Going out standby: open the microphone (the app must be in the foreground) and run a light
+   * audio + motion check every STANDBY.CHECK_INTERVAL_MS. Nothing is stored; each check goes to
+   * `onCheck`. Returns false when the microphone could not be opened.
+   */
+  async startStandby(onCheck: (check: StandbyCheck) => void): Promise<boolean> {
+    if (this.isRunning) return false;
+    await this.audioAnalyzer.start();
+    if (!isCapturing()) return false;
+    this.isStandby = true;
+    this.onStandbyCheck = onCheck;
+    this.motionTracker.resetStationaryState();
+    this.scheduleStandbyCheck();
+    console.log(`${LOG_TAG} Standby started`);
+    return true;
+  }
+
+  /** Ends the standby checks; `keepMic` leaves the microphone open for a session starting now. */
+  async stopStandby(keepMic = false): Promise<void> {
+    if (!this.isStandby) return;
+    this.isStandby = false;
+    this.onStandbyCheck = null;
+    if (this.standbyTimer) clearTimeout(this.standbyTimer);
+    this.standbyTimer = null;
+    if (!keepMic && !this.isRunning) await this.audioAnalyzer.stop();
+    console.log(`${LOG_TAG} Standby stopped${keepMic ? ' (microphone kept for the session)' : ''}`);
+  }
+
+  private scheduleStandbyCheck(): void {
+    if (!this.isStandby) return;
+    const interval = STANDBY.CHECK_INTERVAL_MS;
+    this.standbyTimer = setTimeout(async () => {
+      if (!this.isStandby) return;
+      const start = Math.floor(Date.now() / SENSOR_CONFIG.AUDIO_SAMPLE_INTERVAL_MS) * SENSOR_CONFIG.AUDIO_SAMPLE_INTERVAL_MS;
+      try {
+        const check = await this.runStandbyCheck(start);
+        if (this.isStandby) this.onStandbyCheck?.(check);
+      } catch (err) {
+        console.warn(`${LOG_TAG} Standby check error:`, err);
+      }
+      this.scheduleStandbyCheck();
+    }, interval - (Date.now() % interval));
+  }
+
+  /** The same audio + motion capture and beat sync as a session cycle, without storing anything. */
+  private async runStandbyCheck(cycleStartMs: number): Promise<StandbyCheck> {
+    const [audioRes, motionRes] = await Promise.allSettled([
+      this.audioAnalyzer.analyze(cycleStartMs, { light: true }),
+      sensorAllowed('motion') ? this.motionTracker.sample() : Promise.resolve(null),
+    ]);
+    const audio = audioRes.status === 'fulfilled' ? audioRes.value : null;
+    const motion = motionRes.status === 'fulfilled' ? motionRes.value : null;
+    if (motion) this.audioAnalyzer.setPhoneMoving(motion.movementClassification !== 'stationary');
+    const musicBpm = audio?.beatBpm ?? null;
+    const sync = audio && motion && musicBpm != null
+      ? computeBeatSync(motion.movementSeries, audio.beatOnsetTimesMs, musicBpm, motion.movementBpm)
+      : null;
+    return {
+      atMs: cycleStartMs,
+      avgDb: audio?.avgDb ?? null,
+      musicDetected: audio?.musicDetected ?? false,
+      pulseClarity: audio?.pulseClarity ?? null,
+      subBass: audio?.subBassEnergy ?? null,
+      phoneContext: motion?.phoneContext ?? null,
+      movementClass: motion?.movementClassification ?? null,
+      rhythmicity: motion?.rhythmicity ?? null,
+      movementBpm: motion?.movementBpm ?? null,
+      plv: sync?.plv ?? null,
+      tempoMatch: sync?.tempoMatch ?? (motion ? computeTempoMatch(motion.movementBpm, musicBpm).tempoMatch : null),
+    };
   }
 
   /** A venue confirmed outside the lookup (its QR code was scanned): later windows carry it. */

@@ -1,6 +1,6 @@
 # Plan: build 24. Night reminder and "Going out" standby
 
-Status: planned 18 Oct 2026, not started. Owner agreed (18 Oct): build the standby as an opt-in on top of a weekend-night reminder; no GPS for detection; measure battery and false alarms on the first real nights before going further. Venue beacons are a separate idea for partner venues (`docs/ideas/venue-beacons.md`).
+Status: planned 18 Oct 2026; revised the same day with the owner's movement condition, then built (see HANDOFF, build 24). Owner agreed (18 Oct): build the standby as an opt-in on top of a weekend-night reminder; no GPS for detection; measure battery and false alarms on the first real nights before going further. Venue beacons are a separate idea for partner venues (`docs/ideas/venue-beacons.md`).
 
 ## Why
 People forget to start a session when they arrive somewhere. Every forgotten night is lost data. The owner's idea: the phone notices it's at a party and asks "Start measuring?", turning passive sensing into an intentional session.
@@ -20,29 +20,39 @@ People forget to start a session when they arrive somewhere. Every forgotten nig
    - **The promise:** "Viibe Check listens on your phone for loud music with a beat. Nothing is recorded, stored or uploaded until you say yes. The orange microphone dot stays on while it's on."
    - **Switching it on:** a button on Home ("Going out tonight") or the reminder. One tap, then the app can go to the pocket.
    - **Lock-screen card while on standby:** "Standing by · we'll ask when it sounds like a party" with **[Turn off]**.
-3. **When it sounds like a party:**
+3. **When it sounds and moves like a party:**
    - The phone buzzes and the card switches to "Sounds like a party. Start measuring?" **[Yes, start] [Not now]**. A notification with the same two buttons comes too, as backup.
    - **Yes** starts a normal session right there, without unlocking. The card becomes the session card (rating buttons, timer, STOP).
    - **Not now** keeps standby but stays quiet for 45 minutes.
 4. **Venue:** with no GPS in the background, the venue starts blank. When the person next opens the app, the existing "Are you at X?" check runs (foreground, While Using), or they scan the venue QR.
 5. **Standby ends by itself** at 06:00, after 6 hours, at battery ≤ 20%, or when the session it started ends.
 
-## Detection rule ("sounds like a party"), first guesses to tune with real nights
-- **When it checks:** every 30 s, one 5-second analysis: dB, sub-bass share, beat clarity. No song recognition, no clips, no windows.
-- **A party minute:**
+## Detection rule ("sounds and moves like a party"), first guesses to tune with real nights
+Owner's requirement (18 Oct): loud music alone is not enough; there must also be some movement, at least a bit of dancing rhythm with the music.
+
+- **When it checks:** every 30 s, one 5-second check with the same code as a session cycle: audio (dB, beat clarity, sub-bass) and motion recorded together, then beat sync between them. No song recognition, no clips, no windows stored.
+- **A music minute** (any check in that minute):
   - dB ≥ 75 (calibrated iOS offset);
-  - music detected (beat clarity ≥ 0.3 or sub-bass share ≥ 0.25);
-  - local time 21:00–06:00;
-  - the phone not in a vehicle (iOS motion activity `automotive` excludes; Motion & Fitness permission is already asked).
-- **Prompt:** when 5 of the last 6 minutes are party minutes. Movement is optional (people stand at the bar); it's logged for tuning.
-- **Limits:** at most one prompt per 45 minutes, at most 4 per night.
+  - a beat: beat clarity ≥ 0.3, or sub-bass share ≥ 0.25 with the music detector on.
+- **A moving minute** (any check in that minute): the phone is on a body and moving (`phone_context = on_body_moving`), the movement class is swaying, dancing or jumping (not walking or still), **and** the movement has a rhythm:
+  - movement locked to the heard beat (beat PLV ≥ 0.4), **or**
+  - movement tempo agreeing with the music tempo (tempo match ≥ 0.5), **or**
+  - clearly periodic movement in the 60–180 BPM range (rhythmicity ≥ 0.35).
+- **Prompt when, over the last 6 minutes:**
+  - at least 5 are music minutes;
+  - at least 2 are moving minutes. A bit of dancing is enough; people also stand at the bar between songs.
+  - It is 21:00–06:00 local time.
+  - The phone isn't in a vehicle (iOS motion activity `automotive`; Motion & Fitness permission is already asked).
+- **Why movement matters:** it filters out restaurants and bars with loud music where nobody dances, a speaker at home, and a car radio. **The cost:** someone who keeps the phone in a bag on a table won't be prompted. The logged music-only minutes will show how often that happens.
+- **Limits:** at most one prompt per 45 minutes, at most 4 per night. An unanswered prompt counts as ignored after 10 minutes.
 - **Where the numbers live:** `STANDBY_*` in `src/config/constants.ts`.
 
 ## Data (to judge battery and false alarms)
 - **New `standby_nights` table**, one row per standby, uploaded through a `SECURITY DEFINER` RPC like the others:
   - `device_id`, `armed_at`, `ended_at`, `end_reason`;
   - `prompts`, `accepted`, `declined`, `ignored`;
-  - `battery_start_pct`, `battery_end_pct`, `party_minutes`;
+  - `battery_start_pct`, `battery_end_pct`;
+  - `checks`, `music_minutes`, `moving_minutes`, `party_minutes` (music and moving together);
   - nothing else: no audio, no per-minute values, no location.
 - **`sessions.start_source`:** `manual` | `standby` | `reminder`. The analysis can then check whether sessions started from standby differ.
 - **Retention:** 24 months, like sessions; included in `delete_my_data`.

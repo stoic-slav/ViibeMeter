@@ -152,6 +152,33 @@ export interface Session {
   endReason: EndReason | null;
   consentVersion: number | null;         // consent the user accepted for this session
   sensors: string | null;                // sensors allowed, e.g. 'mic,motion,ble,loc'
+  startSource: StartSource;              // by hand, or "Yes, start" on a Going out prompt
+}
+
+export type StartSource = 'manual' | 'standby';
+
+export type StandbyEndReason = 'user' | 'morning' | 'max_duration' | 'low_battery' | 'session_ended' | 'deleted' | 'interrupted';
+
+/**
+ * One evening of "Going out" standby (iOS, build 24+): counts only, to judge battery cost and
+ * false alarms. No audio, per-minute values or location.
+ */
+export interface StandbyNight {
+  id: string;
+  deviceId: string;
+  armedAt: number;
+  endedAt: number | null;
+  endReason: StandbyEndReason | null;
+  prompts: number;
+  accepted: number;
+  declined: number;
+  ignored: number;
+  checks: number;
+  musicMinutes: number;
+  movingMinutes: number;
+  partyMinutes: number;
+  batteryStartPct: number | null;
+  batteryEndPct: number | null;
 }
 
 /**

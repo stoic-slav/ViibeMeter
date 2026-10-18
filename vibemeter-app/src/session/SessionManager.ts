@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import * as Crypto from 'expo-crypto';
 import * as Battery from 'expo-battery';
-import { Session, VenueType, PhonePlacement, EndReason, VenueSource } from '../types';
+import { Session, VenueType, PhonePlacement, EndReason, VenueSource, StartSource } from '../types';
 import { saveSession, updateSessionEnd, getSessions, updateSessionEventCode, updateSessionVenue } from '../storage/LocalBuffer';
 import { Venue } from './VenueLocator';
 import { getDraftGroupCode, clearDraftGroupCode, venueGroupCode } from './GroupCode';
@@ -39,6 +39,7 @@ export class SessionManager {
       venue?: Venue | null;
       venueSource?: VenueSource;   // 'auto' (Google proposal confirmed) or 'qr' (venue code scanned)
       groupKind?: GroupKind;       // how eventCode was obtained (friend's code or a venue's crowd group)
+      startSource?: StartSource;   // 'standby' when started from a Going out prompt
     } = {},
   ): Promise<Session> {
     if (this.activeSession) {
@@ -73,6 +74,7 @@ export class SessionManager {
       endReason: null,
       consentVersion: consent?.version ?? null,
       sensors: consent ? sensorsLabel(consent) : null,
+      startSource: options.startSource ?? 'manual',
     };
 
     await saveSession(session);

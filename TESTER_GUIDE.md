@@ -42,6 +42,7 @@ The first time you open it, allow **microphone, motion, Bluetooth and notificati
 - Every 5 minutes a "How's the vibe right now?" notification also appears. On Android, use the buttons under it; on an iPhone without the card, press and hold it. Then tap 💀 Dead, 🙂 Decent or 🔥 Best. Done in 2 seconds.
 - Missed one? It stays there until the next one. You can also open the app and tap **Rate the vibe now** whenever you like.
 - If the card turns grey and says "Not measuring", the app was closed: open Viibe Check and start again.
+- **Going out mode (iPhone, optional):** before you leave home, tap **Going out tonight?** on the Home screen and turn it on. Put your phone away. When it hears loud music with a beat *and* feels you dancing for a few minutes, it buzzes and the lock-screen card asks **"Sounds like a party. Start measuring?"**. Tap **Yes, start** without unlocking. On standby it records nothing; the orange microphone dot shows it's listening. You can also get an **"Out tonight?"** reminder on the nights you pick (Thursday, Friday and Saturday at 22:30 unless you change them).
 - Keep the app running. Locking the screen is fine; force-closing it stops the measurement.
 - **Android:** a "Viibe Check is measuring" notification stays visible during the session. That's what keeps it measuring with the screen off, so leave it there. If your phone asks about battery optimisation for Viibe Check, choose **Don't optimise** / **Unrestricted**.
 

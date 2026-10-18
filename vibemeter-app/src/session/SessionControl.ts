@@ -12,6 +12,7 @@ import { ScanResult, setPendingGroupCode, setPendingVenue } from './GroupCode';
  */
 
 const listeners = new Set<(session: Session | null, reason: EndReason) => void>();
+const startListeners = new Set<(session: Session) => void>();
 
 const AUTO_STOP_TEXT: Record<Exclude<EndReason, 'user' | 'interrupted'>, string> = {
   no_music: 'No music for a while, so your session ended. Start a new one at the next place.',
@@ -31,6 +32,30 @@ export async function stopEverything(reason: EndReason = 'user'): Promise<Sessio
     }).catch(() => {});
   }
   listeners.forEach(l => l(session, reason));
+  return session;
+}
+
+/** Going out standby hears about any session start (by hand or from its prompt). */
+export function onSessionStarted(listener: (session: Session) => void): () => void {
+  startListeners.add(listener);
+  return () => startListeners.delete(listener);
+}
+
+/** Called by whoever started a session, after its sensors and prompts run. */
+export function notifySessionStarted(session: Session): void {
+  startListeners.forEach(l => l(session));
+}
+
+/**
+ * "Yes, start" on a Going out prompt, usually with the phone locked: a session with no venue
+ * (no location in the background; asked when the app is next opened) that reuses the standby's
+ * open microphone and turns the standby card into the session card.
+ */
+export async function startSessionFromStandby(): Promise<Session> {
+  const session = await sessionManager.startSession(null, null, { startSource: 'standby' });
+  await sensorOrchestrator.startSession(session);
+  vibePrompt.startPromptSchedule(session.id, { startedAt: session.startedAt, venue: null });
+  notifySessionStarted(session);
   return session;
 }
 
