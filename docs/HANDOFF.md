@@ -87,7 +87,8 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, eu-west-3. Free tier, pauses when idle.
 - **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
-### Next build (22): P0 from the 17 Oct feedback: consent, mic required, deletion, retention
+### Build 22 (18 Oct, built locally): P0 from the 17 Oct feedback: consent, mic required, deletion, retention
+- **Status:** built with `eas build --local` (build number 22, version 0.2.0, only the While-Using location string), `~/Downloads/ViibeCheck-build22.ipa`; owner uploads with Transporter and adds it to the TestFlight `Public` group.
 - **Context:** a friend's feedback session (17 Oct) and the agreed 90-day plan (strategy doc "MVP scope and 90-day pilot"). P0 = compliance + mic requirement + Live Activity rating. Outreach drafts for labs (UCLouvain Rhythm & Brains, imec-SMIT VUB, IPEM Ghent), the Brussels Night Council and C12: `docs/outreach/drafts-2026-10.md`. Owner picks: students, city centre, C12.
 - **Consent screen** before the first session: 18+ checkbox, microphone required, motion/Bluetooth/location toggles (whole row toggles; the native switch is display-only because synthetic taps on it were unreliable and a tap could toggle twice). Stored in SecureStore; enforced in the orchestrator and VenueLocator. Sessions store `consent_version` and `sensors` (migration `20261017153439`).
 - **Mic required:** Start asks for microphone permission and blocks with "Microphone needed … Open Settings" if refused (verified in the simulator by revoking the permission).
