@@ -87,7 +87,9 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, eu-west-3. Free tier, pauses when idle.
 - **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
-### Build 24 (18 Oct): weekend-night reminder and opt-in "Going out" standby
+### Build 24 (18 Oct, built locally): weekend-night reminder and opt-in "Going out" standby
+- **Status:** `~/Downloads/ViibeCheck-build24.ipa` (checked: app and card build 24, `CardActionIntent` registered, no background-location strings). Owner uploads with Transporter after build 23.
+- **Device checks still to do (TestFlight):** `docs/device-test-plan.md`.
 - **Plan with the owner's decisions:** `docs/plans/build-24-going-out-standby.md`. Movement condition added by the owner: loud music alone is not enough, some dancing rhythm is needed too.
 - **What was built:**
   - `src/session/Standby.ts` + `StandbyRules.ts`, `SensorOrchestrator.startStandby/stopStandby` (light checks every 30 s, nothing stored);
