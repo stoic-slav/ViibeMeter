@@ -99,7 +99,8 @@
       ],
       "./plugins/withFmtConstevalFix",
       "@bacons/apple-targets",
-      "./plugins/withLiveActivityIntent"
+      "./plugins/withLiveActivityIntent",
+      "./plugins/withSceneLifecycle"
     ],
     "scheme": "vibemeter",
     "extra": {
