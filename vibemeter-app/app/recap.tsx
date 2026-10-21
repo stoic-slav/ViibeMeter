@@ -19,13 +19,14 @@ type Item = StoredRecap['items'][number];
 const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 const day = (ms: number) => new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short' });
 
+// Music Shazam couldn't name (edits, mixes, unreleased tracks) is shown as the DJ's edits
 function itemTitle(i: Item): string {
-  return i.kind === 'song' ? (i.title ?? 'Unknown title') : `Unrecognised tracks ${time(i.startsAt)}–${time(i.endsAt)}`;
+  return i.kind === 'song' ? (i.title ?? 'Unknown title') : 'DJ edits';
 }
 
 function itemSubtitle(i: Item): string {
   if (i.kind === 'song') return [i.artist, i.djName && `played by ${i.djName}`].filter(Boolean).join(' · ');
-  return i.djName ? `Played by ${i.djName}` : 'An edit, a mix or a track Shazam doesn\'t know';
+  return [i.djName, `${time(i.startsAt)}–${time(i.endsAt)}`].filter(Boolean).join(' · ');
 }
 
 function spotifyUrl(i: Item): string {
@@ -69,7 +70,13 @@ export default function RecapScreen() {
     if (!recap || songs.length === 0) return;
     setSaving(true);
     try {
-      const r = await createAppleMusicPlaylist(playlistName, 'The songs you moved to most, ranked by Viibe Check.', songs);
+      // Never leave the button spinning (e.g. no Apple Music account on the phone)
+      const r = await Promise.race([
+        createAppleMusicPlaylist(playlistName, 'The songs you moved to most, ranked by Viibe Check.', songs),
+        new Promise<{ ok: false; reason: 'error'; message: string }>(resolve =>
+          setTimeout(() => resolve({ ok: false, reason: 'error', message: 'timeout' }), 25_000)),
+      ]);
+      console.log('[Recap] Apple Music:', JSON.stringify(r));
       if (r.ok) {
         Alert.alert('Playlist created 🎶', `"${playlistName}" with ${r.added} song${r.added === 1 ? '' : 's'} is in your Apple Music library.`, [
           { text: 'OK' }, { text: 'Open Music', onPress: () => Linking.openURL('music://') },
@@ -178,7 +185,7 @@ export default function RecapScreen() {
                 <View key={item.id} style={{ flexDirection: 'row', gap: 12 }}>
                   <Text style={st.shareRank}>{n + 1}</Text>
                   <View style={{ flex: 1 }}>
-                    <Text style={st.shareItem} numberOfLines={1}>{item.kind === 'song' ? item.title : 'Unrecognised tracks'}</Text>
+                    <Text style={st.shareItem} numberOfLines={1}>{item.kind === 'song' ? item.title : 'DJ edits'}</Text>
                     <Text style={st.shareSub} numberOfLines={1}>
                       {item.kind === 'song' ? [item.artist, item.djName].filter(Boolean).join(' · ') : (item.djName ?? `${time(item.startsAt)}–${time(item.endsAt)}`)}
                     </Text>

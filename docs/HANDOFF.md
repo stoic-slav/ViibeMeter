@@ -104,7 +104,8 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
   - the Apple Music playlist (needs the MusicKit service and an Apple Music subscription);
   - the 12:00 notification;
   - how many songs get recognised at a club (check after the first real night: coverage in the recap header).
-- **Owner step before Apple Music works:** in the Apple Developer account, Identifiers → `com.leogerasimov.vibemeter` → App Services → enable **MusicKit**, then save.
+- **MusicKit:** the owner enabled the MusicKit App Service (21 Oct). In the simulator the app then obtained a developer token and reached playlist creation, which waits indefinitely without an Apple Music account, so the call is now capped at 25 s. The real playlist still needs a check on a phone with Apple Music.
+- **Wording:** music Shazam can't name is shown as "DJ edits · <DJ> · <times>" (owner's choice). Recognising DJs or their edits by sound: `docs/ideas/dj-fingerprints.md`.
 - **Adding a lineup** (until clubs have a page): `insert into venue_sets (place_id, dj_name, starts_at, ends_at) values ('<Google place ID>', '<DJ>', '<start with time zone>', '<end>');`. C12's place ID is `ChIJpzxaoX_Ew0cRDSgjKYR0C4U`.
 
 ### Build 24 (18 Oct, built locally): weekend-night reminder and opt-in "Going out" standby
