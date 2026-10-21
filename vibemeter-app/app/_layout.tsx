@@ -12,6 +12,7 @@ import { endLeftoverCard, listenForCardActions } from '../src/notifications/Lock
 import { standby } from '../src/session/Standby';
 import { setupNightReminder, scheduleNightReminders } from '../src/notifications/NightReminder';
 import { getStandbySettings } from '../src/storage/StandbySettings';
+import { setupRecapNotifications } from '../src/session/NightRecapService';
 
 const BACKGROUND_TASK = 'VIBEMETER_BACKGROUND_FETCH';
 
@@ -32,6 +33,8 @@ export default function RootLayout() {
     standby.setup().catch(console.error);
     // Card button taps reach VibePrompt (ratings) and Standby (start, not now, turn off)
     listenForCardActions();
+    // "Your night in songs" notification (12:00 the day after) opens the recap
+    setupRecapNotifications();
     if (Platform.OS === 'ios') {
       setupNightReminder().catch(console.error);
       getStandbySettings().then(s => scheduleNightReminders(s.reminders)).catch(() => {});
@@ -109,6 +112,8 @@ export default function RootLayout() {
       <Tabs.Screen name="stop" options={{ href: null, headerShown: false }} />
       {/* Going out mode (standby) and the weekend-night reminder; not a tab */}
       <Tabs.Screen name="going-out" options={{ href: null, title: 'Going out' }} />
+      {/* "Your night in songs" for a session (from the summary or the 12:00 notification); not a tab */}
+      <Tabs.Screen name="recap" options={{ href: null, title: 'Your night in songs' }} />
       <Tabs.Screen
         name="summary"
         options={{

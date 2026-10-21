@@ -37,6 +37,9 @@ const LEARNED_TEMPO_STABLE = 0.02; // learned tempo is used once it moves less t
 
 interface RecognizedTrack {
   label: string;               // "Artist – Title", on-device display only
+  title: string | null;        // on-device only (the night's song recap), never uploaded
+  artist: string | null;
+  appleMusicId: string | null;
   genre: string | null;
   bpm: number | null;
   isrc: string | null;
@@ -47,6 +50,9 @@ interface RecognizedTrack {
 
 interface PendingAuddTrack {
   label: string;
+  title: string | null;
+  artist: string | null;
+  appleMusicId: string | null;
   genre: string | null;
   bpm: number | null;
   isrc: string | null;
@@ -317,6 +323,9 @@ export class AudioAnalyzer {
       recognizedSong: track?.label ?? null,
       recognizedGenre: track?.genre ?? null,
       recognizedIsrc: track?.isrc ?? null,
+      recognizedTitle: track?.title ?? null,
+      recognizedArtist: track?.artist ?? null,
+      recognizedAppleMusicId: track?.appleMusicId ?? null,
       trackPopularity: track?.popularity ?? null,
       recognitionSource: track?.source ?? null,
       songMatch: this.freshMatch,
@@ -372,6 +381,9 @@ export class AudioAnalyzer {
     // A single ShazamKit match is reliable, so no second confirmation is needed
     this.track = {
       label: `${result.artist ?? '?'} – ${result.title ?? '?'}`,
+      title: result.title ?? null,
+      artist: result.artist ?? null,
+      appleMusicId: result.appleMusicID ?? null,
       genre: result.genres?.[0] ?? null,
       bpm: deezer?.bpm ?? null,
       isrc,
@@ -463,6 +475,9 @@ export class AudioAnalyzer {
     const deezerBpm: number | null = data.result.deezer?.bpm ? Math.round(data.result.deezer.bpm) : null;
     const candidate: PendingAuddTrack = {
       label: `${data.result.artist} – ${data.result.title}`,
+      title: data.result.title ?? null,
+      artist: data.result.artist ?? null,
+      appleMusicId: data.result.apple_music?.id ?? null,
       genre: genres && genres.length > 0 ? genres[0] : null,
       bpm: amTempo ?? deezerBpm,
       isrc: amAttrs?.isrc ?? data.result.deezer?.isrc ?? null,
@@ -505,7 +520,8 @@ export class AudioAnalyzer {
       crestFactor: 0, vocalPresence: 0, harmonicNoiseRatio: 0,
       beatBpm: null, beatOnsetTimesMs: [],
       clapCount: 0, audioEvent: null, recognizedSong: null, recognizedGenre: null,
-      recognizedIsrc: null, trackPopularity: null, recognitionSource: null, songMatch: null, songBpmSource: null,
+      recognizedIsrc: null, recognizedTitle: null, recognizedArtist: null, recognizedAppleMusicId: null,
+      trackPopularity: null, recognitionSource: null, songMatch: null, songBpmSource: null,
     };
   }
 }

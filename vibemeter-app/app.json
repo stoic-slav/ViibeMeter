@@ -24,7 +24,8 @@
           "audio",
           "bluetooth-central",
           "fetch"
-        ]
+        ],
+        "NSAppleMusicUsageDescription": "Viibe Check adds the songs you danced to most to an Apple Music playlist, when you ask it to."
       },
       "appleTeamId": "APRS7H5DD6"
     },

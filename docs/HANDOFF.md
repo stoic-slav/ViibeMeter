@@ -87,6 +87,26 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, eu-west-3. Free tier, pauses when idle.
 - **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
+### Build 25 (21 Oct, not built yet): "Your night in songs"
+- **Why:** cold start. One person gets value from their own night (the songs they moved to most), and every 👍/👎 is ground truth for "does movement predict enjoying a song?". Plan and owner decisions: `docs/plans/build-25-night-in-songs.md` (Apple Music playlist + Spotify links; lineup per venue night with the QR unchanged; recap at Stop + 12:00 reminder; image card for Stories).
+- **What was built:** see AGENTS.md "Your night in songs". Migration `20261021124557` (applied): `venue_sets`, `venue_sets_for`, `song_feedback`, `upload_song_feedback`, deletion and retention. New native module `modules/music-library`; new dependency `react-native-view-shot` 4.0.3.
+- **Verified:**
+  - `npx tsx scripts/night-recap-test.ts` (10 checks): dancing on the beat ranks first; a danced-to unrecognised edit is ranked and credited to the DJ; the song heard with the phone on the bar, a 15 s song and a song stood through are not listed.
+  - **Simulator, with a synthetic C12 night** written into the local database and a test lineup on the server (both removed afterwards):
+    - the recap showed Levitating (credited to the warm-up DJ), the unrecognised stretch (headliner) and Delilah, with reasons;
+    - 👍 and 👎 uploaded with ISRC/rank/score/DJ and no titles;
+    - Add to Apple Music asked for access with our text, then failed gracefully (no Apple Music account in the simulator, MusicKit not yet enabled);
+    - Share produced a PNG card in the share sheet;
+    - Stop built an (empty) recap without errors;
+    - the summary shows the recap link.
+- **Not verified:**
+  - real ShazamKit songs on a device;
+  - the Apple Music playlist (needs the MusicKit service and an Apple Music subscription);
+  - the 12:00 notification;
+  - how many songs get recognised at a club (check after the first real night: coverage in the recap header).
+- **Owner step before Apple Music works:** in the Apple Developer account, Identifiers → `com.leogerasimov.vibemeter` → App Services → enable **MusicKit**, then save.
+- **Adding a lineup** (until clubs have a page): `insert into venue_sets (place_id, dj_name, starts_at, ends_at) values ('<Google place ID>', '<DJ>', '<start with time zone>', '<end>');`. C12's place ID is `ChIJpzxaoX_Ew0cRDSgjKYR0C4U`.
+
 ### Build 24 (18 Oct, built locally): weekend-night reminder and opt-in "Going out" standby
 - **Status:** `~/Downloads/ViibeCheck-build24.ipa` (checked: app and card build 24, `CardActionIntent` registered, no background-location strings). Owner uploads with Transporter after build 23.
 - **Device checks still to do (TestFlight):** `docs/device-test-plan.md`.

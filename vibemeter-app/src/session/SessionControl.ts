@@ -5,6 +5,7 @@ import { sensorOrchestrator } from '../sensors/SensorOrchestrator';
 import { vibePrompt } from '../notifications/VibePrompt';
 import { confirmVenue } from './VenueLocator';
 import { ScanResult, setPendingGroupCode, setPendingVenue } from './GroupCode';
+import { onSessionFinished } from './NightRecapService';
 
 /**
  * The one way a session ends, from the Stop button or an auto-stop rule (no music for 20 min,
@@ -31,6 +32,8 @@ export async function stopEverything(reason: EndReason = 'user'): Promise<Sessio
       trigger: null,
     }).catch(() => {});
   }
+  // "Your night in songs" is built now (the clips are on the phone) and announced at 12:00
+  if (session?.endedAt) onSessionFinished(session.id, session.endedAt).catch(() => {});
   listeners.forEach(l => l(session, reason));
   return session;
 }

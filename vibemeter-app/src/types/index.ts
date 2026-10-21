@@ -263,6 +263,9 @@ export interface AudioMetrics {
   recognizedSong: string | null;
   recognizedGenre: string | null;
   recognizedIsrc: string | null;
+  recognizedTitle: string | null;        // on-device only (night recap)
+  recognizedArtist: string | null;
+  recognizedAppleMusicId: string | null;
   trackPopularity: number | null;
   recognitionSource: RecognitionSource | null;
   songMatch: { isrc: string; trackStartMs: number; rawStartMs: number } | null; // fresh ShazamKit match this cycle

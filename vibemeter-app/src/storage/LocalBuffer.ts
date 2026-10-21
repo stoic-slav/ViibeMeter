@@ -115,6 +115,43 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_sc_synced ON sensor_clips(synced, clip_start);
 
+    -- The night's recognised songs, for the recap. Phone only: titles are never uploaded
+    CREATE TABLE IF NOT EXISTS night_songs (
+      session_id TEXT NOT NULL,
+      isrc TEXT NOT NULL,
+      title TEXT,
+      artist TEXT,
+      apple_music_id TEXT,
+      genre TEXT,
+      first_heard_ms INTEGER NOT NULL,
+      last_heard_ms INTEGER NOT NULL,
+      PRIMARY KEY (session_id, isrc)
+    );
+
+    -- "Your night in songs", computed when the session ends (phone only)
+    CREATE TABLE IF NOT EXISTS night_recaps (
+      session_id TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL,
+      recap TEXT NOT NULL
+    );
+
+    -- 👍/👎 per recap entry (uploaded, without titles)
+    CREATE TABLE IF NOT EXISTS song_feedback (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      device_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      isrc TEXT,
+      starts_at INTEGER NOT NULL,
+      ends_at INTEGER NOT NULL,
+      rank INTEGER NOT NULL,
+      score REAL NOT NULL,
+      liked INTEGER NOT NULL,
+      dj_name TEXT,
+      created_at INTEGER NOT NULL,
+      synced INTEGER DEFAULT 0
+    );
+
     CREATE TABLE IF NOT EXISTS standby_nights (
       id TEXT PRIMARY KEY,
       device_id TEXT NOT NULL,
@@ -462,6 +499,91 @@ export async function markWindowsSynced(ids: string[]): Promise<void> {
   );
 }
 
+// ── Night in songs ────────────────────────────────────────────────────────────
+
+export interface NightSong {
+  isrc: string;
+  title: string | null;
+  artist: string | null;
+  appleMusicId: string | null;
+  genre: string | null;
+  firstHeardMs: number;
+  lastHeardMs: number;
+}
+
+/** A recognised song heard during the session (phone only). */
+export async function recordNightSong(sessionId: string, s: Omit<NightSong, 'firstHeardMs' | 'lastHeardMs'>, atMs: number): Promise<void> {
+  const database = await getDb();
+  await database.runAsync(
+    `INSERT INTO night_songs (session_id, isrc, title, artist, apple_music_id, genre, first_heard_ms, last_heard_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(session_id, isrc) DO UPDATE SET last_heard_ms = excluded.last_heard_ms,
+       title = COALESCE(night_songs.title, excluded.title), artist = COALESCE(night_songs.artist, excluded.artist),
+       apple_music_id = COALESCE(night_songs.apple_music_id, excluded.apple_music_id)`,
+    [sessionId, s.isrc, s.title, s.artist, s.appleMusicId, s.genre, atMs, atMs]
+  );
+}
+
+export async function getNightSongs(sessionId: string): Promise<NightSong[]> {
+  const database = await getDb();
+  const rows = await database.getAllAsync<any>(`SELECT * FROM night_songs WHERE session_id = ?`, [sessionId]);
+  return rows.map(r => ({
+    isrc: r.isrc, title: r.title, artist: r.artist, appleMusicId: r.apple_music_id, genre: r.genre,
+    firstHeardMs: r.first_heard_ms, lastHeardMs: r.last_heard_ms,
+  }));
+}
+
+export async function getClipsForSession(sessionId: string): Promise<any[]> {
+  const database = await getDb();
+  return database.getAllAsync(
+    `SELECT clip_start, movement_energy, beat_plv, song_isrc, phone_context FROM sensor_clips
+     WHERE session_id = ? ORDER BY clip_start ASC`,
+    [sessionId]
+  );
+}
+
+export async function saveNightRecap(sessionId: string, recap: unknown): Promise<void> {
+  const database = await getDb();
+  await database.runAsync(
+    `INSERT OR REPLACE INTO night_recaps (session_id, created_at, recap) VALUES (?, ?, ?)`,
+    [sessionId, Date.now(), JSON.stringify(recap)]
+  );
+}
+
+export async function getNightRecap<T>(sessionId: string): Promise<T | null> {
+  const database = await getDb();
+  const row = await database.getFirstAsync<{ recap: string }>(`SELECT recap FROM night_recaps WHERE session_id = ?`, [sessionId]);
+  return row ? (JSON.parse(row.recap) as T) : null;
+}
+
+export async function saveSongFeedback(f: {
+  id: string; sessionId: string; deviceId: string; kind: 'song' | 'unknown'; isrc: string | null;
+  startsAt: number; endsAt: number; rank: number; score: number; liked: boolean; djName: string | null;
+}): Promise<void> {
+  const database = await getDb();
+  await database.runAsync(
+    `INSERT OR REPLACE INTO song_feedback
+      (id, session_id, device_id, kind, isrc, starts_at, ends_at, rank, score, liked, dj_name, created_at, synced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [f.id, f.sessionId, f.deviceId, f.kind, f.isrc, f.startsAt, f.endsAt, f.rank, f.score, f.liked ? 1 : 0, f.djName, Date.now()]
+  );
+}
+
+export async function getUnsyncedSongFeedback(): Promise<any[]> {
+  const database = await getDb();
+  return database.getAllAsync(`SELECT * FROM song_feedback WHERE synced = 0`);
+}
+
+export async function markSongFeedbackSynced(ids: string[], createdBefore: number): Promise<void> {
+  if (ids.length === 0) return;
+  const database = await getDb();
+  // A 👍 changed to 👎 after the upload read it is uploaded again
+  await database.runAsync(
+    `UPDATE song_feedback SET synced = 1 WHERE id IN (${ids.map(() => '?').join(',')}) AND created_at <= ?`,
+    [...ids, createdBefore]
+  );
+}
+
 export async function getNearestWindowId(sessionId: string, timestamp: Date): Promise<string | null> {
   const database = await getDb();
   const ts = timestamp.getTime();
@@ -563,6 +685,7 @@ export async function markRatingsSynced(ids: string[]): Promise<void> {
 export async function wipeLocalData(): Promise<void> {
   const database = await getDb();
   await database.execAsync(
-    `DELETE FROM sensor_clips; DELETE FROM sensor_windows; DELETE FROM subjective_ratings; DELETE FROM sessions; DELETE FROM standby_nights;`
+    `DELETE FROM sensor_clips; DELETE FROM sensor_windows; DELETE FROM subjective_ratings; DELETE FROM sessions; DELETE FROM standby_nights;
+     DELETE FROM night_songs; DELETE FROM night_recaps; DELETE FROM song_feedback;`
   );
 }

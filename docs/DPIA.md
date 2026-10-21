@@ -17,9 +17,10 @@ Why a DPIA: GDPR Art. 35 requires one when processing is likely to be high-risk.
 | Data per minute | Loudness, tempo, spectral summaries, movement energy/tempo/rhythmicity, beat-sync scalars, phone context (on body/off body), BLE device count (no IDs), song ISRC/genre/tempo, bass-loudness curve (4 values/s), venue place ID |
 | Data per 10 s | Beat sync, movement energy/tempo, song ISRC, phone context |
 | Ratings | 💀/🙂/🔥 with time, response time, where given (notification, app, lock-screen card) and whether a prompt was waiting |
+| Night recap (build 25) | On the phone only: recognised song titles/artists/Apple Music IDs per session and the computed recap. Uploaded only on 👍/👎: ISRC (or none for an unrecognised stretch), start/end, rank, score, liked, DJ name. Server-side public lineup (`venue_sets`: venue, DJ, set times) |
 | Going out standby (build 24, opt-in, iPhone) | Per evening only: armed/ended time and reason, prompts asked/accepted/declined/ignored, number of checks, music/moving/party minutes, battery at start and end. Sessions record `start_source` (manual or standby). The standby checks themselves (5 s audio + motion every 30 s) are computed on the phone and discarded |
 | Not collected | Audio, BLE identifiers, location coordinates or traces, contacts, names, accounts |
-| Processors / recipients | Supabase (EU, Paris region: database, Edge Functions); Apple ShazamKit (audio fingerprint for song lookup); Deezer public API (ISRC lookup); Google Places API (rounded position → nearest venue, position not stored by us); Expo/EAS (build service, no user data) |
+| Processors / recipients | Supabase (EU, Paris region: database, Edge Functions); Apple ShazamKit (audio fingerprint for song lookup); Apple MusicKit (playlist creation in the user's own library, on request); Deezer public API (ISRC lookup); Google Places API (rounded position → nearest venue, position not stored by us); Expo/EAS (build service, no user data) |
 | Retention | 10 s clips, bass curves and live-view logs: 90 days. Sessions, minute data, ratings and standby evenings: 24 months. Automatic (`apply_retention`, daily) |
 
 ## 2. Necessity and proportionality

@@ -223,6 +223,21 @@ export default function SummaryScreen() {
         <Text style={{ fontSize: 28, fontWeight: '700', color: TX }}>Summary</Text>
       </View>
 
+      {/* The night's songs, ranked from movement (build 25) */}
+      {session && (
+        <TouchableOpacity
+          style={[s.card, { flexDirection: 'row', alignItems: 'center', borderColor: A + '66', backgroundColor: A + '12' }]}
+          onPress={() => router.push({ pathname: '/recap', params: { sessionId: session.id } })}
+          activeOpacity={0.85}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: MONO, fontSize: 11, color: A, letterSpacing: 2, marginBottom: 4 }}>🎶 YOUR NIGHT IN SONGS</Text>
+            <Text style={{ fontSize: 13, color: TXM }}>The songs you moved to most, ready to save to a playlist.</Text>
+          </View>
+          <Text style={{ fontSize: 20, color: A }}>›</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Score card */}
       <View style={[s.card, { alignItems: 'center', gap: 10, paddingVertical: 20 }]}>
         <HeroGauge score={avgVibe} size={140} />

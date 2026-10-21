@@ -10,7 +10,7 @@ import { MotionTracker } from './MotionTracker';
 import { BLEScanner } from './BLEScanner';
 import { computeVibeScore } from '../processing/VibeScoreEngine';
 import { computeBeatSync, computeTempoMatch, aggregateBeatSync, BeatSyncResult } from '../processing/BeatSync';
-import { saveSensorWindow, deleteOldSyncedWindows, saveClip, deleteOldSyncedClips } from '../storage/LocalBuffer';
+import { saveSensorWindow, deleteOldSyncedWindows, saveClip, deleteOldSyncedClips, recordNightSong } from '../storage/LocalBuffer';
 import { encodeEnvelope, BASS_FRAME_MS, FRAMES_PER_WINDOW } from '../processing/BassEnvelope';
 import { syncAll } from '../storage/SupabaseSync';
 import { venueLocator, Venue } from '../session/VenueLocator';
@@ -498,6 +498,16 @@ export class SensorOrchestrator {
         // A skipped motion sample (long stationary) keeps the last known context
         phoneContext: motion?.phoneContext ?? (skipMotion ? this.lastPhoneContext : null),
       }).catch(err => console.warn(`${LOG_TAG} Clip save error:`, err));
+    }
+    // The night's songs, with titles, for the recap (phone only)
+    if (audio?.recognizedIsrc && this.currentSession) {
+      recordNightSong(this.currentSession.id, {
+        isrc: audio.recognizedIsrc,
+        title: audio.recognizedTitle,
+        artist: audio.recognizedArtist,
+        appleMusicId: audio.recognizedAppleMusicId,
+        genre: audio.recognizedGenre,
+      }, cycleStartMs).catch(err => console.warn(`${LOG_TAG} Song record error:`, err));
     }
     if (audio || motion) this.emitPreviewUpdate();
   }

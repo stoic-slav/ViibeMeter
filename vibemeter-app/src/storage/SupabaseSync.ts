@@ -5,6 +5,7 @@ import {
   getUnsyncedRatings, markRatingsSynced,
   getUnsyncedClips, markClipsSynced,
   getUnsyncedStandbyNights, markStandbyNightSynced,
+  getUnsyncedSongFeedback, markSongFeedbackSynced,
 } from './LocalBuffer';
 import { SENSOR_CONFIG } from '../config/constants';
 import * as Application from 'expo-application';
@@ -251,6 +252,32 @@ export async function syncStandbyNights(): Promise<void> {
   for (const r of rows) await markStandbyNightSynced(r.id, { ended_at: r.ended_at ?? null, checks: r.checks ?? 0 });
 }
 
+/** Night recap 👍/👎 (no titles), through upload_song_feedback. Sessions must be uploaded first. */
+export async function syncSongFeedback(): Promise<void> {
+  const readAt = Date.now();
+  const rows = await getUnsyncedSongFeedback();
+  if (rows.length === 0) return;
+  const payload = rows.map(r => ({
+    id: r.id,
+    session_id: r.session_id,
+    device_id: r.device_id,
+    kind: r.kind,
+    isrc: r.isrc ?? null,
+    starts_at: new Date(r.starts_at).toISOString(),
+    ends_at: new Date(r.ends_at).toISOString(),
+    rank: r.rank,
+    score: r.score,
+    liked: r.liked === 1,
+    dj_name: r.dj_name ?? null,
+    app_version: APP_VERSION,
+  }));
+  await withRetry(async () => {
+    const { error } = await supabase.rpc('upload_song_feedback', { rows: payload });
+    if (error) throw new Error(`Song feedback upload failed: ${error.message}`);
+  });
+  await markSongFeedbackSynced(rows.map(r => r.id), readAt);
+}
+
 export async function syncAll(): Promise<void> {
   try {
     await syncSessions();
@@ -258,6 +285,7 @@ export async function syncAll(): Promise<void> {
     await syncClips();
     await syncRatings();
     await syncStandbyNights();
+    await syncSongFeedback();
   } catch (err) {
     console.error(`${LOG_TAG} Sync error:`, err);
     // Don't throw — sync failures are non-fatal, data is safe in SQLite

@@ -96,6 +96,21 @@ All core services are singletons. Do not re-instantiate them:
 
 **Lock-screen card (iOS Live Activity, since build 23):** while a session runs, the lock screen (and Dynamic Island) shows a card with the venue, a self-counting timer, STOP, and 💀/🙂/🔥 buttons that rate without unlocking (iOS 17+; iOS 16.2–16.x shows the card without buttons). `src/notifications/LockScreenCard.ts` mirrors the session onto it and is driven by `VibePrompt` (start/end with the prompt schedule; "How's the vibe right now?" with highlighted buttons while a prompt waits; "Thanks 🔥" after any rating; a light update every 5 min renews the card's 15-minute stale date, so a card from a killed app turns grey: "Not measuring"). The 5-minute notification stays as the vibrating reminder. Card ratings are stored with `rating_source = 'live_activity'`; every rating records `prompted` (a prompt was waiting), because card buttons also work unprompted. STOP opens `vibemeter://stop` (`app/stop.tsx`, needs the phone unlocked, then asks to confirm). At launch with no session running, `closeInterruptedSessions` (`LocalBuffer.ts`) closes sessions the app never ended (killed mid-session) with `end_reason = 'interrupted'`, and a leftover card is removed. iOS asks "Allow Live Activities from Viibe Check?" the first time a card appears.
 
+**Your night in songs (since build 25; plan `docs/plans/build-25-night-in-songs.md`):**
+- **What it is:** at Stop, `onSessionFinished` (`src/session/NightRecapService.ts`) ranks the songs the person moved to most and stores the recap on the phone (`night_recaps`). It schedules a "Your night in songs" notification at 12:00 the next day when there are entries; `app/recap.tsx` shows it (linked from the summary).
+- **Ranking:** pure and tested (`src/processing/NightRecap.ts`, `npx tsx scripts/night-recap-test.ts`).
+  - Only the session's on-body 10 s clips count; movement energy becomes a percentile within the night.
+  - Song score = 0.65 × energy percentile + 0.35 × beat PLV (≥ 30 s on a body).
+  - Unrecognised stretches of music (≥ 2 min) are ranked the same way.
+  - Entries below a score of 0.3 are not listed; at most 5.
+- **Songs:** titles, artists and Apple Music IDs come from ShazamKit (`AudioAnalyzer` keeps them) and live only on the phone (`night_songs`, recorded by the orchestrator each cycle).
+- **DJ credit:** from `venue_sets` (lineup per venue, written by us with SQL for now) through `venue_sets_for`.
+- **Feedback:** 👍/👎 is uploaded via `upload_song_feedback` (`song_feedback`: ISRC, times, rank, score, liked, DJ; no titles).
+- **Saving and sharing:**
+  - Apple Music playlist: `modules/music-library` (MusicKit; needs the MusicKit App Service on the app ID, and the user's Apple Music access);
+  - Spotify: a search link per song;
+  - share card: `react-native-view-shot`.
+
 **Going out standby (iOS, since build 24; plan `docs/plans/build-24-going-out-standby.md`):**
 - **Switching it on:** opt-in on `app/going-out.tsx` (Home button "Going out tonight?", or the weekend reminder). The opt-in is stored separately from sensor consent, in `src/storage/StandbySettings.ts` (with the reminder days and time). The app must be in the foreground to start: iOS opens the microphone and starts a Live Activity only then.
 - **Service and checks:** `src/session/Standby.ts` (singleton `standby`) runs `sensorOrchestrator.startStandby`: every 30 s, a light check with no Shazam, no clips, no windows (`AudioAnalyzer.analyze(…, { light: true })` + `MotionTracker.sample` + beat sync).
