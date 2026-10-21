@@ -87,7 +87,10 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, eu-west-3. Free tier, pauses when idle.
 - **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
-### Build 26 (21 Oct, not built yet): refined vibe ranking, DJ links, venue lineup page
+### TestFlight shipping is scripted (21 Oct)
+`vibemeter-app/scripts/ship-testflight.sh` uploads the ipa, sets the What to Test text (`docs/testflight-whats-new.txt`), adds it to the Public group, notifies testers and expires old builds, with no Transporter or clicking. **It needs a one-time App Store Connect API key from the owner** (steps at the top of the script; key kept in `~/.appstoreconnect/`, never committed). Until the key exists, the owner still uploads by hand.
+
+### Build 26 (21 Oct, built locally, ipa in ~/Downloads, upload pending): refined vibe ranking, DJ links, venue lineup page
 - Plan, research table and checks: `docs/plans/build-26-dj-venue-recap.md`. Migration `20261021154904` (applied).
 - **Build 25 was built** (`~/Downloads/ViibeCheck-build25.ipa`, checked: app and card 25, Instagram query scheme, Apple Music text) and handed to the owner for Transporter.
 - Strategy doc: new section "Cold start and the triangle: audience, DJs, venues".

@@ -51,6 +51,7 @@ bash ../deploy.sh            # JS-only fast deploy to a plugged-in iPhone (needs
 
 eas build --platform ios                          # cloud build for TestFlight (download the .ipa and upload with Transporter)
 eas build --platform android --profile preview    # installable Android APK
+bash scripts/ship-testflight.sh                    # build locally AND ship to TestFlight's Public group (fastlane pilot: upload, What to Test from docs/testflight-whats-new.txt, notify, expire old builds). Needs the App Store Connect API key in ~/.appstoreconnect (setup at the top of the script). `--no-build` ships the newest ~/Downloads/ViibeCheck-build*.ipa
 LANG=en_US.UTF-8 eas build --platform ios --local --output ~/Downloads/ViibeCheck-buildN.ipa   # free local build (needs fastlane; the EAS free plan has a monthly iOS build quota)
 ```
 
