@@ -5,10 +5,10 @@
 # What it does:
 #   1. builds the ipa with `eas build --local` (skipped with --no-build, which ships the newest
 #      ~/Downloads/ViibeCheck-build*.ipa instead);
-#   2. uploads it to App Store Connect with fastlane pilot (no Transporter, no Apple password);
-#   3. waits for Apple to process it, sets the "What to Test" text, adds it to the group and
+#   2. uploads it to App Store Connect with fastlane pilot (no Transporter, no Apple password), unless that build number is already there;
+#   3. waits for Apple to process it, sets the "What to Test" text (no emoji: Apple rejects them), adds it to the group,
 #      notifies testers;
-#   4. expires older builds in that group (unless --keep-old).
+#   4. submits it for beta review and expires older builds in that group once it is live (unless --keep-old).
 #
 # One-time setup: an App Store Connect API key, kept OUTSIDE the repo (never commit it):
 #   ~/.appstoreconnect/AuthKey.p8      the key file (App Store Connect → Users and Access →
@@ -46,6 +46,13 @@ source "$KEY_DIR/viibe.env"
 : "${KEY_ID:?KEY_ID missing in viibe.env}" "${ISSUER_ID:?ISSUER_ID missing in viibe.env}"
 [ -s "$CHANGELOG_FILE" ] || { echo "No \"What to Test\" text at $CHANGELOG_FILE" >&2; exit 1; }
 
+# Python helper environment (once): JWT signing + requests, kept next to the key, outside the repo
+if [ ! -x "$KEY_DIR/venv/bin/python" ]; then
+  python3 -m venv "$KEY_DIR/venv" && "$KEY_DIR/venv/bin/pip" install -q pyjwt cryptography requests
+fi
+PY="$KEY_DIR/venv/bin/python"
+ASC="$APP_DIR/scripts/asc_testflight.py"
+
 # fastlane reads the key as a small JSON file, written next to the key (outside the repo)
 API_KEY_JSON="$KEY_DIR/api_key.json"
 python3 - "$KEY_DIR/AuthKey.p8" "$KEY_ID" "$ISSUER_ID" "$API_KEY_JSON" <<'PY'
@@ -65,15 +72,18 @@ else
 fi
 [ -f "${IPA:-}" ] || { echo "No ipa found." >&2; exit 1; }
 
-echo "Shipping $IPA to TestFlight group \"$GROUP\"…"
-fastlane pilot upload \
-  --ipa "$IPA" \
-  --api_key_path "$API_KEY_JSON" \
-  --changelog "$(cat "$CHANGELOG_FILE")" \
-  --groups "$GROUP" \
-  --distribute_external true \
-  --notify_external_testers true \
-  --expire_previous_builds "$EXPIRE" \
-  --skip_waiting_for_build_processing false
+# The build number inside the ipa
+NUM="$(unzip -p "$IPA" 'Payload/*.app/Info.plist' | plutil -extract CFBundleVersion raw -o - - )"
+echo "Build $NUM: $IPA"
 
-echo "Done: $IPA is in $GROUP."
+if "$PY" "$ASC" has "$NUM"; then
+  echo "Build $NUM is already uploaded; skipping the upload."
+else
+  fastlane pilot upload --ipa "$IPA" --api_key_path "$API_KEY_JSON" --skip_waiting_for_build_processing true
+fi
+
+# What to Test, group, beta review, expire older builds
+CHANGELOG_ARGS=("$CHANGELOG_FILE" --group "$GROUP")
+[ "$EXPIRE" = true ] || CHANGELOG_ARGS+=(--keep-old)
+"$PY" "$ASC" publish "$NUM" "${CHANGELOG_ARGS[@]}"
+echo "Done: build $NUM is in $GROUP."
