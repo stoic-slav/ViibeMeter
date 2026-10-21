@@ -51,11 +51,13 @@ def main():
     windows = fetch_table('sensor_windows')
     ratings = fetch_table('subjective_ratings')
     clips = fetch_table('sensor_clips')  # 10 s cycles; kept 90 days
+    song_feedback = fetch_table('song_feedback')  # recap 👍/👎 with the four score parts (build 26+)
 
     sessions.to_csv(output_dir / 'sessions.csv', index=False)
     windows.to_csv(output_dir / 'sensor_windows.csv', index=False)
     ratings.to_csv(output_dir / 'ratings.csv', index=False)
     clips.to_csv(output_dir / 'sensor_clips.csv', index=False)
+    song_feedback.to_csv(output_dir / 'song_feedback.csv', index=False)
 
     print(f"\n=== Data Summary ===")
     print(f"Sessions:       {len(sessions)}")

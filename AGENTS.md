@@ -101,7 +101,7 @@ All core services are singletons. Do not re-instantiate them:
 - **Ranking (refined in build 26):** pure and tested (`src/processing/NightRecap.ts`, `npx tsx scripts/night-recap-test.ts`).
   - Only on-body, non-walking 10 s clips count; everything is relative to the person's own night.
   - Four signals: intensity (energy percentile, 0.35), entrainment (beat PLV, else movement tempo vs song tempo incl. half/double, 0.30), persistence (share of the song moving more than usual, 0.20), lift (movement vs the 2 minutes before, 0.15). Missing signals drop out.
-  - The four values are uploaded with each 👍/👎 so the weights can be fitted later. Research basis and table: `docs/plans/build-26-dj-venue-recap.md`.
+  - The four values are uploaded with each 👍/👎. **The 👍/👎 answers decide the weights** (and may call for new measures): read `docs/feedback-learning.md`; run `analysis/fit_recap_weights.py` after real nights. Research basis and table: `docs/plans/build-26-dj-venue-recap.md`.
   - Unrecognised stretches of music (≥ 2 min) are ranked the same way. Entries below 0.3 are not listed; at most 5.
 - **Songs:** titles, artists and Apple Music IDs come from ShazamKit (`AudioAnalyzer` keeps them) and live only on the phone (`night_songs`, recorded by the orchestrator each cycle).
 - **DJ credit:** from `venue_sets` (lineup per venue, written by us with SQL for now) through `venue_sets_for`.
@@ -223,4 +223,5 @@ Python scripts in `analysis/` query Supabase and run statistical analysis:
 - `engagement.py`: per session and 15-minute block, dancing share, longest dancing streak, returns after breaks, and dancing through song changes (off-body minutes left out).
 - `auto_groups.py`: automatic grouping of phones from shared song playbacks and bass envelopes; validation against group codes, per evidence source; `--selftest` runs synthetic venues and DJ sets.
 - `optimize_weights.py`: Ridge and Random Forest weight analysis.
+- `fit_recap_weights.py`: which recap signals predict a 👍, suggested weights (cross-validated by person); `--selftest`. The loop is described in `docs/feedback-learning.md`.
 - `monitoring_queries.sql`: data quality checks.
