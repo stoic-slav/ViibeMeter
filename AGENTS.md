@@ -98,11 +98,11 @@ All core services are singletons. Do not re-instantiate them:
 
 **Your night in songs (since build 25; plan `docs/plans/build-25-night-in-songs.md`):**
 - **What it is:** at Stop, `onSessionFinished` (`src/session/NightRecapService.ts`) ranks the songs the person moved to most and stores the recap on the phone (`night_recaps`). It schedules a "Your night in songs" notification at 12:00 the next day when there are entries; `app/recap.tsx` shows it (linked from the summary).
-- **Ranking:** pure and tested (`src/processing/NightRecap.ts`, `npx tsx scripts/night-recap-test.ts`).
-  - Only the session's on-body 10 s clips count; movement energy becomes a percentile within the night.
-  - Song score = 0.65 × energy percentile + 0.35 × beat PLV (≥ 30 s on a body).
-  - Unrecognised stretches of music (≥ 2 min) are ranked the same way.
-  - Entries below a score of 0.3 are not listed; at most 5.
+- **Ranking (refined in build 26):** pure and tested (`src/processing/NightRecap.ts`, `npx tsx scripts/night-recap-test.ts`).
+  - Only on-body, non-walking 10 s clips count; everything is relative to the person's own night.
+  - Four signals: intensity (energy percentile, 0.35), entrainment (beat PLV, else movement tempo vs song tempo incl. half/double, 0.30), persistence (share of the song moving more than usual, 0.20), lift (movement vs the 2 minutes before, 0.15). Missing signals drop out.
+  - The four values are uploaded with each 👍/👎 so the weights can be fitted later. Research basis and table: `docs/plans/build-26-dj-venue-recap.md`.
+  - Unrecognised stretches of music (≥ 2 min) are ranked the same way. Entries below 0.3 are not listed; at most 5.
 - **Songs:** titles, artists and Apple Music IDs come from ShazamKit (`AudioAnalyzer` keeps them) and live only on the phone (`night_songs`, recorded by the orchestrator each cycle).
 - **DJ credit:** from `venue_sets` (lineup per venue, written by us with SQL for now) through `venue_sets_for`.
 - **Feedback:** 👍/👎 is uploaded via `upload_song_feedback` (`song_feedback`: ISRC, times, rank, score, liked, DJ; no titles).
@@ -116,7 +116,8 @@ All core services are singletons. Do not re-instantiate them:
   - **During sessions:** `audio-capture` keeps rolling 30 s fingerprints. When Shazam's catalog has no match, the latest one is uploaded (`edit_prints`, 90 days).
   - **Catalog:** `edit_catalog()` serves those taken during a known set (`venue_sets`), credited to that DJ, plus DJ-registered edits that we approved (`dj_edits`).
   - **Matching on the phone:** `src/session/EditCatalog.ts` downloads and caches the catalog (12 h) and loads it into ShazamKit; unknown music is matched against it on the phone.
-  - **Registration:** DJs register edits on the hidden route `app/dj.tsx` (`vibemeter://dj`, one 60 s fingerprint). Approve with `update dj_edits set status = 'approved' where id = '…'`.
+  - **Registration:** DJs register edits on the hidden route `app/dj.tsx` (`vibemeter://dj`, one 60 s fingerprint, optional link). Approve with `update dj_edits set status = 'approved' where id = '…'`.
+  - **Venue lineups:** venues enter who plays when on `app/lineup.tsx` (`vibemeter://lineup`) with a venue code (`venue_editors`, SHA-256 only; `save_venue_lineup`). DJ links from lineups and registrations show as FOLLOW DJ / LISTEN in the recap.
   - **Simulator limit:** acoustic matching can't be tested there (the Mac mic barely hears its own speakers).
 
 **Going out standby (iOS, since build 24; plan `docs/plans/build-24-going-out-standby.md`):**

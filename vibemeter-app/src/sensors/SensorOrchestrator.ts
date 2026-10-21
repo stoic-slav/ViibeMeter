@@ -15,6 +15,7 @@ import { encodeEnvelope, BASS_FRAME_MS, FRAMES_PER_WINDOW } from '../processing/
 import { syncAll } from '../storage/SupabaseSync';
 import { venueLocator, Venue } from '../session/VenueLocator';
 import { sensorAllowed } from '../storage/Consent';
+import { getEditLink } from '../session/EditCatalog';
 
 const LOG_TAG = '[SensorOrchestrator]';
 const FOREGROUND_SCAN_DEBOUNCE_MS = 10_000;
@@ -514,7 +515,7 @@ export class SensorOrchestrator {
     // DJ edits: a known edit heard now (catalog match), and fingerprints of music Shazam couldn't
     // name, to learn edits from (music minutes of a session only, never on standby)
     if (audio?.recognizedEdit && this.currentSession) {
-      recordNightEdit(this.currentSession.id, audio.recognizedEdit, cycleStartMs)
+      recordNightEdit(this.currentSession.id, { ...audio.recognizedEdit, link: getEditLink(audio.recognizedEdit.id) }, cycleStartMs)
         .catch(err => console.warn(`${LOG_TAG} Edit record error:`, err));
     }
     if (audio?.editPrint && audio.musicDetected && this.currentSession) {

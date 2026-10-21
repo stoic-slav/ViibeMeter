@@ -27,6 +27,7 @@ export default function DjScreen() {
   const [djName, setDjName] = useState('');
   const [title, setTitle] = useState('');
   const [contact, setContact] = useState('');
+  const [link, setLink] = useState('');
   const [owns, setOwns] = useState(false);
   const [parts, setParts] = useState<string[]>([]);
   const [seconds, setSeconds] = useState(0);
@@ -65,16 +66,20 @@ export default function DjScreen() {
     }
   };
 
+  // A public page for the edit (SoundCloud, Beatport, Instagram …); https:// is added if missing
+  const normalizedLink = link.trim() ? (/^https?:\/\//i.test(link.trim()) ? link.trim().replace(/^http:/i, 'https:') : `https://${link.trim()}`) : null;
+
   const submit = async () => {
     setSending(true);
     try {
       const { error } = await supabase.rpc('register_dj_edit', {
         p_device_id: await getDeviceId(), p_dj_name: djName.trim(), p_title: title.trim(),
-        p_contact: contact.trim() || null, p_signatures: parts,
+        p_contact: contact.trim() || null, p_signatures: parts, p_link: normalizedLink,
       });
       if (error) throw new Error(error.message);
       Alert.alert('Thanks! 🎧', `"${title.trim()}" is registered. We check every edit; once approved, Viibe Check credits you whenever it plays.`);
       setTitle('');
+      setLink('');
       setParts([]);
       setOwns(false);
     } catch {
@@ -100,6 +105,8 @@ export default function DjScreen() {
         <TextInput style={st.input} value={djName} onChangeText={setDjName} placeholder="As shown on lineups" placeholderTextColor={TXD} maxLength={80} />
         <Text style={st.label}>EDIT TITLE</Text>
         <TextInput style={st.input} value={title} onChangeText={setTitle} placeholder="e.g. Levitating (your name edit)" placeholderTextColor={TXD} maxLength={120} />
+        <Text style={st.label}>LINK TO THE EDIT (OPTIONAL)</Text>
+        <TextInput style={st.input} value={link} onChangeText={setLink} placeholder="SoundCloud, Beatport or Instagram" placeholderTextColor={TXD} autoCapitalize="none" keyboardType="url" maxLength={300} />
         <Text style={st.label}>CONTACT (OPTIONAL)</Text>
         <TextInput style={st.input} value={contact} onChangeText={setContact} placeholder="Email or Instagram, so we can verify" placeholderTextColor={TXD} autoCapitalize="none" maxLength={200} />
       </View>

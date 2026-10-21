@@ -246,6 +246,12 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
     ['subjective_ratings', 'prompted', 'INTEGER'],
     // build 24: sessions started from a Going out prompt
     ['sessions', 'start_source', 'TEXT'],
+    // build 26: links, and the recap's score parts with each 👍/👎
+    ['night_edits', 'link', 'TEXT'],
+    ['song_feedback', 'intensity', 'REAL'],
+    ['song_feedback', 'entrainment', 'REAL'],
+    ['song_feedback', 'persistence', 'REAL'],
+    ['song_feedback', 'lift', 'REAL'],
   ];
   for (const [table, col, type] of migrations) {
     await database.runAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`).catch(() => {});
@@ -557,24 +563,25 @@ export interface NightEdit {
   editId: string;
   dj: string | null;
   title: string | null;
+  link: string | null;
   firstHeardMs: number;
   lastHeardMs: number;
 }
 
 /** A known DJ edit heard during the session (phone only). */
-export async function recordNightEdit(sessionId: string, e: { id: string; dj: string | null; title: string | null }, atMs: number): Promise<void> {
+export async function recordNightEdit(sessionId: string, e: { id: string; dj: string | null; title: string | null; link: string | null }, atMs: number): Promise<void> {
   const database = await getDb();
   await database.runAsync(
-    `INSERT INTO night_edits (session_id, edit_id, dj, title, first_heard_ms, last_heard_ms) VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO night_edits (session_id, edit_id, dj, title, link, first_heard_ms, last_heard_ms) VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(session_id, edit_id) DO UPDATE SET last_heard_ms = excluded.last_heard_ms`,
-    [sessionId, e.id, e.dj, e.title, atMs, atMs]
+    [sessionId, e.id, e.dj, e.title, e.link, atMs, atMs]
   );
 }
 
 export async function getNightEdits(sessionId: string): Promise<NightEdit[]> {
   const database = await getDb();
   const rows = await database.getAllAsync<any>(`SELECT * FROM night_edits WHERE session_id = ?`, [sessionId]);
-  return rows.map(r => ({ editId: r.edit_id, dj: r.dj, title: r.title, firstHeardMs: r.first_heard_ms, lastHeardMs: r.last_heard_ms }));
+  return rows.map(r => ({ editId: r.edit_id, dj: r.dj, title: r.title, link: r.link ?? null, firstHeardMs: r.first_heard_ms, lastHeardMs: r.last_heard_ms }));
 }
 
 export async function saveEditPrint(p: { id: string; sessionId: string; capturedAt: number; signature: string }): Promise<void> {
@@ -600,7 +607,7 @@ export async function deleteEditPrints(ids: string[]): Promise<void> {
 export async function getClipsForSession(sessionId: string): Promise<any[]> {
   const database = await getDb();
   return database.getAllAsync(
-    `SELECT clip_start, movement_energy, beat_plv, song_isrc, phone_context FROM sensor_clips
+    `SELECT clip_start, movement_energy, beat_plv, movement_bpm, song_isrc, phone_context FROM sensor_clips
      WHERE session_id = ? ORDER BY clip_start ASC`,
     [sessionId]
   );
@@ -623,13 +630,16 @@ export async function getNightRecap<T>(sessionId: string): Promise<T | null> {
 export async function saveSongFeedback(f: {
   id: string; sessionId: string; deviceId: string; kind: 'song' | 'unknown'; isrc: string | null;
   startsAt: number; endsAt: number; rank: number; score: number; liked: boolean; djName: string | null;
+  parts: { intensity: number; entrainment: number | null; persistence: number; lift: number | null } | null;
 }): Promise<void> {
   const database = await getDb();
   await database.runAsync(
     `INSERT OR REPLACE INTO song_feedback
-      (id, session_id, device_id, kind, isrc, starts_at, ends_at, rank, score, liked, dj_name, created_at, synced)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-    [f.id, f.sessionId, f.deviceId, f.kind, f.isrc, f.startsAt, f.endsAt, f.rank, f.score, f.liked ? 1 : 0, f.djName, Date.now()]
+      (id, session_id, device_id, kind, isrc, starts_at, ends_at, rank, score, liked, dj_name, created_at,
+       intensity, entrainment, persistence, lift, synced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [f.id, f.sessionId, f.deviceId, f.kind, f.isrc, f.startsAt, f.endsAt, f.rank, f.score, f.liked ? 1 : 0, f.djName, Date.now(),
+     f.parts?.intensity ?? null, f.parts?.entrainment ?? null, f.parts?.persistence ?? null, f.parts?.lift ?? null]
   );
 }
 

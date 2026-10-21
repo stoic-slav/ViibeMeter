@@ -119,6 +119,8 @@ export default function RootLayout() {
       <Tabs.Screen name="recap" options={{ href: null, title: 'Your night in songs' }} />
       {/* "Register your edits" for DJs, from a link we give them (vibemeter://dj); not a tab */}
       <Tabs.Screen name="dj" options={{ href: null, title: 'For DJs' }} />
+      {/* A venue's lineup, edited by the venue with its code (vibemeter://lineup); not a tab */}
+      <Tabs.Screen name="lineup" options={{ href: null, title: 'Lineup' }} />
       <Tabs.Screen
         name="summary"
         options={{

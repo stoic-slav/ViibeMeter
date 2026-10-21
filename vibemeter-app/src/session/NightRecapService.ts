@@ -33,7 +33,7 @@ async function fetchSets(placeId: string | null, from: number, to: number): Prom
       p_place_id: placeId, p_from: new Date(from).toISOString(), p_to: new Date(to).toISOString(),
     });
     if (error || !Array.isArray(data)) return [];
-    return data.map((r: any) => ({ djName: r.dj_name, startsAt: Date.parse(r.starts_at), endsAt: Date.parse(r.ends_at) }));
+    return data.map((r: any) => ({ djName: r.dj_name, djLink: r.dj_link ?? null, startsAt: Date.parse(r.starts_at), endsAt: Date.parse(r.ends_at) }));
   } catch {
     return [];
   }
@@ -46,6 +46,7 @@ export async function buildRecap(sessionId: string): Promise<StoredRecap | null>
   const [clipRows, windows, songs, edits] = await Promise.all([
     getClipsForSession(sessionId), getWindowsForSession(sessionId), getNightSongs(sessionId), getNightEdits(sessionId),
   ]);
+  const byMinute = new Map<number, any>(windows.map((w: any) => [w.window_start as number, w]));
   const startedAt = session.started_at as number;
   const endedAt = (session.ended_at as number | null) ?? Date.now();
   // The venue: the session's, else the one most of its minutes were at
@@ -58,10 +59,15 @@ export async function buildRecap(sessionId: string): Promise<StoredRecap | null>
     venueName: session.venue_name ?? null,
     startedAt,
     endedAt,
-    clips: clipRows.map(c => ({
-      clipStart: c.clip_start, movementEnergy: c.movement_energy, beatPlv: c.beat_plv,
-      songIsrc: c.song_isrc, phoneContext: c.phone_context,
-    })),
+    clips: clipRows.map(c => {
+      // Per-minute context from the window: the song's tempo, and whether the minute was walking
+      const w = byMinute.get(Math.floor(c.clip_start / 60_000) * 60_000);
+      return {
+        clipStart: c.clip_start, movementEnergy: c.movement_energy, beatPlv: c.beat_plv,
+        movementBpm: c.movement_bpm ?? null, songBpm: w?.song_bpm ?? null,
+        songIsrc: c.song_isrc, phoneContext: c.phone_context, walking: w?.movement_classification === 'walking',
+      };
+    }),
     songs,
     musicMinutes: new Set(windows.filter(w => w.music_detected === 1).map(w => w.window_start as number)),
     sets: await fetchSets(placeId, startedAt, endedAt),
@@ -135,6 +141,7 @@ export async function answerRecapItem(recap: StoredRecap, itemId: string, liked:
   await saveSongFeedback({
     id: item.id, sessionId: recap.sessionId, deviceId: await getDeviceId(), kind: item.kind, isrc: item.isrc,
     startsAt: item.startsAt, endsAt: item.endsAt, rank: index + 1, score: item.score, liked, djName: item.djName,
+    parts: item.parts ?? null,
   });
   syncSessions().then(() => syncSongFeedback()).catch(() => {});
   return next;

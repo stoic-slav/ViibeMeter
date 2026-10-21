@@ -222,9 +222,19 @@ export default function RecapScreen() {
                 <TouchableOpacity style={[st.chip, item.liked === false && st.chipOn]} onPress={() => answer(item, false)}>
                   <Text style={st.chipText}>👎</Text>
                 </TouchableOpacity>
+                <View style={{ flex: 1 }} />
+                {item.editLink && (
+                  <TouchableOpacity style={st.chip} onPress={() => Linking.openURL(item.editLink!)}>
+                    <Text style={st.chipLabel}>LISTEN ↗</Text>
+                  </TouchableOpacity>
+                )}
+                {item.djLink && (
+                  <TouchableOpacity style={st.chip} onPress={() => Linking.openURL(item.djLink!)}>
+                    <Text style={st.chipLabel}>FOLLOW DJ ↗</Text>
+                  </TouchableOpacity>
+                )}
                 {item.kind === 'song' && (
                   <>
-                    <View style={{ flex: 1 }} />
                     <TouchableOpacity style={st.chip} onPress={() => Linking.openURL(spotifyUrl(item))}>
                       <Text style={st.chipLabel}>SPOTIFY</Text>
                     </TouchableOpacity>
@@ -278,7 +288,7 @@ const st = StyleSheet.create({
   card: { backgroundColor: S1, borderWidth: 1, borderColor: S2, borderRadius: 16, padding: 14, gap: 12 },
   rank: { fontFamily: MONO, fontSize: 22, fontWeight: '700', color: A, width: 24 },
   itemTitle: { color: TX, fontSize: 16, fontWeight: '600' },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
   chip: { borderWidth: 1, borderColor: S2, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: BG },
   chipOn: { borderColor: A, backgroundColor: A + '22' },
   chipText: { fontSize: 15 },

@@ -15,6 +15,13 @@ const CACHE = `${FileSystem.documentDirectory}edit-catalog.json`;
 const REFRESH_MS = 12 * 3600_000;
 
 let loaded = false;
+// Links per catalog entry (the edit's or the DJ's page), for crediting in the recap
+let links = new Map<string, string>();
+
+/** The link of a catalog entry, if its DJ gave one. */
+export function getEditLink(id: string): string | null {
+  return links.get(id) ?? null;
+}
 
 async function readCache(): Promise<{ fetchedAt: number; entries: EditCatalogEntry[] } | null> {
   try {
@@ -34,11 +41,12 @@ export async function refreshEditCatalog(force = false): Promise<void> {
     if (force || !cache || Date.now() - cache.fetchedAt > REFRESH_MS) {
       const { data, error } = await supabase.rpc('edit_catalog');
       if (!error && Array.isArray(data)) {
-        cache = { fetchedAt: Date.now(), entries: data.map((r: any) => ({ id: r.id, signature: r.signature, dj: r.dj, title: r.title })) };
+        cache = { fetchedAt: Date.now(), entries: data.map((r: any) => ({ id: r.id, signature: r.signature, dj: r.dj, title: r.title, link: r.link ?? null })) };
         await FileSystem.writeAsStringAsync(CACHE, JSON.stringify(cache));
         loaded = false;
       }
     }
+    if (cache) links = new Map(cache.entries.filter(e => e.link).map(e => [e.id, e.link!]));
     if (cache && !loaded) {
       const count = await loadEditCatalog(cache.entries);
       loaded = true;

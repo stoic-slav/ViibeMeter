@@ -27,6 +27,7 @@ export interface EditCatalogEntry {
   signature: string;      // base64 ShazamKit signature
   dj: string | null;
   title: string | null;
+  link?: string | null;   // JS only (the edit's or DJ's page), not passed to ShazamKit
 }
 
 interface AudioCaptureNative {

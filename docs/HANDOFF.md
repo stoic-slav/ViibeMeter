@@ -87,6 +87,12 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - Project `VibeMeter`, id `fjbqyoulfihewafdkkvt`, eu-west-3. Free tier, pauses when idle.
 - **Purged on 2 Oct 2026.** Since then only test sessions exist (simulator `SIMTEST`, `TEST1`, and the hand test `954f077f`). Ask the owner before deleting them ahead of a real pilot.
 
+### Build 26 (21 Oct, not built yet): refined vibe ranking, DJ links, venue lineup page
+- Plan, research table and checks: `docs/plans/build-26-dj-venue-recap.md`. Migration `20261021154904` (applied).
+- **Build 25 was built** (`~/Downloads/ViibeCheck-build25.ipa`, checked: app and card 25, Instagram query scheme, Apple Music text) and handed to the owner for Transporter.
+- Strategy doc: new section "Cold start and the triangle: audience, DJs, venues".
+- **Not verified on a device:** the refined ranking on real nights, live edit matching, Apple Music playlist, Instagram button.
+
 ### Build 25 (21 Oct, not built yet): "Your night in songs"
 - **Why:** cold start. One person gets value from their own night (the songs they moved to most), and every 👍/👎 is ground truth for "does movement predict enjoying a song?". Plan and owner decisions: `docs/plans/build-25-night-in-songs.md` (Apple Music playlist + Spotify links; lineup per venue night with the QR unchanged; recap at Stop + 12:00 reminder; image card for Stories).
 - **What was built:** see AGENTS.md "Your night in songs". Migration `20261021124557` (applied): `venue_sets`, `venue_sets_for`, `song_feedback`, `upload_song_feedback`, deletion and retention. New native module `modules/music-library`; new dependency `react-native-view-shot` 4.0.3.

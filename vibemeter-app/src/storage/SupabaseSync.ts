@@ -271,6 +271,10 @@ export async function syncSongFeedback(): Promise<void> {
     score: r.score,
     liked: r.liked === 1,
     dj_name: r.dj_name ?? null,
+    intensity: r.intensity ?? null,
+    entrainment: r.entrainment ?? null,
+    persistence: r.persistence ?? null,
+    lift: r.lift ?? null,
     app_version: APP_VERSION,
   }));
   await withRetry(async () => {

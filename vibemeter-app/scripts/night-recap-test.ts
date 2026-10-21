@@ -1,39 +1,57 @@
-// Checks the "Your night in songs" ranking (src/processing/NightRecap.ts) on a synthetic night.
+// Checks the "Your night in songs" ranking (src/processing/NightRecap.ts) on synthetic nights.
 // Run from vibemeter-app/: npx tsx scripts/night-recap-test.ts
 import { buildNightRecap, RecapClip } from '../src/processing/NightRecap';
 
 const T0 = new Date(2026, 9, 24, 23, 0).getTime();
-const clips: RecapClip[] = [];
-const musicMinutes = new Set<number>();
-let t = T0;
-// [isrc or null, minutes, movement energy, beat PLV, phone context]
-const plan: [string | null, number, number, number | null, string][] = [
-  ['WARMUP', 4, 1.0, null, 'on_body_still'],        // standing, chatting
-  ['BANGER', 4, 5.0, 0.7, 'on_body_moving'],        // dancing on the beat → #1
-  ['OKSONG', 3, 2.5, 0.2, 'on_body_moving'],        // light moving, off beat
-  [null, 5, 4.5, 0.5, 'on_body_moving'],            // unrecognised edit, danced → should rank
-  ['BARTRIP', 4, 4.8, 0.1, 'off_body'],             // phone on the bar: must not count
-  ['SECOND', 4, 4.0, 0.55, 'on_body_moving'],       // strong, on the beat → top 3
-  ['SHORT', 0.25, 6.0, 0.9, 'on_body_moving'],      // only 15 s: too short to rank
-  [null, 1, 3.0, null, 'on_body_moving'],           // 1 min unknown: too short
-];
-for (const [isrc, min, energy, plv, ctx] of plan) {
-  const n = Math.round(min * 6);
-  for (let i = 0; i < n; i++) {
-    clips.push({ clipStart: t, movementEnergy: energy + (i % 3) * 0.1, beatPlv: plv, songIsrc: isrc, phoneContext: ctx });
-    musicMinutes.add(Math.floor(t / 60_000) * 60_000);
-    t += 10_000;
+
+type Step = {
+  isrc: string | null; min: number; energy: number; plv?: number | null; ctx?: string;
+  moveBpm?: number | null; songBpm?: number | null; walking?: boolean;
+};
+
+function night(plan: Step[]) {
+  const clips: RecapClip[] = [];
+  const musicMinutes = new Set<number>();
+  let t = T0;
+  for (const s of plan) {
+    const n = Math.round(s.min * 6);
+    for (let i = 0; i < n; i++) {
+      clips.push({
+        clipStart: t, movementEnergy: s.energy + (i % 3) * 0.1, beatPlv: s.plv ?? null,
+        movementBpm: s.moveBpm ?? null, songBpm: s.songBpm ?? null, songIsrc: s.isrc,
+        phoneContext: s.ctx ?? 'on_body_moving', walking: s.walking ?? false,
+      });
+      musicMinutes.add(Math.floor(t / 60_000) * 60_000);
+      t += 10_000;
+    }
   }
+  return { clips, musicMinutes, end: t };
 }
-const recap = buildNightRecap({
-  sessionId: 'TEST', venueName: 'C12', startedAt: T0, endedAt: t, clips, musicMinutes,
-  songs: ['WARMUP', 'BANGER', 'OKSONG', 'BARTRIP', 'SECOND', 'SHORT'].map(isrc => ({ isrc, title: isrc.toLowerCase(), artist: 'Artist', appleMusicId: null })),
-  sets: [{ djName: 'DJ One', startsAt: T0, endsAt: T0 + 12 * 60_000 }, { djName: 'DJ Two', startsAt: T0 + 12 * 60_000, endsAt: T0 + 60 * 60_000 }],
-});
 
 let failures = 0;
 const expect = (name: string, ok: boolean) => { if (!ok) failures++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}`); };
-console.log(recap.items.map((i, n) => `${n + 1}. ${i.kind === 'song' ? i.title : 'unrecognised'} score=${i.score} dj=${i.djName} · ${i.reason}`).join('\n'));
+const songs = (ids: string[]) => ids.map(isrc => ({ isrc, title: isrc.toLowerCase(), artist: 'Artist', appleMusicId: null }));
+
+// 1. A typical night
+const a = night([
+  { isrc: 'WARMUP', min: 4, energy: 1.0, ctx: 'on_body_still' },     // standing, chatting
+  { isrc: 'BANGER', min: 4, energy: 5.0, plv: 0.7 },                 // dancing on the beat → #1
+  { isrc: 'OKSONG', min: 3, energy: 2.5, plv: 0.2 },                 // light moving, off beat
+  { isrc: null, min: 5, energy: 4.5, plv: 0.5 },                     // unrecognised edit, danced
+  { isrc: 'BARTRIP', min: 4, energy: 4.8, plv: 0.1, ctx: 'off_body' }, // phone on the bar
+  { isrc: 'SECOND', min: 4, energy: 4.0, plv: 0.55 },                // strong, on the beat
+  { isrc: 'SHORT', min: 0.25, energy: 6.0, plv: 0.9 },               // 15 s: too short
+  { isrc: null, min: 1, energy: 3.0 },                               // 1 min unknown: too short
+]);
+const recap = buildNightRecap({
+  sessionId: 'TEST', venueName: 'C12', startedAt: T0, endedAt: a.end, clips: a.clips, musicMinutes: a.musicMinutes,
+  songs: songs(['WARMUP', 'BANGER', 'OKSONG', 'BARTRIP', 'SECOND', 'SHORT']),
+  sets: [
+    { djName: 'DJ One', djLink: 'https://soundcloud.com/djone', startsAt: T0, endsAt: T0 + 12 * 60_000 },
+    { djName: 'DJ Two', startsAt: T0 + 12 * 60_000, endsAt: T0 + 60 * 60_000 },
+  ],
+});
+console.log(recap.items.map((i, n) => `${n + 1}. ${i.kind === 'song' ? i.title : 'DJ edits'} score=${i.score} ${JSON.stringify(i.parts)} dj=${i.djName} · ${i.reason}`).join('\n'));
 expect('the banger danced on the beat is #1', recap.items[0]?.isrc === 'BANGER');
 expect('the danced-to unrecognised edit is ranked', recap.items.some(i => i.kind === 'unknown'));
 expect('the unrecognised edit is credited to DJ Two', recap.items.find(i => i.kind === 'unknown')?.djName === 'DJ Two');
@@ -41,18 +59,42 @@ expect('the song heard with the phone on the bar is not ranked', !recap.items.so
 expect('a 15 s song is not ranked', !recap.items.some(i => i.isrc === 'SHORT'));
 expect('the warm-up song stood through is not listed', !recap.items.some(i => i.isrc === 'WARMUP'));
 expect('at most 5 items', recap.items.length <= 5);
-expect('the banger is credited to DJ One', recap.items[0]?.djName === 'DJ One');
-expect('a reason mentions the beat for the banger', /beat/i.test(recap.items[0]?.reason ?? ''));
+expect('the banger is credited to DJ One with a link', recap.items[0]?.djName === 'DJ One' && recap.items[0]?.djLink === 'https://soundcloud.com/djone');
+expect('the reason mentions the beat for the banger', /beat/i.test(recap.items[0]?.reason ?? ''));
+expect('the banger has a strong lift (it came after standing)', (recap.items[0]?.parts.lift ?? 0) > 0.7);
 expect('6 songs recognised (incl. the bar trip)', recap.recognisedSongs === 6);
-// A known DJ edit heard in the unrecognised stretch, at a night with no lineup
+
+// 2. Walking to the bar to a rhythmic song must not count as dancing
+const b = night([
+  { isrc: 'DANCE', min: 4, energy: 3.5, plv: 0.5 },
+  { isrc: 'WALK', min: 4, energy: 5.5, moveBpm: 116, songBpm: 116, walking: true },
+  { isrc: 'CHILL', min: 4, energy: 1.5 },
+]);
+const rb = buildNightRecap({ sessionId: 'B', venueName: null, startedAt: T0, endedAt: b.end, clips: b.clips, musicMinutes: b.musicMinutes, songs: songs(['DANCE', 'WALK', 'CHILL']), sets: [] });
+expect('a song walked through is not ranked', !rb.items.some(i => i.isrc === 'WALK'));
+expect('the danced song is #1', rb.items[0]?.isrc === 'DANCE');
+
+// 3. Without a beat grid, movement tempo matching the song (or half/double) counts as in sync
+const c = night([
+  { isrc: 'INTIME', min: 4, energy: 3.0, moveBpm: 62, songBpm: 124 },  // bobbing at half tempo
+  { isrc: 'OFFTIME', min: 4, energy: 3.0, moveBpm: 97, songBpm: 124 }, // same energy, not in time
+  { isrc: 'REST', min: 4, energy: 1.0 },
+]);
+const rc = buildNightRecap({ sessionId: 'C', venueName: null, startedAt: T0, endedAt: c.end, clips: c.clips, musicMinutes: c.musicMinutes, songs: songs(['INTIME', 'OFFTIME', 'REST']), sets: [] });
+const inTime = rc.items.find(i => i.isrc === 'INTIME');
+const offTime = rc.items.find(i => i.isrc === 'OFFTIME');
+expect('moving in time (half tempo) scores higher than the same energy off tempo', (inTime?.score ?? 0) > (offTime?.score ?? 1));
+expect('entrainment is measured from tempo when there is no beat lock', (inTime?.parts.entrainment ?? 0) > 0.9);
+
+// 4. A known DJ edit at a night with no lineup: its DJ, title and link
 const unknownStart = recap.items.find(i => i.kind === 'unknown')!.startsAt;
 const noLineup = buildNightRecap({
-  sessionId: 'TEST2', venueName: null, startedAt: T0, endedAt: t, clips, musicMinutes, sets: [],
-  songs: [], edits: [{ dj: 'DJ Edit Maker', title: 'Levitating (DJ Edit Maker rework)', firstHeardMs: unknownStart + 60_000, lastHeardMs: unknownStart + 120_000 }],
+  sessionId: 'D', venueName: null, startedAt: T0, endedAt: a.end, clips: a.clips, musicMinutes: a.musicMinutes, sets: [], songs: [],
+  edits: [{ dj: 'DJ Edit Maker', title: 'Levitating (DJ Edit Maker rework)', link: 'https://soundcloud.com/editmaker/levitating', firstHeardMs: unknownStart + 60_000, lastHeardMs: unknownStart + 120_000 }],
 });
 const credited = noLineup.items.find(i => i.kind === 'unknown');
 expect('without a lineup, a matched edit credits its DJ', credited?.djName === 'DJ Edit Maker');
-expect('a registered edit shows its title', credited?.title === 'Levitating (DJ Edit Maker rework)');
-console.log(`dancing minutes ${recap.dancingMinutes}, coverage ${recap.coverage?.toFixed(2)}`);
+expect('a registered edit shows its title and link', credited?.title === 'Levitating (DJ Edit Maker rework)' && credited?.editLink === 'https://soundcloud.com/editmaker/levitating');
+
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);
