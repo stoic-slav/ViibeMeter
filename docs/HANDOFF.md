@@ -108,7 +108,7 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - **Wording:** music Shazam can't name is shown as "DJ edits · <DJ> · <times>" (owner's choice). Recognising DJs or their edits by sound: `docs/ideas/dj-fingerprints.md`.
 - **Part 2 (21 Oct):**
   - Wrapped-style share card;
-  - Share to Instagram Story (needs a Meta App ID in `app.json` `extra.instagramAppId`, still `null`);
+  - Share to Instagram Story (Meta App ID `1102053282622187`, the owner's Meta developer app "Viibe Check", in `app.json` `extra.instagramAppId`);
   - DJ edits via a ShazamKit custom catalog (learned from lineup sets, plus DJ registrations at `vibemeter://dj`, QR `docs/assets/dj-register-qr.png`, approved by us);
   - migration `20261021133324_dj_edits` (applied).
   - Details and what was checked: `docs/plans/build-25-night-in-songs.md`, part 2.
