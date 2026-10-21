@@ -106,6 +106,13 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
   - how many songs get recognised at a club (check after the first real night: coverage in the recap header).
 - **MusicKit:** the owner enabled the MusicKit App Service (21 Oct). In the simulator the app then obtained a developer token and reached playlist creation, which waits indefinitely without an Apple Music account, so the call is now capped at 25 s. The real playlist still needs a check on a phone with Apple Music.
 - **Wording:** music Shazam can't name is shown as "DJ edits · <DJ> · <times>" (owner's choice). Recognising DJs or their edits by sound: `docs/ideas/dj-fingerprints.md`.
+- **Part 2 (21 Oct):**
+  - Wrapped-style share card;
+  - Share to Instagram Story (needs a Meta App ID in `app.json` `extra.instagramAppId`, still `null`);
+  - DJ edits via a ShazamKit custom catalog (learned from lineup sets, plus DJ registrations at `vibemeter://dj`, QR `docs/assets/dj-register-qr.png`, approved by us);
+  - migration `20261021133324_dj_edits` (applied).
+  - Details and what was checked: `docs/plans/build-25-night-in-songs.md`, part 2.
+  - Live acoustic matching is unverified (simulator limit), so check on a phone: register a song through the DJ screen, approve it, then play it from a speaker during a session.
 - **Adding a lineup** (until clubs have a page): `insert into venue_sets (place_id, dj_name, starts_at, ends_at) values ('<Google place ID>', '<DJ>', '<start with time zone>', '<end>');`. C12's place ID is `ChIJpzxaoX_Ew0cRDSgjKYR0C4U`.
 
 ### Build 24 (18 Oct, built locally): weekend-night reminder and opt-in "Going out" standby

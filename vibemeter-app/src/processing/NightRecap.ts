@@ -30,6 +30,14 @@ export interface DjSet {
   endsAt: number;
 }
 
+/** A known DJ edit heard during the night (matched in the downloaded DJ edit catalog). */
+export interface HeardEdit {
+  dj: string | null;
+  title: string | null;          // set when the DJ registered the edit
+  firstHeardMs: number;
+  lastHeardMs: number;
+}
+
 export interface RecapItem {
   kind: 'song' | 'unknown';
   isrc: string | null;
@@ -122,6 +130,7 @@ export function buildNightRecap(input: {
   songs: RecapSong[];
   musicMinutes: Set<number>;
   sets: DjSet[];
+  edits?: HeardEdit[];
 }): NightRecap {
   const onBody = input.clips.filter(c => c.movementEnergy != null && ON_BODY.has(c.phoneContext ?? ''));
   const pct = percentileRanks(onBody.map(c => c.movementEnergy!));
@@ -152,9 +161,12 @@ export function buildNightRecap(input: {
       const { score, reason } = scoreGroup(run, pct);
       const startsAt = run[0].clipStart;
       const endsAt = run[run.length - 1].clipStart + RECAP.CLIP_MS;
+      // A known DJ edit heard in this stretch credits its DJ (when no lineup says otherwise) and,
+      // if the DJ registered it, gives its title
+      const heard = (input.edits ?? []).find(e => e.lastHeardMs >= startsAt && e.firstHeardMs < endsAt) ?? null;
       items.push({
-        kind: 'unknown', isrc: null, title: null, artist: null, appleMusicId: null,
-        startsAt, endsAt, score, reason, djName: djAt(input.sets, (startsAt + endsAt) / 2),
+        kind: 'unknown', isrc: null, title: heard?.title ?? null, artist: null, appleMusicId: null,
+        startsAt, endsAt, score, reason, djName: djAt(input.sets, (startsAt + endsAt) / 2) ?? heard?.dj ?? null,
       });
     }
     run = [];

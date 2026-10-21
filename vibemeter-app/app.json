@@ -25,7 +25,10 @@
           "bluetooth-central",
           "fetch"
         ],
-        "NSAppleMusicUsageDescription": "Viibe Check adds the songs you danced to most to an Apple Music playlist, when you ask it to."
+        "NSAppleMusicUsageDescription": "Viibe Check adds the songs you danced to most to an Apple Music playlist, when you ask it to.",
+        "LSApplicationQueriesSchemes": [
+          "instagram-stories"
+        ]
       },
       "appleTeamId": "APRS7H5DD6"
     },
@@ -103,7 +106,8 @@
       "router": {},
       "eas": {
         "projectId": "fa405677-786e-4053-b25a-1ab94d1ef465"
-      }
+      },
+      "instagramAppId": null
     },
     "owner": "stoicslav"
   }

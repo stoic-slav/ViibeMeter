@@ -44,6 +44,15 @@ expect('at most 5 items', recap.items.length <= 5);
 expect('the banger is credited to DJ One', recap.items[0]?.djName === 'DJ One');
 expect('a reason mentions the beat for the banger', /beat/i.test(recap.items[0]?.reason ?? ''));
 expect('6 songs recognised (incl. the bar trip)', recap.recognisedSongs === 6);
+// A known DJ edit heard in the unrecognised stretch, at a night with no lineup
+const unknownStart = recap.items.find(i => i.kind === 'unknown')!.startsAt;
+const noLineup = buildNightRecap({
+  sessionId: 'TEST2', venueName: null, startedAt: T0, endedAt: t, clips, musicMinutes, sets: [],
+  songs: [], edits: [{ dj: 'DJ Edit Maker', title: 'Levitating (DJ Edit Maker rework)', firstHeardMs: unknownStart + 60_000, lastHeardMs: unknownStart + 120_000 }],
+});
+const credited = noLineup.items.find(i => i.kind === 'unknown');
+expect('without a lineup, a matched edit credits its DJ', credited?.djName === 'DJ Edit Maker');
+expect('a registered edit shows its title', credited?.title === 'Levitating (DJ Edit Maker rework)');
 console.log(`dancing minutes ${recap.dancingMinutes}, coverage ${recap.coverage?.toFixed(2)}`);
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

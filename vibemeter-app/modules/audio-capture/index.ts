@@ -17,7 +17,16 @@ export interface ShazamMatchResult {
   matchOffset?: number;   // s into the track where the matched audio starts
   queryStartMs?: number;  // wall-clock time of the matched audio's first sample
   trackStartMs?: number;  // wall-clock time this playback of the track began
+  signature?: string;     // unmatched only: base64 ShazamKit fingerprint (irreversible), to learn DJ edits
+  edit?: { id: string | null; dj: string | null; title: string | null }; // unmatched, but a known DJ edit
   error?: string;
+}
+
+export interface EditCatalogEntry {
+  id: string;
+  signature: string;      // base64 ShazamKit signature
+  dj: string | null;
+  title: string | null;
 }
 
 interface AudioCaptureNative {
@@ -29,6 +38,12 @@ interface AudioCaptureNative {
   getBassEnvelope(fromMs: number, toMs: number): Promise<(number | null)[]>;
   matchRecent(seconds: number): Promise<ShazamMatchResult>;
   isInVehicle(): Promise<boolean>;
+  loadEditCatalog(entries: EditCatalogEntry[]): Promise<number>;
+  signatureRecent(seconds: number): Promise<string | null>;
+  setRollingPrints(enabled: boolean): void;
+  takeRolledSignature(): Promise<{ signature: string; startMs: number; endMs: number } | null>;
+  beginReferenceSignature(): void;
+  endReferenceSignature(): Promise<string | null>;
 }
 
 // iOS only. Null on Android and on builds made before this module existed.
@@ -64,6 +79,43 @@ export async function getBassEnvelope(fromMs: number, toMs: number): Promise<(nu
 
 export async function matchRecent(seconds: number): Promise<ShazamMatchResult | null> {
   return native ? native.matchRecent(seconds) : null;
+}
+
+/** Loads the DJ edit catalog for matching on the phone; returns how many references loaded. */
+export async function loadEditCatalog(entries: EditCatalogEntry[]): Promise<number> {
+  return native ? native.loadEditCatalog(entries) : 0;
+}
+
+/** A ShazamKit fingerprint (base64) of the last `seconds` of audio, for registering a DJ edit. */
+export async function signatureRecent(seconds: number): Promise<string | null> {
+  return native ? native.signatureRecent(seconds) : null;
+}
+
+/** Rolling 30 s fingerprints (sessions only), to learn DJ edits from music Shazam can't name. */
+export function setRollingPrints(enabled: boolean): void {
+  try { native?.setRollingPrints(enabled); } catch {}
+}
+
+/** The latest completed 30 s fingerprint, taken once (null if none since the last call). */
+export async function takeRolledSignature(): Promise<{ signature: string; startMs: number; endMs: number } | null> {
+  try {
+    return native ? await native.takeRolledSignature() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A DJ's reference recording: one continuous fingerprint between begin and end. */
+export function beginReferenceSignature(): void {
+  try { native?.beginReferenceSignature(); } catch {}
+}
+
+export async function endReferenceSignature(): Promise<string | null> {
+  try {
+    return native ? await native.endReferenceSignature() : null;
+  } catch {
+    return null;
+  }
 }
 
 /** iOS motion activity says the phone is in a vehicle (false when unknown or not allowed). */

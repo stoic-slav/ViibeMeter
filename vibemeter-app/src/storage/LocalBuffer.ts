@@ -128,6 +128,26 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
       PRIMARY KEY (session_id, isrc)
     );
 
+    -- Known DJ edits heard during the session (catalog matches), for the recap (phone only)
+    CREATE TABLE IF NOT EXISTS night_edits (
+      session_id TEXT NOT NULL,
+      edit_id TEXT NOT NULL,
+      dj TEXT,
+      title TEXT,
+      first_heard_ms INTEGER NOT NULL,
+      last_heard_ms INTEGER NOT NULL,
+      PRIMARY KEY (session_id, edit_id)
+    );
+
+    -- Fingerprints of music Shazam couldn't name, to learn DJ edits (uploaded, then deleted)
+    CREATE TABLE IF NOT EXISTS edit_prints (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      captured_at INTEGER NOT NULL,
+      signature TEXT NOT NULL,
+      synced INTEGER DEFAULT 0
+    );
+
     -- "Your night in songs", computed when the session ends (phone only)
     CREATE TABLE IF NOT EXISTS night_recaps (
       session_id TEXT PRIMARY KEY,
@@ -533,6 +553,50 @@ export async function getNightSongs(sessionId: string): Promise<NightSong[]> {
   }));
 }
 
+export interface NightEdit {
+  editId: string;
+  dj: string | null;
+  title: string | null;
+  firstHeardMs: number;
+  lastHeardMs: number;
+}
+
+/** A known DJ edit heard during the session (phone only). */
+export async function recordNightEdit(sessionId: string, e: { id: string; dj: string | null; title: string | null }, atMs: number): Promise<void> {
+  const database = await getDb();
+  await database.runAsync(
+    `INSERT INTO night_edits (session_id, edit_id, dj, title, first_heard_ms, last_heard_ms) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(session_id, edit_id) DO UPDATE SET last_heard_ms = excluded.last_heard_ms`,
+    [sessionId, e.id, e.dj, e.title, atMs, atMs]
+  );
+}
+
+export async function getNightEdits(sessionId: string): Promise<NightEdit[]> {
+  const database = await getDb();
+  const rows = await database.getAllAsync<any>(`SELECT * FROM night_edits WHERE session_id = ?`, [sessionId]);
+  return rows.map(r => ({ editId: r.edit_id, dj: r.dj, title: r.title, firstHeardMs: r.first_heard_ms, lastHeardMs: r.last_heard_ms }));
+}
+
+export async function saveEditPrint(p: { id: string; sessionId: string; capturedAt: number; signature: string }): Promise<void> {
+  const database = await getDb();
+  await database.runAsync(
+    `INSERT OR IGNORE INTO edit_prints (id, session_id, captured_at, signature, synced) VALUES (?, ?, ?, ?, 0)`,
+    [p.id, p.sessionId, p.capturedAt, p.signature]
+  );
+}
+
+export async function getUnsyncedEditPrints(limit = 20): Promise<any[]> {
+  const database = await getDb();
+  return database.getAllAsync(`SELECT * FROM edit_prints WHERE synced = 0 ORDER BY captured_at ASC LIMIT ?`, [limit]);
+}
+
+/** Uploaded fingerprints are not needed on the phone any more. */
+export async function deleteEditPrints(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const database = await getDb();
+  await database.runAsync(`DELETE FROM edit_prints WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
+}
+
 export async function getClipsForSession(sessionId: string): Promise<any[]> {
   const database = await getDb();
   return database.getAllAsync(
@@ -686,6 +750,7 @@ export async function wipeLocalData(): Promise<void> {
   const database = await getDb();
   await database.execAsync(
     `DELETE FROM sensor_clips; DELETE FROM sensor_windows; DELETE FROM subjective_ratings; DELETE FROM sessions; DELETE FROM standby_nights;
-     DELETE FROM night_songs; DELETE FROM night_recaps; DELETE FROM song_feedback;`
+     DELETE FROM night_songs; DELETE FROM night_recaps; DELETE FROM song_feedback;
+     DELETE FROM night_edits; DELETE FROM edit_prints;`
   );
 }

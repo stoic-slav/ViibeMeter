@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { supabase } from '../config/supabase';
 import { buildNightRecap, DjSet, NightRecap, RecapItem } from '../processing/NightRecap';
 import {
-  getSessions, getClipsForSession, getWindowsForSession, getNightSongs,
+  getSessions, getClipsForSession, getWindowsForSession, getNightSongs, getNightEdits,
   saveNightRecap, getNightRecap, saveSongFeedback,
 } from '../storage/LocalBuffer';
 import { getDeviceId } from '../storage/DeviceIdentity';
@@ -43,8 +43,8 @@ async function fetchSets(placeId: string | null, from: number, to: number): Prom
 export async function buildRecap(sessionId: string): Promise<StoredRecap | null> {
   const session = (await getSessions()).find((s: any) => s.id === sessionId);
   if (!session) return null;
-  const [clipRows, windows, songs] = await Promise.all([
-    getClipsForSession(sessionId), getWindowsForSession(sessionId), getNightSongs(sessionId),
+  const [clipRows, windows, songs, edits] = await Promise.all([
+    getClipsForSession(sessionId), getWindowsForSession(sessionId), getNightSongs(sessionId), getNightEdits(sessionId),
   ]);
   const startedAt = session.started_at as number;
   const endedAt = (session.ended_at as number | null) ?? Date.now();
@@ -65,6 +65,7 @@ export async function buildRecap(sessionId: string): Promise<StoredRecap | null>
     songs,
     musicMinutes: new Set(windows.filter(w => w.music_detected === 1).map(w => w.window_start as number)),
     sets: await fetchSets(placeId, startedAt, endedAt),
+    edits,
   });
   const previous = await getNightRecap<StoredRecap>(sessionId);
   const stored: StoredRecap = {

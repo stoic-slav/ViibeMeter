@@ -109,7 +109,15 @@ All core services are singletons. Do not re-instantiate them:
 - **Saving and sharing:**
   - Apple Music playlist: `modules/music-library` (MusicKit; needs the MusicKit App Service on the app ID, and the user's Apple Music access);
   - Spotify: a search link per song;
-  - share card: `react-native-view-shot`.
+  - share card: a Wrapped-style 1080×1920 JPEG (`expo-linear-gradient`, `react-native-view-shot`);
+  - "Share to Instagram Story" (`modules/story-share`), shown only when `extra.instagramAppId` (a Meta App ID) is set in app.json.
+- **Display:** music Shazam can't name shows as "DJ edits" (or the registered edit's title).
+- **DJ edits (iPhone only, ShazamKit custom catalog):**
+  - **During sessions:** `audio-capture` keeps rolling 30 s fingerprints. When Shazam's catalog has no match, the latest one is uploaded (`edit_prints`, 90 days).
+  - **Catalog:** `edit_catalog()` serves those taken during a known set (`venue_sets`), credited to that DJ, plus DJ-registered edits that we approved (`dj_edits`).
+  - **Matching on the phone:** `src/session/EditCatalog.ts` downloads and caches the catalog (12 h) and loads it into ShazamKit; unknown music is matched against it on the phone.
+  - **Registration:** DJs register edits on the hidden route `app/dj.tsx` (`vibemeter://dj`, one 60 s fingerprint). Approve with `update dj_edits set status = 'approved' where id = '…'`.
+  - **Simulator limit:** acoustic matching can't be tested there (the Mac mic barely hears its own speakers).
 
 **Going out standby (iOS, since build 24; plan `docs/plans/build-24-going-out-standby.md`):**
 - **Switching it on:** opt-in on `app/going-out.tsx` (Home button "Going out tonight?", or the weekend reminder). The opt-in is stored separately from sensor consent, in `src/storage/StandbySettings.ts` (with the reminder days and time). The app must be in the foreground to start: iOS opens the microphone and starts a Live Activity only then.

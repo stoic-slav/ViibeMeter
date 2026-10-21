@@ -266,6 +266,8 @@ export interface AudioMetrics {
   recognizedTitle: string | null;        // on-device only (night recap)
   recognizedArtist: string | null;
   recognizedAppleMusicId: string | null;
+  recognizedEdit: { id: string; dj: string | null; title: string | null } | null; // a known DJ edit (catalog match)
+  editPrint: { signature: string; atMs: number } | null; // fingerprint of unrecognised music, this cycle
   trackPopularity: number | null;
   recognitionSource: RecognitionSource | null;
   songMatch: { isrc: string; trackStartMs: number; rawStartMs: number } | null; // fresh ShazamKit match this cycle

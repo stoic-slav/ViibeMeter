@@ -12,10 +12,7 @@ import {
 import { detectBPM, tempoFromAccumulated, TEMPO_CURVE_LENGTH } from '../processing/BPMDetector';
 import { classifyAudio, computeRMS, rmsToDb, dbFullScaleToAmbient } from '../processing/AudioClassifier';
 import AudioRecord from 'react-native-audio-record';
-import {
-  isAudioCaptureAvailable, startCapture, stopCapture, isCapturing, readRange, matchRecent,
-  getBassEnvelope as getNativeBassEnvelope,
-} from '../../modules/audio-capture';
+import { isAudioCaptureAvailable, startCapture, stopCapture, isCapturing, readRange, matchRecent, getBassEnvelope as getNativeBassEnvelope, takeRolledSignature, setRollingPrints } from '../../modules/audio-capture';
 import { addBassFrames, bassEnvelopeFromStore, pruneBassFrames, BassFrameStore } from '../processing/BassEnvelope';
 
 const LOG_TAG = '[AudioAnalyzer]';
@@ -82,6 +79,10 @@ export class AudioAnalyzer {
   private bassFrames: BassFrameStore = new Map();
   // Going out standby: analyse only (no song recognition, no tempo learning, no stored frames)
   private light = false;
+  // DJ edits: the fingerprint of music Shazam couldn't name (this analyze() call only), and the
+  // known DJ edit it matched in the downloaded catalog (current for SONG_STALE_MS)
+  private freshPrint: { signature: string; atMs: number } | null = null;
+  private edit: { id: string; dj: string | null; title: string | null; confirmedAt: number } | null = null;
 
   /**
    * iOS: open the microphone for the whole session. A continuously running audio input
@@ -104,6 +105,11 @@ export class AudioAnalyzer {
   async getBassEnvelope(fromMs: number, toMs: number): Promise<(number | null)[] | null> {
     if (isAudioCaptureAvailable) return getNativeBassEnvelope(fromMs, toMs).catch(() => null);
     return bassEnvelopeFromStore(this.bassFrames, fromMs, toMs, SENSOR_CONFIG.AUDIO_SAMPLE_RATE);
+  }
+
+  /** Rolling 30 s fingerprints for DJ edits: on during sessions only (iOS). */
+  setRollingPrints(enabled: boolean): void {
+    if (isAudioCaptureAvailable) setRollingPrints(enabled);
   }
 
   setPhoneMoving(moving: boolean): void {
@@ -139,6 +145,7 @@ export class AudioAnalyzer {
 
       this.isRecording = true;
       this.freshMatch = null;
+      this.freshPrint = null;
       this.light = opts.light ?? false;
 
       return Platform.OS === 'android'
@@ -326,6 +333,9 @@ export class AudioAnalyzer {
       recognizedTitle: track?.title ?? null,
       recognizedArtist: track?.artist ?? null,
       recognizedAppleMusicId: track?.appleMusicId ?? null,
+      recognizedEdit: this.edit && Date.now() - this.edit.confirmedAt <= SONG_STALE_MS
+        ? { id: this.edit.id, dj: this.edit.dj, title: this.edit.title } : null,
+      editPrint: this.freshPrint,
       trackPopularity: track?.popularity ?? null,
       recognitionSource: track?.source ?? null,
       songMatch: this.freshMatch,
@@ -369,7 +379,18 @@ export class AudioAnalyzer {
       this.loggedShazamError = true;
       console.warn(`${LOG_TAG} ShazamKit: ${result.error}`);
     }
-    if (!result.matched) return;
+    if (!result.matched) {
+      // Unknown to Shazam: keep the latest rolling 30 s fingerprint (to learn DJ edits) and any
+      // known DJ edit the query matched
+      const rolled = await takeRolledSignature();
+      if (rolled) this.freshPrint = { signature: rolled.signature, atMs: rolled.startMs };
+      if (result.edit?.id) {
+        this.edit = { id: result.edit.id, dj: result.edit.dj, title: result.edit.title, confirmedAt: Date.now() };
+        console.log(`${LOG_TAG} DJ edit recognised: ${result.edit.title ?? 'untitled'} (${result.edit.dj ?? 'unknown DJ'})`);
+      }
+      return;
+    }
+    this.edit = null;
 
     const isrc = result.isrc ?? null;
     if (isrc && typeof result.trackStartMs === 'number' && Number.isFinite(result.trackStartMs)) {
@@ -521,6 +542,7 @@ export class AudioAnalyzer {
       beatBpm: null, beatOnsetTimesMs: [],
       clapCount: 0, audioEvent: null, recognizedSong: null, recognizedGenre: null,
       recognizedIsrc: null, recognizedTitle: null, recognizedArtist: null, recognizedAppleMusicId: null,
+      recognizedEdit: null, editPrint: null,
       trackPopularity: null, recognitionSource: null, songMatch: null, songBpmSource: null,
     };
   }

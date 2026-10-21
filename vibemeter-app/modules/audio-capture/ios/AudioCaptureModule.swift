@@ -33,6 +33,21 @@ public class AudioCaptureModule: Module {
 
   // SHSession holds its delegate weakly, so keep both alive until the match finishes.
   private var inFlight: [UUID: (SHSession, MatchDelegate)] = [:]
+  // DJ edits (build 25): reference fingerprints of music Apple's catalog doesn't know, labelled
+  // with the DJ (from a venue lineup or a DJ's own registration). Matched on the phone.
+  private var editCatalog: SHCustomCatalog?
+  private var editCatalogSize = 0
+  static let editIdKey = SHMediaItemProperty("viibeEditId")
+  // Continuous fingerprints, fed from the tap on their own queue: a DJ's reference recording, and
+  // during sessions a rolling 30 s fingerprint (contiguous, so prints taken at a known set cover
+  // an edit end to end and a later 8 s query falls inside one of them)
+  private let sigQueue = DispatchQueue(label: "vibemeter.audiocapture.signatures")
+  private var refGenerator: SHSignatureGenerator?
+  private var rollingEnabled = false
+  private var rollGenerator: SHSignatureGenerator?
+  private var rollStartMs: Double = 0
+  private var rolled: (data: Data, startMs: Double, endMs: Double)?
+  private static let rollMs: Double = 30_000
   private let lock = NSLock()
   private let activityManager = CMMotionActivityManager()
 
@@ -87,6 +102,64 @@ public class AudioCaptureModule: Module {
     /// (an irreversible fingerprint) leaves the device.
     AsyncFunction("matchRecent") { (seconds: Double, promise: Promise) in
       self.matchRecent(seconds: seconds, promise: promise)
+    }
+
+    /// The DJ edit catalog: [{ id, signature (base64 ShazamKit signature), dj, title }].
+    /// Returns how many references were loaded.
+    AsyncFunction("loadEditCatalog") { (entries: [[String: Any]]) -> Int in
+      let catalog = SHCustomCatalog()
+      var count = 0
+      for entry in entries {
+        guard let b64 = entry["signature"] as? String, let data = Data(base64Encoded: b64),
+              let signature = try? SHSignature(dataRepresentation: data) else { continue }
+        var properties: [SHMediaItemProperty: Any] = [AudioCaptureModule.editIdKey: entry["id"] as? String ?? ""]
+        if let dj = entry["dj"] as? String { properties[.artist] = dj }
+        if let title = entry["title"] as? String { properties[.title] = title }
+        if (try? catalog.addReferenceSignature(signature, representing: [SHMediaItem(properties: properties)])) != nil {
+          count += 1
+        }
+      }
+      self.lock.lock()
+      self.editCatalog = count > 0 ? catalog : nil
+      self.editCatalogSize = count
+      self.lock.unlock()
+      return count
+    }
+
+    /// Rolling 30 s fingerprints during a session (off on standby and outside sessions).
+    Function("setRollingPrints") { (enabled: Bool) in
+      self.sigQueue.async {
+        self.rollingEnabled = enabled
+        self.rollGenerator = nil
+        self.rollStartMs = 0
+        if !enabled { self.rolled = nil }
+      }
+    }
+
+    /// The latest completed 30 s fingerprint (taken once): { signature, startMs, endMs } or null.
+    AsyncFunction("takeRolledSignature") { () -> [String: Any]? in
+      return self.sigQueue.sync {
+        guard let r = self.rolled else { return nil }
+        self.rolled = nil
+        return ["signature": r.data.base64EncodedString(), "startMs": r.startMs, "endMs": r.endMs]
+      }
+    }
+
+    /// A DJ's reference recording: one continuous fingerprint from begin to end.
+    Function("beginReferenceSignature") {
+      self.sigQueue.async { self.refGenerator = SHSignatureGenerator() }
+    }
+
+    AsyncFunction("endReferenceSignature") { () -> String? in
+      return self.sigQueue.sync {
+        defer { self.refGenerator = nil }
+        return self.refGenerator?.signature().dataRepresentation.base64EncodedString()
+      }
+    }
+
+    /// A fingerprint of the last `seconds` of audio (base64), for a DJ registering an edit.
+    AsyncFunction("signatureRecent") { (seconds: Double) -> String? in
+      return self.makeSignature(seconds: seconds).0?.dataRepresentation.base64EncodedString()
     }
 
     /// Going out standby: whether iOS's motion coprocessor says the phone is in a vehicle now
@@ -184,6 +257,8 @@ public class AudioCaptureModule: Module {
       let ageSec = AVAudioTime.seconds(forHostTime: mach_absolute_time()) - AVAudioTime.seconds(forHostTime: when.hostTime)
       endMs = nowMs - ageSec * 1000 + Double(buffer.frameLength) / buffer.format.sampleRate * 1000
     }
+
+    feedSignatures(channel: channel[0], count: n, endMs: endMs)
 
     ringQueue.sync {
       let cap = ring.count
@@ -334,38 +409,92 @@ public class AudioCaptureModule: Module {
 
   // MARK: - ShazamKit
 
-  private func matchRecent(seconds: Double, promise: Promise) {
+  /// Feeds the continuous fingerprint generators (only while one is active).
+  private func feedSignatures(channel: UnsafeMutablePointer<Int16>, count n: Int, endMs: Double) {
+    guard refGenerator != nil || rollingEnabled,
+          let format = AVAudioFormat(standardFormatWithSampleRate: AudioCaptureModule.sampleRate, channels: 1),
+          let floatBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(n)),
+          let out = floatBuffer.floatChannelData else { return }
+    floatBuffer.frameLength = AVAudioFrameCount(n)
+    for i in 0..<n { out[0][i] = Float(channel[i]) / 32768 }
+    sigQueue.async {
+      if let ref = self.refGenerator { try? ref.append(floatBuffer, at: nil) }
+      guard self.rollingEnabled else { return }
+      if self.rollGenerator == nil {
+        self.rollGenerator = SHSignatureGenerator()
+        self.rollStartMs = endMs - Double(n) / AudioCaptureModule.sampleRate * 1000
+      }
+      try? self.rollGenerator?.append(floatBuffer, at: nil)
+      if endMs - self.rollStartMs >= AudioCaptureModule.rollMs, let gen = self.rollGenerator {
+        self.rolled = (gen.signature().dataRepresentation, self.rollStartMs, endMs)
+        self.rollGenerator = nil
+      }
+    }
+  }
+
+  /// A ShazamKit signature (an irreversible fingerprint) of the last `seconds` of audio.
+  private func makeSignature(seconds: Double) -> (SHSignature?, Double, String?) {
     let (samples, queryStartMs) = copyRecent(seconds: seconds)
     guard samples.count > Int(AudioCaptureModule.sampleRate * 2),
           let format = AVAudioFormat(standardFormatWithSampleRate: AudioCaptureModule.sampleRate, channels: 1),
           let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)),
           let channel = buffer.floatChannelData else {
-      promise.resolve(["matched": false, "error": "not enough audio"])
-      return
+      return (nil, queryStartMs, "not enough audio")
     }
     buffer.frameLength = AVAudioFrameCount(samples.count)
     for i in 0..<samples.count {
       channel[0][i] = Float(samples[i]) / 32768
     }
-
-    let signature: SHSignature
     do {
       let generator = SHSignatureGenerator()
       try generator.append(buffer, at: nil)
-      signature = generator.signature()
+      return (generator.signature(), queryStartMs, nil)
     } catch {
-      promise.resolve(["matched": false, "error": "signature: \(error.localizedDescription)"])
+      return (nil, queryStartMs, "signature: \(error.localizedDescription)")
+    }
+  }
+
+  /// Apple's catalog first. Without a match, the result also carries the fingerprint (to learn
+  /// DJ edits from) and, when an edit catalog is loaded, any DJ edit it matches.
+  private func matchRecent(seconds: Double, promise: Promise) {
+    let (made, queryStartMs, error) = makeSignature(seconds: seconds)
+    guard let signature = made else {
+      promise.resolve(["matched": false, "error": error ?? "signature"])
       return
     }
 
+    run(signature: signature, catalog: nil, queryStartMs: queryStartMs) { [weak self] result in
+      guard let self = self, (result["matched"] as? Bool) != true else {
+        promise.resolve(result)
+        return
+      }
+      var unmatched = result
+      unmatched["signature"] = signature.dataRepresentation.base64EncodedString()
+      self.lock.lock()
+      let catalog = self.editCatalog
+      self.lock.unlock()
+      guard let editCatalog = catalog else {
+        promise.resolve(unmatched)
+        return
+      }
+      self.run(signature: signature, catalog: editCatalog, queryStartMs: queryStartMs) { edit in
+        if (edit["matched"] as? Bool) == true {
+          unmatched["edit"] = ["id": edit["editId"] ?? NSNull(), "dj": edit["artist"] ?? NSNull(), "title": edit["title"] ?? NSNull()]
+        }
+        promise.resolve(unmatched)
+      }
+    }
+  }
+
+  private func run(signature: SHSignature, catalog: SHCatalog?, queryStartMs: Double, done: @escaping ([String: Any]) -> Void) {
     let id = UUID()
     let delegate = MatchDelegate(queryStartMs: queryStartMs) { [weak self] result in
-      promise.resolve(result)
+      done(result)
       self?.lock.lock()
       self?.inFlight.removeValue(forKey: id)
       self?.lock.unlock()
     }
-    let session = SHSession()
+    let session = catalog.map { SHSession(catalog: $0) } ?? SHSession()
     session.delegate = delegate
     lock.lock()
     inFlight[id] = (session, delegate)
@@ -402,6 +531,7 @@ private final class MatchDelegate: NSObject, SHSessionDelegate {
       "isrc": item.isrc ?? NSNull(),
       "genres": item.genres,
       "appleMusicID": item.appleMusicID ?? NSNull(),
+      "editId": item[AudioCaptureModule.editIdKey] ?? NSNull(),
       // matchOffset: position in the track (s) where the query audio starts. Subtracting it from
       // the query's wall-clock start gives when this playback of the track began, which is the
       // same for every phone hearing the same speakers.

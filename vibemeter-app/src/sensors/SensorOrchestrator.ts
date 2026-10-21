@@ -10,7 +10,7 @@ import { MotionTracker } from './MotionTracker';
 import { BLEScanner } from './BLEScanner';
 import { computeVibeScore } from '../processing/VibeScoreEngine';
 import { computeBeatSync, computeTempoMatch, aggregateBeatSync, BeatSyncResult } from '../processing/BeatSync';
-import { saveSensorWindow, deleteOldSyncedWindows, saveClip, deleteOldSyncedClips, recordNightSong } from '../storage/LocalBuffer';
+import { saveSensorWindow, deleteOldSyncedWindows, saveClip, deleteOldSyncedClips, recordNightSong, recordNightEdit, saveEditPrint } from '../storage/LocalBuffer';
 import { encodeEnvelope, BASS_FRAME_MS, FRAMES_PER_WINDOW } from '../processing/BassEnvelope';
 import { syncAll } from '../storage/SupabaseSync';
 import { venueLocator, Venue } from '../session/VenueLocator';
@@ -162,6 +162,7 @@ export class SensorOrchestrator {
     // Open the microphone for the whole session: this is what keeps iOS from suspending
     // the app in the background between captures.
     await this.audioAnalyzer.start();
+    this.audioAnalyzer.setRollingPrints(true);
     // Android: a foreground service keeps mic, motion and JS timers running with the screen off.
     // Started after the permission prompts, since its type depends on what was granted.
     if (Platform.OS === 'android') {
@@ -200,6 +201,7 @@ export class SensorOrchestrator {
     this.windowTimer = this.uploadTimer = null;
 
     await this.finalizeWindow();
+    this.audioAnalyzer.setRollingPrints(false);
     await this.audioAnalyzer.stop();
     stopSessionService();
     await syncAll();
@@ -508,6 +510,16 @@ export class SensorOrchestrator {
         appleMusicId: audio.recognizedAppleMusicId,
         genre: audio.recognizedGenre,
       }, cycleStartMs).catch(err => console.warn(`${LOG_TAG} Song record error:`, err));
+    }
+    // DJ edits: a known edit heard now (catalog match), and fingerprints of music Shazam couldn't
+    // name, to learn edits from (music minutes of a session only, never on standby)
+    if (audio?.recognizedEdit && this.currentSession) {
+      recordNightEdit(this.currentSession.id, audio.recognizedEdit, cycleStartMs)
+        .catch(err => console.warn(`${LOG_TAG} Edit record error:`, err));
+    }
+    if (audio?.editPrint && audio.musicDetected && this.currentSession) {
+      saveEditPrint({ id: Crypto.randomUUID(), sessionId: this.currentSession.id, capturedAt: audio.editPrint.atMs, signature: audio.editPrint.signature })
+        .catch(err => console.warn(`${LOG_TAG} Edit print save error:`, err));
     }
     if (audio || motion) this.emitPreviewUpdate();
   }

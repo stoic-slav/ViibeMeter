@@ -13,6 +13,7 @@ import { standby } from '../src/session/Standby';
 import { setupNightReminder, scheduleNightReminders } from '../src/notifications/NightReminder';
 import { getStandbySettings } from '../src/storage/StandbySettings';
 import { setupRecapNotifications } from '../src/session/NightRecapService';
+import { refreshEditCatalog } from '../src/session/EditCatalog';
 
 const BACKGROUND_TASK = 'VIBEMETER_BACKGROUND_FETCH';
 
@@ -35,6 +36,8 @@ export default function RootLayout() {
     listenForCardActions();
     // "Your night in songs" notification (12:00 the day after) opens the recap
     setupRecapNotifications();
+    // The DJ edit catalog (cached; refreshed at most twice a day)
+    refreshEditCatalog().catch(() => {});
     if (Platform.OS === 'ios') {
       setupNightReminder().catch(console.error);
       getStandbySettings().then(s => scheduleNightReminders(s.reminders)).catch(() => {});
@@ -114,6 +117,8 @@ export default function RootLayout() {
       <Tabs.Screen name="going-out" options={{ href: null, title: 'Going out' }} />
       {/* "Your night in songs" for a session (from the summary or the 12:00 notification); not a tab */}
       <Tabs.Screen name="recap" options={{ href: null, title: 'Your night in songs' }} />
+      {/* "Register your edits" for DJs, from a link we give them (vibemeter://dj); not a tab */}
+      <Tabs.Screen name="dj" options={{ href: null, title: 'For DJs' }} />
       <Tabs.Screen
         name="summary"
         options={{

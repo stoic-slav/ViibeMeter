@@ -8,6 +8,7 @@ import { clearDanceAffinity } from './UserProfile';
 import { clearStandbySettings, getStandbySettings } from './StandbySettings';
 import { standby } from '../session/Standby';
 import { scheduleNightReminders } from '../notifications/NightReminder';
+import { clearEditCatalogCache } from '../session/EditCatalog';
 
 /**
  * "Delete my data" (GDPR right to erasure), from the Privacy & data screen. Stops a running
@@ -29,5 +30,6 @@ export async function deleteMyData(): Promise<number> {
   await clearDanceAffinity();
   await scheduleNightReminders({ ...(await getStandbySettings()).reminders, enabled: false });
   await clearStandbySettings();
+  await clearEditCatalogCache();
   return typeof data === 'number' ? data : 0;
 }

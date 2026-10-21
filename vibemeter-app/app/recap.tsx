@@ -1,9 +1,12 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, Alert, Linking, Share, ActivityIndicator } from 'react-native';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { captureRef } from 'react-native-view-shot';
 import { getOrBuildRecap, buildRecap, answerRecapItem, StoredRecap } from '../src/session/NightRecapService';
 import { createAppleMusicPlaylist, isMusicLibraryAvailable } from '../modules/music-library';
+import { canShareToInstagram, shareToInstagramStory } from '../modules/story-share';
+import { LinearGradient } from 'expo-linear-gradient';
+import Constants from 'expo-constants';
 
 const A = '#00E8A0';
 const BG = '#060608';
@@ -16,12 +19,63 @@ const MONO = Platform.select({ ios: 'Courier New', android: 'monospace' }) as st
 
 type Item = StoredRecap['items'][number];
 
+// The share card: Viibe green fading into a deep night purple (owner's choice, 21 Oct)
+const CARD_TOP = '#0e5c49';
+const CARD_MID = '#1f1550';
+const CARD_BOTTOM = '#0b0418';
+const INSTAGRAM_APP_ID: string | null = (Constants.expoConfig?.extra as any)?.instagramAppId ?? null;
+
+function cardSubtitle(i: Item): string {
+  return i.kind === 'song'
+    ? [i.artist, i.djName].filter(Boolean).join(' · ')
+    : (i.djName ?? `${time(i.startsAt)}–${time(i.endsAt)}`);
+}
+
+/** Wrapped-style card for Stories: big #1, the rest of the top 5, and the night's numbers. */
+function WrappedCard({ recap, duration }: { recap: StoredRecap; duration: string }) {
+  const [top, ...rest] = recap.items;
+  const hours = ((recap.endedAt - recap.startedAt) / 3_600_000).toFixed(1);
+  return (
+    <LinearGradient colors={[CARD_TOP, CARD_MID, CARD_BOTTOM]} locations={[0, 0.55, 1]} start={{ x: 0, y: 0 }} end={{ x: 0.7, y: 1 }} style={st.shareCard}>
+      <Text style={st.shareKicker}>MY NIGHT IN SONGS</Text>
+      <Text style={st.shareTitle} numberOfLines={1}>{recap.venueName ?? 'Night out'}</Text>
+      <Text style={st.shareMeta}>{day(recap.startedAt)} · {duration}</Text>
+
+      <View style={{ marginTop: 26 }}>
+        <Text style={st.shareBigRank}>#1</Text>
+        <Text style={st.shareTopTitle} numberOfLines={2}>{itemTitle(top)}</Text>
+        <Text style={st.shareTopSub} numberOfLines={1}>{cardSubtitle(top)}</Text>
+      </View>
+
+      <View style={{ gap: 12, marginTop: 24 }}>
+        {rest.map((item, n) => (
+          <View key={item.id} style={{ flexDirection: 'row', gap: 12, alignItems: 'baseline' }}>
+            <Text style={st.shareRank}>{n + 2}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={st.shareItem} numberOfLines={1}>{itemTitle(item)}</Text>
+              <Text style={st.shareSub} numberOfLines={1}>{cardSubtitle(item)}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      <View style={{ flex: 1 }} />
+      <View style={st.shareStats}>
+        <View style={st.shareStat}><Text style={st.shareStatNum}>{recap.dancingMinutes}</Text><Text style={st.shareStatLabel}>MIN DANCING</Text></View>
+        <View style={st.shareStat}><Text style={st.shareStatNum}>{recap.recognisedSongs}</Text><Text style={st.shareStatLabel}>SONGS</Text></View>
+        <View style={st.shareStat}><Text style={st.shareStatNum}>{hours}</Text><Text style={st.shareStatLabel}>HOURS OUT</Text></View>
+      </View>
+      <Text style={st.shareFooter}>✓ VIIBE CHECK</Text>
+    </LinearGradient>
+  );
+}
+
 const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 const day = (ms: number) => new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short' });
 
 // Music Shazam couldn't name (edits, mixes, unreleased tracks) is shown as the DJ's edits
 function itemTitle(i: Item): string {
-  return i.kind === 'song' ? (i.title ?? 'Unknown title') : 'DJ edits';
+  return i.kind === 'song' ? (i.title ?? 'Unknown title') : (i.title ?? 'DJ edits');
 }
 
 function itemSubtitle(i: Item): string {
@@ -50,6 +104,11 @@ export default function RecapScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const cardRef = useRef<View>(null);
+  const [igReady, setIgReady] = useState(false);
+
+  useEffect(() => {
+    if (INSTAGRAM_APP_ID) canShareToInstagram().then(setIgReady);
+  }, []);
 
   useFocusEffect(useCallback(() => {
     if (!sessionId) { setLoading(false); return; }
@@ -95,12 +154,23 @@ export default function RecapScreen() {
     }
   };
 
+  const capture = () => captureRef(cardRef, { format: 'jpg', quality: 0.9, result: 'tmpfile', width: 1080, height: 1920 });
+
   const share = async () => {
     try {
-      const uri = await captureRef(cardRef, { format: 'png', quality: 1, result: 'tmpfile' });
-      await Share.share({ url: uri, message: `My night at ${place} in songs 🎶 (Viibe Check)` });
+      await Share.share({ url: await capture(), message: `My night at ${place} in songs 🎶 (Viibe Check)` });
     } catch (err) {
       console.warn('[Recap] Share failed:', err);
+    }
+  };
+
+  // Straight into a new Instagram Story (needs the Meta App ID in app.json extra.instagramAppId)
+  const shareToStory = async () => {
+    try {
+      const ok = await shareToInstagramStory(await capture(), INSTAGRAM_APP_ID!, CARD_TOP, CARD_BOTTOM);
+      if (!ok) await share();
+    } catch (err) {
+      console.warn('[Recap] Instagram share failed:', err);
     }
   };
 
@@ -174,30 +244,24 @@ export default function RecapScreen() {
             </TouchableOpacity>
           )}
 
-          {/* The share card (also the preview): captured as an image for Stories */}
-          <View ref={cardRef} collapsable={false} style={st.shareCard}>
-            <Text style={st.shareKicker}>MY NIGHT IN SONGS</Text>
-            <Text style={st.shareTitle}>{recap.venueName ?? 'Night out'}</Text>
-            <Text style={st.shareMeta}>{day(recap.startedAt)} · {recap.dancingMinutes} min dancing</Text>
-            <Text style={st.shareLead}>The songs I moved to most</Text>
-            <View style={{ flex: 1, justifyContent: 'center', gap: recap.items.length > 3 ? 18 : 28 }}>
-              {recap.items.map((item, n) => (
-                <View key={item.id} style={{ flexDirection: 'row', gap: 12 }}>
-                  <Text style={st.shareRank}>{n + 1}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={st.shareItem} numberOfLines={1}>{item.kind === 'song' ? item.title : 'DJ edits'}</Text>
-                    <Text style={st.shareSub} numberOfLines={1}>
-                      {item.kind === 'song' ? [item.artist, item.djName].filter(Boolean).join(' · ') : (item.djName ?? `${time(item.startsAt)}–${time(item.endsAt)}`)}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-            <Text style={st.shareFooter}>✓ VIIBE CHECK</Text>
+          {/* The share card (also the preview), captured at Story size (1080×1920) */}
+          <View ref={cardRef} collapsable={false} style={st.shareFrame}>
+            <WrappedCard recap={recap} duration={duration} />
           </View>
-          <TouchableOpacity style={st.secondaryBtn} onPress={share}>
-            <Text style={st.secondaryText}>SHARE</Text>
-          </TouchableOpacity>
+          {igReady ? (
+            <>
+              <TouchableOpacity style={st.igBtn} onPress={shareToStory}>
+                <Text style={st.igText}>SHARE TO INSTAGRAM STORY</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={st.secondaryBtn} onPress={share}>
+                <Text style={st.secondaryText}>MORE WAYS TO SHARE</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity style={st.secondaryBtn} onPress={share}>
+              <Text style={st.secondaryText}>SHARE</Text>
+            </TouchableOpacity>
+          )}
         </>
       )}
     </ScrollView>
@@ -223,13 +287,22 @@ const st = StyleSheet.create({
   primaryText: { fontFamily: MONO, fontSize: 13, fontWeight: '700', color: '#030904', letterSpacing: 2 },
   secondaryBtn: { height: 48, borderRadius: 14, borderWidth: 1, borderColor: TXD + '66', alignItems: 'center', justifyContent: 'center' },
   secondaryText: { fontFamily: MONO, fontSize: 12, fontWeight: '700', color: TXM, letterSpacing: 2 },
-  shareCard: { aspectRatio: 9 / 16, borderRadius: 20, padding: 26, backgroundColor: '#07120e', borderWidth: 1, borderColor: A + '55' },
-  shareKicker: { fontFamily: MONO, fontSize: 11, color: A, letterSpacing: 3 },
-  shareTitle: { fontSize: 30, fontWeight: '800', color: TX, marginTop: 8 },
-  shareMeta: { fontFamily: MONO, fontSize: 11, color: TXD, marginTop: 4 },
-  shareLead: { color: TXM, fontSize: 14, marginTop: 18 },
-  shareRank: { fontFamily: MONO, fontSize: 26, fontWeight: '700', color: A, width: 28 },
-  shareItem: { color: TX, fontSize: 19, fontWeight: '700' },
-  shareSub: { color: TXD, fontSize: 13, marginTop: 3 },
+  shareFrame: { aspectRatio: 9 / 16, borderRadius: 20, overflow: 'hidden' },
+  shareCard: { flex: 1, padding: 26 },
+  shareKicker: { fontFamily: MONO, fontSize: 11, fontWeight: '700', color: A, letterSpacing: 3 },
+  shareTitle: { fontSize: 32, fontWeight: '800', color: '#ffffff', marginTop: 8 },
+  shareMeta: { fontFamily: MONO, fontSize: 11, color: '#d6d0f0', marginTop: 4 },
+  shareBigRank: { fontSize: 84, lineHeight: 88, fontWeight: '900', color: A, letterSpacing: -2 },
+  shareTopTitle: { fontSize: 28, lineHeight: 33, fontWeight: '800', color: '#ffffff' },
+  shareTopSub: { fontSize: 14, color: '#d6d0f0', marginTop: 4 },
+  shareRank: { fontFamily: MONO, fontSize: 18, fontWeight: '700', color: A, width: 22 },
+  shareItem: { color: '#ffffff', fontSize: 16, fontWeight: '700' },
+  shareSub: { color: '#b9b2dd', fontSize: 12, marginTop: 2 },
+  shareStats: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#ffffff22', paddingTop: 14, marginBottom: 14 },
+  shareStat: { flex: 1 },
+  shareStatNum: { fontSize: 30, fontWeight: '900', color: '#ffffff' },
+  shareStatLabel: { fontFamily: MONO, fontSize: 9, fontWeight: '700', color: A, letterSpacing: 1.5, marginTop: 2 },
   shareFooter: { fontFamily: MONO, fontSize: 12, fontWeight: '700', color: A, letterSpacing: 3, textAlign: 'center' },
+  igBtn: { height: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#e1306c' },
+  igText: { fontFamily: MONO, fontSize: 13, fontWeight: '700', color: '#ffffff', letterSpacing: 1.5 },
 });

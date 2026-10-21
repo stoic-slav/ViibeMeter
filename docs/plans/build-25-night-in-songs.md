@@ -56,3 +56,22 @@ The cold-start problem: live venue data is only valuable once many people contri
 4. Recap screen, summary link, 12:00 notification.
 5. MusicKit module, Spotify links, share card.
 6. Simulator check (a session with the test track; ShazamKit can't match synthetic audio, so recognised songs are injected for the test), docs, push, build 25.
+
+## Part 2 (owner, 21 Oct): Wrapped-style card, Instagram Stories, DJ edits
+Owner decisions: DJ-registered edits go live **after we approve them**; DJs find registration through a **hidden link / QR we give them** (`vibemeter://dj`, `docs/assets/dj-register-qr.png`); the card is **Viibe green fading into deep purple**. Keep DJ recognition simple (no style "DNA").
+
+- **Share card:** 1080×1920 JPEG (Story size), a gradient, a big #1 with its artist and DJ, #2–5, and the night's numbers (min dancing, songs, hours out). Captured with `react-native-view-shot`; gradient by `expo-linear-gradient`.
+- **Share to Instagram Story:** `modules/story-share` puts the image on the pasteboard and opens `instagram-stories://share?source_application=<Meta App ID>` (Info.plist `LSApplicationQueriesSchemes: instagram-stories`). The button appears only when `extra.instagramAppId` is set in app.json **and** Instagram is installed; otherwise the normal share sheet.
+- **DJ edits (ShazamKit custom catalog, iPhone only):**
+  - **In sessions:** the phone keeps rolling 30 s ShazamKit fingerprints. When Shazam's catalog doesn't know the music, the latest one is uploaded (`edit_prints`, 90 days, via `upload_edit_prints`). No audio, never on standby.
+  - **Learning from lineups:** `edit_catalog()` returns the fingerprints taken during a known set (`venue_sets`), credited to that DJ, plus approved DJ registrations (`dj_edits` / `dj_edit_prints`).
+  - **On the phone:** it downloads the catalog (cached, refreshed every 12 h) and matches unrecognised music against it on the device. A match credits the DJ (and the edit's title, if registered) in the recap.
+  - **Registration:** `app/dj.tsx` takes one continuous 60 s fingerprint while the DJ plays the edit, plus DJ name, title, optional contact, and a consent tick. It goes through `register_dj_edit` and stays pending until approved with SQL: `update dj_edits set status = 'approved' where id = '…'`.
+- **Checked (21 Oct):**
+  - **On the Mac:** ShazamKit custom-catalog matching on the test audio files. 8 s queries matched a 60 s reference at the exact offset.
+  - **In the simulator:**
+    - a DJ registration uploaded a 16 KB fingerprint, pending until approved;
+    - the phone downloaded and loaded the catalog, and a stored reference matched itself in the app;
+    - a session uploaded an `edit_prints` fingerprint;
+    - the card and the share sheet worked.
+  - **Not testable in the simulator:** live acoustic matching. The Mac's microphone hears its own speakers at about −60 dBFS (and macOS cancels its own speaker output), so even file vs mic-recording didn't match. This needs a real iPhone near a speaker.

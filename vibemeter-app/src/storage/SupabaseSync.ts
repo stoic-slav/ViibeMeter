@@ -6,7 +6,9 @@ import {
   getUnsyncedClips, markClipsSynced,
   getUnsyncedStandbyNights, markStandbyNightSynced,
   getUnsyncedSongFeedback, markSongFeedbackSynced,
+  getUnsyncedEditPrints, deleteEditPrints,
 } from './LocalBuffer';
+import { getDeviceId } from './DeviceIdentity';
 import { SENSOR_CONFIG } from '../config/constants';
 import * as Application from 'expo-application';
 
@@ -278,6 +280,27 @@ export async function syncSongFeedback(): Promise<void> {
   await markSongFeedbackSynced(rows.map(r => r.id), readAt);
 }
 
+/**
+ * Fingerprints of music Shazam couldn't name (DJ edits), in small batches (they are a few KB each),
+ * through upload_edit_prints; deleted from the phone once uploaded. Sessions must be uploaded first.
+ */
+export async function syncEditPrints(): Promise<void> {
+  const deviceId = await getDeviceId();
+  for (let batch = 0; batch < 10; batch++) {
+    const rows = await getUnsyncedEditPrints(20);
+    if (rows.length === 0) return;
+    const payload = rows.map(r => ({
+      id: r.id, session_id: r.session_id, device_id: deviceId,
+      captured_at: new Date(r.captured_at).toISOString(), signature: r.signature,
+    }));
+    await withRetry(async () => {
+      const { error } = await supabase.rpc('upload_edit_prints', { rows: payload });
+      if (error) throw new Error(`Edit print upload failed: ${error.message}`);
+    });
+    await deleteEditPrints(rows.map(r => r.id));
+  }
+}
+
 export async function syncAll(): Promise<void> {
   try {
     await syncSessions();
@@ -286,6 +309,7 @@ export async function syncAll(): Promise<void> {
     await syncRatings();
     await syncStandbyNights();
     await syncSongFeedback();
+    await syncEditPrints();
   } catch (err) {
     console.error(`${LOG_TAG} Sync error:`, err);
     // Don't throw — sync failures are non-fatal, data is safe in SQLite

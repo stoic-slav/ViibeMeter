@@ -6,6 +6,7 @@ import { vibePrompt } from '../notifications/VibePrompt';
 import { confirmVenue } from './VenueLocator';
 import { ScanResult, setPendingGroupCode, setPendingVenue } from './GroupCode';
 import { onSessionFinished } from './NightRecapService';
+import { refreshEditCatalog } from './EditCatalog';
 
 /**
  * The one way a session ends, from the Stop button or an auto-stop rule (no music for 20 min,
@@ -46,6 +47,8 @@ export function onSessionStarted(listener: (session: Session) => void): () => vo
 
 /** Called by whoever started a session, after its sensors and prompts run. */
 export function notifySessionStarted(session: Session): void {
+  // The DJ edit catalog, so unknown music can still be credited during this session
+  refreshEditCatalog().catch(() => {});
   startListeners.forEach(l => l(session));
 }
 
