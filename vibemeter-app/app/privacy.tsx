@@ -7,6 +7,10 @@ import { deleteMyData } from '../src/storage/DataDeletion';
 import { SensorRow, SENSOR_TEXT, PRIVACY_URL } from '../src/components/SensorConsent';
 import { getStandbySettings, saveStandbySettings } from '../src/storage/StandbySettings';
 import { standby } from '../src/session/Standby';
+import { getMomentSettings, saveMomentSettings, MomentSettings } from '../src/storage/MomentSettings';
+import { getBuzzPrompts, setBuzzPrompts } from '../src/storage/PromptSettings';
+import { momentKeeper } from '../src/session/MomentKeeper';
+import { MOMENTS } from '../src/config/constants';
 
 const A = '#00E8A0';
 const DNG = '#e84560';
@@ -25,11 +29,15 @@ export default function PrivacyScreen() {
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [standbyAllowed, setStandbyAllowed] = useState(false);
+  const [moments, setMoments] = useState<MomentSettings>({ keepAcceptedAt: null, shareAcceptedAt: null });
+  const [buzz, setBuzz] = useState(false);
 
   useFocusEffect(useCallback(() => {
     getConsent().then(setConsent);
     getDeviceId().then(setDeviceId).catch(() => {});
     getStandbySettings().then(st => setStandbyAllowed(st.acceptedAt != null));
+    getMomentSettings().then(setMoments);
+    getBuzzPrompts().then(setBuzz);
   }, []));
 
   // Withdrawing the Going out opt-in also turns standby off; it is asked again on the next use
@@ -42,6 +50,43 @@ export default function PrivacyScreen() {
   const toggle = async (sensor: 'motion' | 'bluetooth' | 'location', value: boolean) => {
     if (!consent) return;
     setConsent(await saveConsent({ motion: consent.motion, bluetooth: consent.bluetooth, location: consent.location, [sensor]: value }));
+  };
+
+  // "Best moments": two separate opt-ins, each explained before it is turned on
+  const toggleKeep = (on: boolean) => {
+    if (on) {
+      Alert.alert(
+        'Keep your best moments?',
+        `While you dance, Viibe Check keeps about ${MOMENTS.CLIP_SECONDS} seconds of the room's music from your strongest moments, so you can play them back later. Clips stay on your phone, out of backups, and are deleted after ${MOMENTS.RETAIN_DAYS} days. Only clips where music clearly dominates are kept, but a clip can still pick up nearby voices. Off unless you turn it on; turn it off any time.`,
+        [{ text: 'Not now', style: 'cancel' }, { text: 'Turn on', onPress: async () => setMoments(await saveMomentSettings({ keepAcceptedAt: Date.now() })) }],
+      );
+    } else {
+      Alert.alert('Delete your kept clips too?', 'Turning this off stops new clips. You can also delete the ones already kept, including any sent to us.', [
+        { text: 'Keep them', onPress: async () => setMoments(await saveMomentSettings({ keepAcceptedAt: null })) },
+        {
+          text: 'Delete them', style: 'destructive', onPress: async () => {
+            try {
+              await momentKeeper.deleteAll();
+              setMoments(await saveMomentSettings({ keepAcceptedAt: null }));
+            } catch {
+              Alert.alert("Couldn't delete", 'Check your internet connection and try again. Nothing was deleted.');
+            }
+          },
+        },
+      ]);
+    }
+  };
+
+  const toggleShare = (on: boolean) => {
+    if (on) {
+      Alert.alert(
+        'Send your best moments to us?',
+        `Your kept clips are copied to our private storage, where only we can open them. We use them to improve the sound cleaning (separating music from voices and noise) and to combine clips that friends' phones recorded at the same moment. They carry your anonymous ID, not your name, and are deleted after ${MOMENTS.RETAIN_DAYS} days or when you delete them. A clip can pick up nearby voices. Off unless you turn it on; turn it off any time.`,
+        [{ text: 'Not now', style: 'cancel' }, { text: 'Send them', onPress: async () => setMoments(await saveMomentSettings({ shareAcceptedAt: Date.now() })) }],
+      );
+    } else {
+      saveMomentSettings({ shareAcceptedAt: null }).then(setMoments);
+    }
   };
 
   const confirmDelete = () => {
@@ -94,6 +139,32 @@ export default function PrivacyScreen() {
         ) : (
           <Text style={st.hint}>You haven't agreed yet. You'll be asked when you start your first session.</Text>
         )}
+
+        {Platform.OS === 'ios' && (
+          <>
+            <Text style={[st.label, { marginTop: 12 }]}>OPTIONAL EXTRAS</Text>
+            <SensorRow
+              title="Keep my best moments"
+              body={`Off. When on, ${MOMENTS.CLIP_SECONDS}-second clips of your strongest dancing stay on your phone for ${MOMENTS.RETAIN_DAYS} days, out of backups. Play them in your night's recap.`}
+              value={moments.keepAcceptedAt != null}
+              onChange={toggleKeep}
+            />
+            <SensorRow
+              title="Send them to us"
+              body={moments.keepAcceptedAt == null
+                ? 'Needs "Keep my best moments". Sends the clips to our private storage to improve the audio cleaning.'
+                : `Off. When on, kept clips are copied to our private storage for ${MOMENTS.RETAIN_DAYS} days to improve the sound cleaning. Deleting a clip here deletes our copy.`}
+              value={moments.shareAcceptedAt != null && moments.keepAcceptedAt != null}
+              onChange={moments.keepAcceptedAt == null ? undefined : toggleShare}
+            />
+          </>
+        )}
+        <SensorRow
+          title="Buzz every 5 minutes"
+          body="Off. When on, the phone vibrates every 5 minutes to ask how the vibe is. You can also rate any time on the Meter."
+          value={buzz}
+          onChange={async v => { setBuzz(v); await setBuzzPrompts(v); }}
+        />
 
         <Text style={[st.label, { marginTop: 12 }]}>YOUR ANONYMOUS ID</Text>
         <Text selectable style={st.id}>{deviceId ?? '…'}</Text>

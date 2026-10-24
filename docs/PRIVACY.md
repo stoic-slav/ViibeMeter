@@ -1,6 +1,6 @@
 # Viibe Check privacy policy
 
-*Last updated: 17 October 2026*
+*Last updated: 24 October 2026*
 
 Viibe Check is a research app. It tests whether phone sensors can measure the atmosphere ("vibe") at bars, clubs and parties, by comparing sensor readings with the ratings you give in the app. This page explains what it collects and what it never collects.
 
@@ -14,7 +14,7 @@ While a session is running, the app turns sensor readings into **summary numbers
 
 | Sensor | What is kept | What is never kept |
 |---|---|---|
-| Microphone | Loudness (dB), tempo (BPM), how clear the beat is, and frequency-balance measures such as bass energy | Audio recordings |
+| Microphone | Loudness (dB), tempo (BPM), how clear the beat is, and frequency-balance measures such as bass energy | Audio recordings, unless you switch on **Keep my best moments** (see below; off by default) |
 | Motion (accelerometer, gyroscope) | How much you move, your movement tempo, and how well your movement matches the beat | Raw motion traces |
 | Bluetooth | How many Bluetooth devices are nearby | Device names, addresses or identifiers |
 | Song recognition | The track's ISRC code, genre, tempo and popularity rank, and when that playback of the track started | Song audio |
@@ -27,7 +27,7 @@ While a session is running, the app turns sensor readings into **summary numbers
 **How the venue is recognised.** When you start a session, and when you open the app during one, the app takes one location reading, rounds it to about 11 metres, and sends it to our server, which asks Google Maps for the closest night club within 150 m (or else the closest bar or pub). The app then asks you whether you are there; only if you tap **Yes** is the place kept. **No** leaves the venue blank. If you scan a venue's Viibe Check code instead, that venue is used without a location lookup, and your session joins that night's group of phones at the venue. The Group screen shows only how many phones are measuring in your group, never who they are. Your coordinates are not stored, logged or uploaded to our database. Location is used only while the app is open ("While Using"), never in the background. You can refuse location and type the venue name yourself. See [Google's privacy policy](https://policies.google.com/privacy).
 
 You also give us:
-- your **vibe ratings** (💀 Dead, 🙂 Decent or 🔥 Best) during a session, where you gave them (notification, app, or the lock-screen card on iPhone) and whether the app had just asked;
+- your **vibe ratings** (💀 Dead, 🙂 Decent or 🔥 Best) if you give them during a session (the Meter's rate button, or the 5-minute buzz if you turn it on), where you gave them and whether the app had just asked;
 - the **venue name**, recognised automatically or typed by you;
 - a **group code**: each session gets a random one, and friends who scan your QR code share it;
 - where you carry the phone (pocket, hand or bag);
@@ -37,9 +37,17 @@ Each install has a **random anonymous ID**. We never ask for your name, email ad
 
 ## How audio is handled
 
-During a session the app listens continuously and analyses the sound on the phone. On iPhone it keeps only the last few seconds in memory, overwriting them as it goes; on Android it records short clips (about 5 seconds) and **deletes each clip immediately** after analysis. Audio is never uploaded or saved, and it is gone when the session ends.
+During a session the app listens continuously and analyses the sound on the phone. On iPhone it keeps only the last few seconds in memory, overwriting them as it goes; on Android it records short clips (about 5 seconds) and **deletes each clip immediately** after analysis. Audio is not uploaded or saved, and it is gone when the session ends, **unless you switch on "Keep my best moments" (next section)**.
 
 To recognise songs on iPhone, the app uses Apple's ShazamKit. A clip is turned into an irreversible fingerprint on the phone, and only that fingerprint is sent to Apple to look up the song. Audio cannot be reconstructed from it. If a song is recognised, its ISRC code is sent to Deezer's public API to look up its tempo and popularity. See [Apple's privacy policy](https://www.apple.com/legal/privacy/) and [Deezer's privacy policy](https://www.deezer.com/legal/personal-datas).
+
+## Your best moments (iPhone, optional, off by default)
+
+Two separate switches under **privacy & data**, both off unless you turn them on, each with its own explanation.
+
+**Keep my best moments.** While you dance, the app keeps about 15 seconds of the room's music from your strongest moments of the night (when you move more than usual to loud music), so you can play them back in your night's recap, either as heard or cleaned up. A clip is cut from the short in-memory buffer and saved in the app's own folder on your phone, kept out of iCloud and device backups, and **deleted automatically after 14 days**. Only clips where music clearly dominates are kept (louder, bass-led, not mostly voices or cloth noise), but a clip can still pick up nearby voices. You can delete any clip at any time.
+
+**Send them to us.** Only if you also switch this on, your kept clips (as heard and cleaned) are copied to our private storage. Nobody can open them with the app's public key; only we can. We use them to improve the sound cleaning (separating music from voices and noise, running on our own computer, not on a third-party service) and to combine clips that friends' phones recorded at the same moment into a better one. They are linked to your anonymous ID, the night's group code and venue, and the song's ISRC code (no title), never to your name. They are **deleted after 14 days**, when you delete the clip in the app, when you delete the session, or with **Delete my data**. Turning the switch off stops new uploads; clips already sent stay until you delete them or they expire.
 
 ## Your night in songs
 
@@ -57,7 +65,7 @@ To measure whether a crowd moves in sync, we need to know which phones were at t
 
 ## How long we keep data
 
-Besides the per-minute summaries, the app saves a few numbers for every 10 seconds (how well your movement matches the beat, how much you move, your movement tempo, and the song's ISRC code). These 10-second readings and the bass-loudness curves are **deleted automatically after 90 days**. Everything else (sessions, per-minute summaries, ratings and Going out counts) is **deleted automatically after 24 months**.
+Besides the per-minute summaries, the app saves a few numbers for every 10 seconds (how well your movement matches the beat, how much you move, your movement tempo, and the song's ISRC code). These 10-second readings and the bass-loudness curves are **deleted automatically after 90 days**; best-moment clips after 14 days. Everything else (sessions, per-minute summaries, ratings and Going out counts) is **deleted automatically after 24 months**.
 
 ## Where data goes
 
@@ -73,6 +81,7 @@ Viibe Check can show which venues are lively right now. It is built only from **
 - You can refuse any permission in iOS or Android settings. The app then works with fewer signals.
 - **Change what the app may use** at any time under **privacy & data** on the home screen: switch motion, Bluetooth or location off and they are no longer used from the next measurement.
 - **Delete one session:** on Home, swipe a past session to the left and tap the red **Delete**. It removes that session with its measurements, ratings and song answers from the phone and from our database.
+- **Delete a best moment:** in your night's recap, tap Delete on the clip. If it was sent to us, our copy goes too.
 - **Delete your data yourself:** **privacy & data → Delete my data** removes every session, rating and measurement uploaded from your phone, wipes the phone's copy and gives you a new anonymous ID. You can also contact us with the anonymous ID shown in the app.
 - Uninstalling the app deletes everything stored on the phone (data already uploaded stays until you delete it or it expires).
 

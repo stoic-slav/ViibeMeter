@@ -2,7 +2,7 @@ import AppIntents
 import Foundation
 
 /// The Going out buttons on the lock-screen card: "start" (Yes, start measuring), "not_now"
-/// and "standby_off". Like RateVibeIntent, this file is compiled into the widget and the app
+/// and "standby_off". This file is compiled into the widget and the app
 /// (plugins/withLiveActivityIntent.js); the system runs it in the app's process, where the tap is
 /// queued for JS. Keep the key and notification name in sync with ViibeLiveActivityModule.swift.
 @available(iOS 17.0, *)

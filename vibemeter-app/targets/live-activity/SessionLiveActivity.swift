@@ -7,30 +7,15 @@ private let accent = Color(red: 0.0, green: 0.91, blue: 0.63)     // #00E8A0
 private let dim = Color(red: 0.6, green: 0.6, blue: 0.75)         // #9898c0
 private let card = Color(red: 0.024, green: 0.024, blue: 0.031)   // #060608
 
-private struct RatingOption: Identifiable {
-  let value: Int
-  let emoji: String
-  let label: String
-  var id: Int { value }
-}
-
-// Same three levels as the notification (stored as 1 / 3 / 5)
-private let options = [
-  RatingOption(value: 1, emoji: "💀", label: "Dead"),
-  RatingOption(value: 3, emoji: "🙂", label: "Decent"),
-  RatingOption(value: 5, emoji: "🔥", label: "Best"),
-]
-
 private let stopURL = URL(string: "vibemeter://stop")!
 
-/// The card has three modes: a running session (rating buttons, timer, STOP), Going out standby
+/// The card has three modes: a running session (venue, timer, STOP and the song heard now), Going out standby
 /// ("Standing by", TURN OFF) and the standby prompt ("Sounds like a party. Start measuring?").
 private extension ActivityViewContext where Attributes == SessionActivityAttributes {
   var isSession: Bool { state.mode == "session" }
   var isPrompt: Bool { state.mode == "prompt" }
   var timerStart: Date { state.sessionStartedAt ?? attributes.startedAt }
   var title: String { isSession ? (state.venue ?? "Viibe Check") : "Going out" }
-  var highlighted: Bool { isPrompt || (isSession && state.due) }
 }
 
 struct SessionLiveActivity: Widget {
@@ -137,7 +122,7 @@ private struct CardBody: View {
     } else if !context.isSession {
       StandbyBody()
     } else {
-      RatingBody(context: context)
+      SongBody(context: context)
     }
   }
 }
@@ -197,69 +182,21 @@ private struct PromptBody: View {
   }
 }
 
-/// A running session: the headline and the rating buttons.
-private struct RatingBody: View {
+/// A running session: the song heard now (or that the phone is listening for one).
+private struct SongBody: View {
   let context: ActivityViewContext<SessionActivityAttributes>
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text(headline)
+    HStack(spacing: 8) {
+      Text("♪")
         .font(.system(.subheadline, design: .monospaced).bold())
-        .foregroundColor(context.state.due ? accent : .white)
-      if #available(iOS 17.0, *) {
-        HStack(spacing: 8) {
-          ForEach(options) { option in
-            Button(intent: RateVibeIntent(value: option.value)) {
-              RatingLabel(option: option, due: context.state.due, chosen: chosen == option.value)
-            }
-            .buttonStyle(.plain)
-          }
-        }
-      } else {
-        Text("Long-press the notification to rate.")
-          .font(.system(.caption, design: .monospaced))
-          .foregroundColor(dim)
-      }
+        .foregroundColor(context.state.song == nil ? dim : accent)
+      Text(context.state.song ?? "Listening for the song…")
+        .font(.system(.subheadline, design: .monospaced).bold())
+        .foregroundColor(context.state.song == nil ? dim : .white)
+        .lineLimit(2)
+      Spacer(minLength: 0)
     }
-  }
-
-  private var thanking: Bool {
-    guard let until = context.state.thanksUntil else { return false }
-    return until > Date()
-  }
-
-  private var chosen: Int? { thanking ? context.state.lastRating : nil }
-
-  private var headline: String {
-    if thanking, let r = context.state.lastRating, let o = options.first(where: { $0.value == r }) {
-      return "Thanks \(o.emoji)"
-    }
-    return context.state.due ? "How's the vibe right now?" : "Rate the vibe any time"
-  }
-}
-
-private struct RatingLabel: View {
-  let option: RatingOption
-  let due: Bool
-  let chosen: Bool
-
-  var body: some View {
-    VStack(spacing: 2) {
-      Text(option.emoji).font(.title3)
-      Text(option.label.uppercased())
-        .font(.system(.caption2, design: .monospaced).bold())
-        .foregroundColor(due || chosen ? .white : dim)
-    }
-    .frame(maxWidth: .infinity)
-    .padding(.vertical, 8)
-    .background(
-      RoundedRectangle(cornerRadius: 12)
-        .fill(chosen ? accent.opacity(0.35) : (due ? accent.opacity(0.18) : Color.white.opacity(0.07)))
-    )
-    .overlay(
-      RoundedRectangle(cornerRadius: 12)
-        .stroke(due || chosen ? accent : Color.clear, lineWidth: 1)
-    )
   }
 }
 

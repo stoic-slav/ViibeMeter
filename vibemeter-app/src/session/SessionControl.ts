@@ -3,6 +3,7 @@ import { EndReason, Session } from '../types';
 import { sessionManager } from './SessionManager';
 import { sensorOrchestrator } from '../sensors/SensorOrchestrator';
 import { vibePrompt } from '../notifications/VibePrompt';
+import { momentKeeper } from './MomentKeeper';
 import { confirmVenue } from './VenueLocator';
 import { ScanResult, setPendingGroupCode, setPendingVenue } from './GroupCode';
 import { onSessionFinished } from './NightRecapService';
@@ -35,6 +36,8 @@ export async function stopEverything(reason: EndReason = 'user'): Promise<Sessio
   }
   // "Your night in songs" is built now (the clips are on the phone) and announced at 12:00
   if (session?.endedAt) onSessionFinished(session.id, session.endedAt).catch(() => {});
+  // Best moments (opt-in): clean the clips, send them if allowed. Runs while the app is open.
+  momentKeeper.processPending().catch(() => {});
   listeners.forEach(l => l(session, reason));
   return session;
 }

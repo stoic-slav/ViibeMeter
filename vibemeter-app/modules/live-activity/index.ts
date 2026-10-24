@@ -6,9 +6,7 @@ export interface CardState {
   mode: CardMode;               // session, Going out standby, or the standby prompt
   sessionStartedAtMs: number | null; // the session timer counts from here
   venue: string | null;
-  due: boolean;                 // a rating prompt is waiting
-  lastRating: number | null;    // 1 / 3 / 5
-  thanksUntilMs: number | null; // show "Thanks" until then
+  song: string | null;          // the song heard now ("Title - Artist"), null while listening
 }
 
 /** Lights the screen and plays the alert sound with an update. */
@@ -17,10 +15,9 @@ export interface CardAlert {
   body: string;
 }
 
-/** A tap on a card button: a rating (value 1 / 3 / 5) or a Going out action. */
+/** A tap on a card button: a Going out action. */
 export interface CardAction {
-  action: 'rate' | 'start' | 'not_now' | 'standby_off';
-  value?: number;
+  action: 'start' | 'not_now' | 'standby_off';
   atMs: number;                 // when the button was tapped
 }
 

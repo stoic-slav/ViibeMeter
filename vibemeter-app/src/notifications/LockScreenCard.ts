@@ -6,8 +6,8 @@ import {
 /**
  * The lock-screen card (iOS Live Activity, `modules/live-activity` + the widget in
  * `targets/live-activity`). Three modes:
- * - session: venue, a timer, STOP, and 💀/🙂/🔥 buttons that rate without unlocking (iOS 17+),
- *   driven by VibePrompt;
+ * - session: venue, a timer, STOP and the song heard now (no rating buttons since build 29: the
+ *   next day's 👍/👎 on the recap is the research answer);
  * - standby: Going out mode is listening ("Standing by", TURN OFF), driven by Standby;
  * - prompt: "Sounds like a party. Start measuring?" with Yes / Not now.
  * A standby card turns into the session card in place: iOS allows starting a card only with the
@@ -18,14 +18,15 @@ import {
 const LOG_TAG = '[LockScreenCard]';
 // Renews the card's 15-minute stale date; a card that goes stale means the app stopped running
 const HEARTBEAT_MS = 5 * 60 * 1000;
-const THANKS_MS = 4000;
+// A song line older than this goes back to "Listening…" (Shazam runs about every 30 s)
+const SONG_STALE_MS = 2 * 60 * 1000;
 
-const EMPTY: CardState = { mode: 'session', sessionStartedAtMs: null, venue: null, due: false, lastRating: null, thanksUntilMs: null };
+const EMPTY: CardState = { mode: 'session', sessionStartedAtMs: null, venue: null, song: null };
 
 let state: CardState = EMPTY;
 let active = false;
 let heartbeat: ReturnType<typeof setInterval> | null = null;
-let thanksTimer: ReturnType<typeof setTimeout> | null = null;
+let songTimer: ReturnType<typeof setTimeout> | null = null;
 let actionSub: { remove: () => void } | null = null;
 
 type ActionHandler = (action: CardAction) => void;
@@ -83,9 +84,9 @@ export function cardMode(): CardState['mode'] | null {
 
 export async function endCardNow(): Promise<void> {
   if (heartbeat) clearInterval(heartbeat);
-  if (thanksTimer) clearTimeout(thanksTimer);
+  if (songTimer) clearTimeout(songTimer);
   heartbeat = null;
-  thanksTimer = null;
+  songTimer = null;
   active = false;
   state = EMPTY;
   await endCard().catch(() => {});
@@ -103,26 +104,20 @@ export function setCardVenue(venue: string | null): void {
   push();
 }
 
-/** A prompt is waiting (the card asks "How's the vibe right now?") or was answered or skipped. */
-export function setCardDue(due: boolean): void {
-  if (state.mode !== 'session' || state.due === due) return;
-  state = { ...state, due };
+/** The song heard now ("Title - Artist"); null, or two minutes without a match, shows "Listening…". */
+export function setCardSong(song: string | null): void {
+  if (state.mode !== 'session') return;
+  if (songTimer) clearTimeout(songTimer);
+  songTimer = null;
+  if (song) {
+    songTimer = setTimeout(() => setCardSong(null), SONG_STALE_MS);
+  }
+  if (state.song === song) return;
+  state = { ...state, song };
   push();
 }
 
-/** A rating from anywhere (card, notification or app): "Thanks 🔥" for a few seconds. */
-export function showCardThanks(rating: number): void {
-  if (!active || state.mode !== 'session') return;
-  state = { ...state, due: false, lastRating: rating, thanksUntilMs: Date.now() + THANKS_MS };
-  push();
-  if (thanksTimer) clearTimeout(thanksTimer);
-  thanksTimer = setTimeout(() => {
-    state = { ...state, thanksUntilMs: null };
-    push();
-  }, THANKS_MS);
-}
-
-/** Who handles each card button (VibePrompt: ratings; Standby: start, not now, turn off). */
+/** Who handles each card button (Standby: start, not now, turn off). */
 export function setCardActionHandler(action: CardAction['action'], handler: ActionHandler): void {
   handlers[action] = handler;
 }
@@ -135,10 +130,9 @@ export function setCardActionHandler(action: CardAction['action'], handler: Acti
 export function listenForCardActions(): void {
   const drain = () => {
     for (const tap of takePendingActions()) {
-      const action = tap.action ?? 'rate'; // build 23 queued ratings without an action
-      const handler = handlers[action];
-      if (handler) handler({ ...tap, action });
-      else console.warn(`${LOG_TAG} No handler for card action ${action}`);
+      const handler = handlers[tap.action];
+      if (handler) handler(tap);
+      else console.warn(`${LOG_TAG} No handler for card action ${tap.action}`);
     }
   };
   actionSub?.remove();

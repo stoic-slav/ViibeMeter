@@ -101,6 +101,23 @@ export const SENSOR_CONFIG = {
  * "Start measuring?" when it sounds and moves like a party. First guesses, to tune with the
  * standby_nights counts from real nights (docs/plans/build-24-going-out-standby.md).
  */
+/**
+ * "Best moments" (build 29, opt-in): short audio clips of the person's strongest dancing, kept on
+ * the phone. Thresholds are first guesses to check on a real night.
+ */
+export const MOMENTS = {
+  CLIP_SECONDS: 15,
+  MAX_PER_SESSION: 5,
+  MIN_GAP_MS: 60_000,             // between two kept moments of a night
+  WARMUP_CYCLES: 12,              // 10 s cycles of the night needed before a moment is judged (2 min)
+  MIN_PERCENTILE: 0.8,            // movement energy above this share of the person's own night
+  MIN_DB: 78,                     // music must be loud enough to hear in a pocket
+  MAX_VOCAL: 0.6,                 // voice-band share of the 5 s clip
+  MIN_BASS_SHARE: 0.35,           // after cleaning: bass share of the clip, else it's mostly something else
+  MAX_RUSTLE_SHARE: 0.5,          // after cleaning: share of frames that were cloth bursts
+  RETAIN_DAYS: 14,                // on the phone and, if shared, on the server
+} as const;
+
 export const STANDBY = {
   CHECK_INTERVAL_MS: 30_000,         // one 5 s audio + motion check this often
   // A music minute: loud, with a beat

@@ -2,7 +2,8 @@ import { useEffect } from 'react';
 import { Tabs } from 'expo-router';
 import * as TaskManager from 'expo-task-manager';
 import * as BackgroundFetch from 'expo-background-fetch';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
+import { momentKeeper } from '../src/session/MomentKeeper';
 import { vibePrompt } from '../src/notifications/VibePrompt';
 import { sensorOrchestrator } from '../src/sensors/SensorOrchestrator';
 import { sessionManager } from '../src/session/SessionManager';
@@ -36,6 +37,9 @@ export default function RootLayout() {
     listenForCardActions();
     // "Your night in songs" notification (12:00 the day after) opens the recap
     setupRecapNotifications();
+    // Best moments (opt-in): finish cleaning and sending clips from earlier nights, drop expired ones
+    momentKeeper.processPending().catch(() => {});
+    const appStateSub = AppState.addEventListener('change', st => { if (st === 'active') momentKeeper.processPending().catch(() => {}); });
     // The DJ edit catalog (cached; refreshed at most twice a day)
     refreshEditCatalog().catch(() => {});
     if (Platform.OS === 'ios') {
@@ -63,6 +67,7 @@ export default function RootLayout() {
     });
 
     return () => {
+      appStateSub.remove();
       (BackgroundFetch as any).unregisterTaskAsync(BACKGROUND_TASK).catch(() => {});
     };
   }, []);

@@ -53,6 +53,27 @@ export function computeTempoMatch(
 }
 
 /**
+ * How much a tempo multiple counts as "moving to the beat" in the recap (build 29, owner's rule).
+ * Half and double time are common (a sway on every second beat, a bounce on the off-beat); a
+ * quarter, triple or four times the beat is rarer and says less, so those weigh less. Kept apart
+ * from computeTempoMatch, whose stored `tempo_match` keeps its first definition.
+ */
+export const HARMONIC_WEIGHTS: Record<number, number> = { 0.25: 0.6, 0.5: 0.9, 1: 1, 2: 0.9, 3: 0.6, 4: 0.5 };
+
+/** Tempo agreement over all multiples in HARMONIC_WEIGHTS, each scaled by its weight. */
+export function computeWeightedTempoMatch(movementBpm: number | null, musicBpm: number | null): { tempoMatch: number; harmonic: number } {
+  if (!movementBpm || !musicBpm) return { tempoMatch: 0, harmonic: 1 };
+  let best = { tempoMatch: 0, harmonic: 1 };
+  for (const [h, weight] of Object.entries(HARMONIC_WEIGHTS)) {
+    const target = musicBpm * Number(h);
+    const relErr = Math.abs(movementBpm - target) / target;
+    const score = weight * Math.max(0, 1 - relErr / TEMPO_TOLERANCE);
+    if (score > best.tempoMatch) best = { tempoMatch: score, harmonic: Number(h) };
+  }
+  return best;
+}
+
+/**
  * Phase of the beat grid: circular mean of onset times folded onto the beat period.
  * Returns the reference time (ms) of one beat, or null if onsets are too few.
  */

@@ -14,7 +14,7 @@ function nextPowerOfTwo(n: number): number {
  * In-place radix-2 Cooley-Tukey FFT.
  * re and im are the real and imaginary parts, both length N (power of 2).
  */
-function fftInPlace(re: Float64Array, im: Float64Array): void {
+export function fftInPlace(re: Float64Array, im: Float64Array): void {
   const N = re.length;
 
   // Bit-reversal permutation

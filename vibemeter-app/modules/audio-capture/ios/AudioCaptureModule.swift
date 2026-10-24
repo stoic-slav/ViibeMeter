@@ -62,6 +62,19 @@ public class AudioCaptureModule: Module {
       self.stop()
     }
 
+    /// Keeps a file or folder out of iCloud and device backups (the "best moments" clips).
+    Function("excludeFromBackup") { (path: String) -> Bool in
+      var url = path.hasPrefix("file://") ? (URL(string: path) ?? URL(fileURLWithPath: path)) : URL(fileURLWithPath: path)
+      var values = URLResourceValues()
+      values.isExcludedFromBackup = true
+      do {
+        try url.setResourceValues(values)
+        return true
+      } catch {
+        return false
+      }
+    }
+
     Function("isRunning") { () -> Bool in
       self.running && self.engine.isRunning
     }

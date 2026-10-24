@@ -30,7 +30,7 @@ export function SensorRow({ title, body, value, onChange, locked }: {
 }
 
 export const SENSOR_TEXT = {
-  mic: 'Music tempo and loudness, analysed on the phone and never recorded. It also keeps the session measuring while your phone is locked.',
+  mic: 'Music tempo and loudness, analysed on the phone and not recorded (unless you later switch on "Keep my best moments", which is off by default). It also keeps the session measuring while your phone is locked.',
   motion: 'How much you move, and whether you move on the beat.',
   bluetooth: 'Counts nearby devices to estimate how crowded it is. No device names or IDs are kept.',
   location: 'Only to suggest which club or bar you\'re in. You confirm it; your position is never stored.',

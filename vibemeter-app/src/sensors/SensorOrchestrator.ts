@@ -10,6 +10,8 @@ import { MotionTracker } from './MotionTracker';
 import { BLEScanner } from './BLEScanner';
 import { computeVibeScore } from '../processing/VibeScoreEngine';
 import { computeBeatSync, computeTempoMatch, aggregateBeatSync, BeatSyncResult } from '../processing/BeatSync';
+import { setCardSong } from '../notifications/LockScreenCard';
+import { momentKeeper } from '../session/MomentKeeper';
 import { saveSensorWindow, deleteOldSyncedWindows, saveClip, deleteOldSyncedClips, recordNightSong, recordNightEdit, saveEditPrint } from '../storage/LocalBuffer';
 import { encodeEnvelope, BASS_FRAME_MS, FRAMES_PER_WINDOW } from '../processing/BassEnvelope';
 import { syncAll } from '../storage/SupabaseSync';
@@ -139,6 +141,7 @@ export class SensorOrchestrator {
 
     this.currentSession = session;
     this.isRunning = true;
+    momentKeeper.resetSession();
     this.bleScanner.resetHistory();
     this.motionTracker.resetStationaryState();
     this.dbReadings = [];
@@ -501,6 +504,18 @@ export class SensorOrchestrator {
         // A skipped motion sample (long stationary) keeps the last known context
         phoneContext: motion?.phoneContext ?? (skipMotion ? this.lastPhoneContext : null),
       }).catch(err => console.warn(`${LOG_TAG} Clip save error:`, err));
+    }
+    // Opt-in "best moments": keeps a short clip when this cycle is one of the night's strongest
+    if (this.currentSession && (audio || motion)) {
+      momentKeeper.consider({
+        session: this.currentSession, cycleStartMs, audio, motion,
+        plv: this.lastBeatSync?.plv ?? null, tempoMatch: this.lastBeatSync?.tempoMatch ?? null,
+      }).catch(err => console.warn(`${LOG_TAG} Moment error:`, err));
+    }
+    // The lock-screen card shows what is playing now (title and artist stay on the phone)
+    if (audio && this.currentSession) {
+      const edit = audio.recognizedEdit;
+      setCardSong(audio.recognizedSong ?? (edit ? `${edit.title ?? 'DJ edit'}${edit.dj ? ` – ${edit.dj}` : ''}` : null));
     }
     // The night's songs, with titles, for the recap (phone only)
     if (audio?.recognizedIsrc && this.currentSession) {

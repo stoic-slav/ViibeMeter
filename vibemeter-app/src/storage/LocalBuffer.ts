@@ -172,6 +172,30 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
       synced INTEGER DEFAULT 0
     );
 
+    -- "Best moments": short audio clips of the person's strongest dancing (opt-in; the audio files
+    -- live in the app's own folder, this row says where; titles stay on the phone)
+    CREATE TABLE IF NOT EXISTS moments (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      score REAL NOT NULL,
+      song_isrc TEXT,
+      song_title TEXT,
+      song_artist TEXT,
+      bass_share REAL,
+      rustle_share REAL,
+      avg_db REAL,
+      event_code TEXT,
+      venue_place_id TEXT,
+      raw_path TEXT NOT NULL,
+      clean_path TEXT,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      shared_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_moments_session ON moments(session_id);
+
     CREATE TABLE IF NOT EXISTS standby_nights (
       id TEXT PRIMARY KEY,
       device_id TEXT NOT NULL,
@@ -760,11 +784,102 @@ export async function markRatingsSynced(ids: string[]): Promise<void> {
 export async function deleteSessionLocal(sessionId: string): Promise<boolean> {
   const database = await getDb();
   const row = await database.getFirstAsync<{ synced: number }>(`SELECT synced FROM sessions WHERE id = ?`, [sessionId]);
-  for (const table of ['sensor_clips', 'sensor_windows', 'subjective_ratings', 'night_songs', 'night_recaps', 'song_feedback', 'night_edits', 'edit_prints']) {
+  for (const table of ['sensor_clips', 'sensor_windows', 'subjective_ratings', 'night_songs', 'night_recaps', 'song_feedback', 'night_edits', 'edit_prints', 'moments']) {
     await database.runAsync(`DELETE FROM ${table} WHERE session_id = ?`, [sessionId]);
   }
   await database.runAsync(`DELETE FROM sessions WHERE id = ?`, [sessionId]);
   return row != null;
+}
+
+export interface MomentRow {
+  id: string;
+  sessionId: string;
+  startedAt: number;
+  durationMs: number;
+  score: number;
+  songIsrc: string | null;
+  songTitle: string | null;
+  songArtist: string | null;
+  bassShare: number | null;
+  rustleShare: number | null;
+  avgDb: number | null;
+  eventCode: string | null;
+  venuePlaceId: string | null;
+  rawPath: string;
+  cleanPath: string | null;
+  createdAt: number;
+  expiresAt: number;
+  sharedAt: number | null;
+}
+
+const momentFromRow = (r: any): MomentRow => ({
+  id: r.id, sessionId: r.session_id, startedAt: r.started_at, durationMs: r.duration_ms, score: r.score,
+  songIsrc: r.song_isrc, songTitle: r.song_title, songArtist: r.song_artist, bassShare: r.bass_share,
+  rustleShare: r.rustle_share, avgDb: r.avg_db, eventCode: r.event_code, venuePlaceId: r.venue_place_id,
+  rawPath: r.raw_path, cleanPath: r.clean_path, createdAt: r.created_at, expiresAt: r.expires_at, sharedAt: r.shared_at,
+});
+
+export async function saveMoment(m: MomentRow): Promise<void> {
+  const database = await getDb();
+  await database.runAsync(
+    `INSERT OR REPLACE INTO moments (id, session_id, started_at, duration_ms, score, song_isrc, song_title, song_artist,
+       bass_share, rustle_share, avg_db, event_code, venue_place_id, raw_path, clean_path, created_at, expires_at, shared_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [m.id, m.sessionId, m.startedAt, m.durationMs, m.score, m.songIsrc, m.songTitle, m.songArtist, m.bassShare,
+     m.rustleShare, m.avgDb, m.eventCode, m.venuePlaceId, m.rawPath, m.cleanPath, m.createdAt, m.expiresAt, m.sharedAt]
+  );
+}
+
+/** A session's moments, strongest first. */
+export async function getSessionMoments(sessionId: string): Promise<MomentRow[]> {
+  const database = await getDb();
+  const rows = await database.getAllAsync<any>(`SELECT * FROM moments WHERE session_id = ? ORDER BY score DESC`, [sessionId]);
+  return rows.map(momentFromRow);
+}
+
+export async function getMoment(id: string): Promise<MomentRow | null> {
+  const database = await getDb();
+  const row = await database.getFirstAsync<any>(`SELECT * FROM moments WHERE id = ?`, [id]);
+  return row ? momentFromRow(row) : null;
+}
+
+/** Moments of ended sessions that were not sent to us yet. */
+export async function getMomentsToShare(): Promise<MomentRow[]> {
+  const database = await getDb();
+  const rows = await database.getAllAsync<any>(
+    `SELECT m.* FROM moments m JOIN sessions s ON s.id = m.session_id
+     WHERE m.shared_at IS NULL AND s.ended_at IS NOT NULL ORDER BY m.created_at`);
+  return rows.map(momentFromRow);
+}
+
+export async function markMomentShared(id: string): Promise<void> {
+  const database = await getDb();
+  await database.runAsync(`UPDATE moments SET shared_at = ? WHERE id = ?`, [Date.now(), id]);
+}
+
+export async function getExpiredMoments(now: number): Promise<MomentRow[]> {
+  const database = await getDb();
+  const rows = await database.getAllAsync<any>(`SELECT * FROM moments WHERE expires_at < ?`, [now]);
+  return rows.map(momentFromRow);
+}
+
+/** Clips cut during a session that are not cleaned and checked yet (ended sessions only). */
+export async function getUnprocessedMoments(): Promise<MomentRow[]> {
+  const database = await getDb();
+  const rows = await database.getAllAsync<any>(
+    `SELECT m.* FROM moments m JOIN sessions s ON s.id = m.session_id
+     WHERE m.clean_path IS NULL AND s.ended_at IS NOT NULL ORDER BY m.created_at`);
+  return rows.map(momentFromRow);
+}
+
+export async function updateMomentAnalysis(id: string, a: { cleanPath: string; bassShare: number; rustleShare: number }): Promise<void> {
+  const database = await getDb();
+  await database.runAsync(`UPDATE moments SET clean_path = ?, bass_share = ?, rustle_share = ? WHERE id = ?`, [a.cleanPath, a.bassShare, a.rustleShare, id]);
+}
+
+export async function deleteMomentRow(id: string): Promise<void> {
+  const database = await getDb();
+  await database.runAsync(`DELETE FROM moments WHERE id = ?`, [id]);
 }
 
 export async function wipeLocalData(): Promise<void> {
@@ -772,6 +887,6 @@ export async function wipeLocalData(): Promise<void> {
   await database.execAsync(
     `DELETE FROM sensor_clips; DELETE FROM sensor_windows; DELETE FROM subjective_ratings; DELETE FROM sessions; DELETE FROM standby_nights;
      DELETE FROM night_songs; DELETE FROM night_recaps; DELETE FROM song_feedback;
-     DELETE FROM night_edits; DELETE FROM edit_prints;`
+     DELETE FROM night_edits; DELETE FROM edit_prints; DELETE FROM moments;`
   );
 }

@@ -2,7 +2,7 @@ import ActivityKit
 import ExpoModulesCore
 import Foundation
 
-/// Shared with the card's intents (`RateVibeIntent`, `CardActionIntent`, compiled into the app
+/// Shared with the card's intents (`CardActionIntent`, compiled into the app
 /// target): a tap on a card button is queued here and announced in-process, and JS drains the
 /// queue. Keep the names in sync.
 private let pendingRatingsKey = "viibe.liveActivity.pendingRatings"
@@ -16,9 +16,7 @@ struct CardState: Record {
   @Field var mode: String = "session"
   @Field var sessionStartedAtMs: Double? = nil
   @Field var venue: String? = nil
-  @Field var due: Bool = false
-  @Field var lastRating: Int? = nil
-  @Field var thanksUntilMs: Double? = nil
+  @Field var song: String? = nil
 }
 
 /// Lights the screen and plays the alert sound with an update (the Going out prompt).
@@ -27,7 +25,7 @@ struct CardAlert: Record {
   @Field var body: String = ""
 }
 
-/// The lock-screen Live Activity of a running session (iOS 16.2+; rating buttons need iOS 17).
+/// The lock-screen Live Activity of a running session (iOS 16.2+; the Going out buttons need iOS 17).
 /// Started and updated locally: the session's open microphone keeps the app running, so no push.
 public class ViibeLiveActivityModule: Module {
   private var observer: NSObjectProtocol?
@@ -112,9 +110,7 @@ public class ViibeLiveActivityModule: Module {
       mode: s.mode,
       sessionStartedAt: s.sessionStartedAtMs.map { Date(timeIntervalSince1970: $0 / 1000) },
       venue: s.venue,
-      due: s.due,
-      lastRating: s.lastRating,
-      thanksUntil: s.thanksUntilMs.map { Date(timeIntervalSince1970: $0 / 1000) }
+      song: s.song
     )
     return ActivityContent(state: state, staleDate: Date().addingTimeInterval(staleAfter))
   }

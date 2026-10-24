@@ -22,7 +22,7 @@ const RECOGNITION_MIN_INTERVAL_MS = 30_000;
 // that ended does not keep tagging later windows.
 const SONG_STALE_MS = 120_000;
 // Rolling in-memory audio buffer on iOS; recognition matches the last few seconds of it
-const CAPTURE_BUFFER_SECONDS = 12;
+const CAPTURE_BUFFER_SECONDS = 20; // 15 s "best moment" clips are cut from this ring (memory only)
 const SHAZAM_MATCH_SECONDS = 8;
 const DB_CHUNK_SAMPLES = 2048;
 // Song start estimates within this agree (same playback); further apart = matched a repeat

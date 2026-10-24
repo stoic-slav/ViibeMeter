@@ -1,4 +1,4 @@
-import { computeTempoMatch } from './BeatSync';
+import { computeWeightedTempoMatch } from './BeatSync';
 
 /**
  * "Your night in songs" (build 25, refined for build 26): the songs a person vibed with most,
@@ -11,7 +11,8 @@ import { computeTempoMatch } from './BeatSync';
  *   predicted enjoyment in Martella et al. 2015; the urge to move tracks pleasure (Witek et al.
  *   2014, Janata et al. 2012).
  * - entrainment: how locked to the music the movement was: phase locking to the beat (PLV), else
- *   movement tempo agreeing with the song tempo or a harmonic of it. Sensorimotor coupling to the
+ *   movement tempo agreeing with the song tempo or a multiple of it (half, double: 0.9; quarter,
+ *   triple, four times: 0.5–0.6, because they are rarer and say less; HARMONIC_WEIGHTS). Sensorimotor coupling to the
  *   beat is the core of "groove" (Janata 2012; Burger et al. 2013; Swarbrick et al. 2019).
  * - persistence: the share of the song spent moving more than usual: sustained dancing rather than
  *   a burst (dancing through the song; analysis/engagement.py).
@@ -142,7 +143,7 @@ export function scoreParts(clips: RecapClip[], pct: (v: number) => number, befor
   const plvs = clips.map(c => c.beatPlv).filter((v): v is number => v != null);
   const matches = clips
     .filter(c => c.movementBpm != null && c.songBpm != null)
-    .map(c => computeTempoMatch(c.movementBpm, c.songBpm).tempoMatch);
+    .map(c => computeWeightedTempoMatch(c.movementBpm, c.songBpm).tempoMatch);
   const entrainment = plvs.length >= 2 ? mean(plvs) : matches.length >= 2 ? mean(matches) : null;
 
   const persistence = pcts.filter(p => p > RECAP.ABOVE_USUAL_PCT).length / pcts.length;

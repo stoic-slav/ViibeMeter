@@ -1,4 +1,4 @@
-// The lock-screen card's buttons run RateVibeIntent and CardActionIntent, LiveActivityIntents. iOS
+// The lock-screen card's buttons run CardActionIntent, a LiveActivityIntent. iOS
 // runs such an intent in the app's process, and finds it only in the app target's own App Intents
 // metadata (not in a CocoaPods module), so the same Swift files that the widget target uses
 // (targets/live-activity, linked by @bacons/apple-targets) are also compiled into the app target.
@@ -7,7 +7,6 @@ const { withInfoPlist, withXcodeProject, IOSConfig } = require('expo/config-plug
 
 // Relative to ios/ (the app group has no path)
 const INTENT_FILES = [
-  '../targets/live-activity/RateVibeIntent.swift',
   '../targets/live-activity/CardActionIntent.swift',
 ];
 

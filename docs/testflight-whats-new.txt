@@ -1,5 +1,4 @@
-Fixes the crash on launch on iOS 27. Please update and tell us if the app opens.
-New: Your night in songs. After a night out, press Stop (or wait for the 12:00 notification) and see the songs you vibed with most, ranked from how you moved. Tap thumbs up or thumbs down on each so the app learns what vibing looks like. Save them to Apple Music and share the card to your Instagram Story.
-Going out mode (iPhone, optional): turn it on before you leave; it asks "Start measuring?" when it hears a party.
-Lock-screen card: rate Dead, Decent or Best without unlocking.
-Please test one full night and open your recap the next day.
+New: Best moments (iPhone, optional, off by default). In privacy and data you can switch on Keep my best moments: the app saves about 15 seconds of the music at your strongest dancing moments on your phone, so you can replay them in your night's recap, as heard or cleaned up. A second switch, Send them to us, copies the clips to our private storage to help improve the cleaning. Clips are deleted after 14 days or when you delete them.
+Changed: the lock-screen card is quieter. It shows the song playing now and a STOP button, and no longer has the Dead, Decent, Best buttons. The 5-minute vibe buzz is off by default (turn it on in privacy and data); your thumbs up or down on the next day's recap is the main answer.
+New: swipe a past session to the left on Home to delete it.
+Please test one full night, then open your recap the next day.

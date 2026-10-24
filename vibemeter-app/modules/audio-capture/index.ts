@@ -34,6 +34,7 @@ interface AudioCaptureNative {
   start(bufferSeconds: number): Promise<void>;
   stop(): Promise<void>;
   isRunning(): boolean;
+  excludeFromBackup(path: string): boolean;
   readRecent(seconds: number): Promise<RecentAudio>;
   readRange(fromMs: number, toMs: number): Promise<RecentAudio>;
   getBassEnvelope(fromMs: number, toMs: number): Promise<(number | null)[]>;
@@ -58,6 +59,11 @@ export async function startCapture(bufferSeconds: number): Promise<void> {
 
 export async function stopCapture(): Promise<void> {
   await native?.stop();
+}
+
+/** Marks a file or folder as not to be backed up to iCloud (iOS). False if it could not be marked. */
+export function excludeFromBackup(path: string): boolean {
+  try { return native?.excludeFromBackup(path) ?? false; } catch { return false; }
 }
 
 export function isCapturing(): boolean {

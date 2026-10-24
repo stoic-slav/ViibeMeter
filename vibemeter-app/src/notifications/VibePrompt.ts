@@ -5,7 +5,8 @@ import { SENSOR_CONFIG } from '../config/constants';
 import { saveRating, getNearestWindowId } from '../storage/LocalBuffer';
 import { syncRatings } from '../storage/SupabaseSync';
 import { getDeviceId } from '../storage/DeviceIdentity';
-import { startSessionCard, endSessionCard, setCardDue, showCardThanks, setCardActionHandler } from './LockScreenCard';
+import { startSessionCard, endSessionCard } from './LockScreenCard';
+import { getBuzzPrompts } from '../storage/PromptSettings';
 
 const LOG_TAG = '[VibePrompt]';
 // Android channel settings are fixed once created, so vibration needs a new channel id
@@ -31,6 +32,8 @@ export class VibePrompt {
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private sessionId: string | null = null;
   private sessionStartTime: number | null = null;
+  // The 5-minute buzz is opt-in since build 29 (privacy & data); the 👍/👎 on the next day's recap is the main answer
+  private buzzEnabled = false;
   private lastPromptTime: number | null = null;
   // Set while a prompt is unanswered; cleared by an answer or replaced by the next prompt
   private promptShownAt: number | null = null;
@@ -40,14 +43,6 @@ export class VibePrompt {
   private responseSub: { remove: () => void } | null = null;
 
   async setup(): Promise<void> {
-    // Rating buttons on the lock-screen card (iOS 17+), including taps made while JS was not
-    // running; _layout starts the card listener once every handler is set
-    setCardActionHandler('rate', tap => {
-      if (tap.value !== 1 && tap.value !== 3 && tap.value !== 5) return;
-      this.recordRating(tap.value, 'live_activity', tap.atMs)
-        .catch(err => console.warn(`${LOG_TAG} Card rating failed:`, err));
-    });
-
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
         shouldShowAlert: true,
@@ -118,12 +113,12 @@ export class VibePrompt {
 
   /** Milliseconds until the next prompt, or null without a session. */
   get msUntilNextPrompt(): number | null {
-    if (!this.sessionStartTime) return null;
+    if (!this.sessionStartTime || !this.buzzEnabled) return null;
     const base = this.lastPromptTime ?? this.sessionStartTime + SENSOR_CONFIG.PROMPT_MIN_SESSION_MS - SENSOR_CONFIG.PROMPT_INTERVAL_MS;
     return Math.max(0, base + SENSOR_CONFIG.PROMPT_INTERVAL_MS - Date.now());
   }
 
-  /** Starts the 5-minute prompts and the lock-screen card for a new session. */
+  /** Starts the lock-screen card, and the 5-minute prompts if the person turned them on. */
   startPromptSchedule(sessionId: string, card?: { startedAt: Date; venue: string | null }): void {
     this.stopPromptSchedule();
     this.sessionId = sessionId;
@@ -131,9 +126,13 @@ export class VibePrompt {
     this.lastPromptTime = null;
     this.promptShownAt = null;
 
-    this.intervalId = setInterval(() => {
-      this.maybeShowPrompt();
-    }, 60000); // Check every minute
+    getBuzzPrompts().then(on => {
+      this.buzzEnabled = on;
+      if (!on || this.sessionId !== sessionId) return;
+      this.intervalId = setInterval(() => {
+        this.maybeShowPrompt();
+      }, 60000); // Check every minute
+    });
 
     if (card) startSessionCard(card.startedAt, card.venue).catch(() => {});
     console.log(`${LOG_TAG} Prompt schedule started for session ${sessionId}`);
@@ -178,7 +177,6 @@ export class VibePrompt {
       trigger: { channelId: NOTIFICATION_CHANNEL }, // immediately, on the vibrating channel
     });
 
-    setCardDue(true);
     this.onPromptShown?.();
     console.log(`${LOG_TAG} Vibe prompt shown`);
   }
@@ -228,7 +226,6 @@ export class VibePrompt {
     await saveRating(subjectiveRating);
     console.log(`${LOG_TAG} Rating recorded: ${rating} (${source}) after ${responseTimeMs}ms`);
     Notifications.dismissNotificationAsync(NOTIFICATION_IDENTIFIER).catch(() => {});
-    showCardThanks(rating);
     this.onRated?.();
 
     // Sync immediately — ratings are high-value data
@@ -238,7 +235,6 @@ export class VibePrompt {
   /** Dismiss the current prompt without rating. */
   skipPrompt(): void {
     this.promptShownAt = null;
-    setCardDue(false);
     Notifications.dismissNotificationAsync(NOTIFICATION_IDENTIFIER).catch(() => {});
   }
 }

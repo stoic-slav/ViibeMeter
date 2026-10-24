@@ -12,7 +12,7 @@ Viibe Check measures the "vibe" of a venue using your phone's sensors:
 - **Movement** (are you dancing, walking or standing still, and are you moving on the beat?)
 - **Crowd density** (how many Bluetooth devices are nearby)
 
-Every ~5 minutes it asks you "How's the vibe?" on a 1–5 scale.
+The day after, it asks you to give each of your top songs a thumbs up or down. If you like, it can also buzz every ~5 minutes to ask "How's the vibe?" (off by default; turn it on in privacy & data).
 
 The experiment tests whether the sensor measurements match your honest ratings, and whether people moving in sync with the music and with each other means a better vibe.
 
@@ -38,8 +38,8 @@ The first time you open it, allow **microphone, motion, Bluetooth and notificati
 6. Tap **Start Session** and put the phone in your pocket.
 
 **While you're out:**
-- **iPhone (iOS 17 or later):** while you measure, a Viibe Check card sits on your lock screen with 💀 Dead, 🙂 Decent and 🔥 Best. **Tap one, no unlocking needed.** The first time, your iPhone asks "Allow Live Activities from Viibe Check?": tap **Allow** (and later **Always Allow** if it asks again). Every 5 minutes your phone buzzes and the card asks "How's the vibe right now?"; you can also rate any time something changes. **STOP** on the card ends the session (after you unlock and confirm).
-- Every 5 minutes a "How's the vibe right now?" notification also appears. On Android, use the buttons under it; on an iPhone without the card, press and hold it. Then tap 💀 Dead, 🙂 Decent or 🔥 Best. Done in 2 seconds.
+- **iPhone (iOS 16.2 or later):** while you measure, a quiet Viibe Check card sits on your lock screen with the venue, a timer, the song that is playing right now, and a **STOP** button (it asks you to unlock and confirm). The first time, your iPhone asks "Allow Live Activities from Viibe Check?": tap **Allow**.
+- **Rating the vibe:** the main answer is the next day's thumbs up or down on your recap. If you want to rate during the night, tap the rate button on the Meter screen (💀 Dead, 🙂 Decent, 🔥 Best), or turn on **Buzz every 5 minutes** in privacy & data and answer from the notification.
 - Missed one? It stays there until the next one. You can also open the app and tap **Rate the vibe now** whenever you like.
 - If the card turns grey and says "Not measuring", the app was closed: open Viibe Check and start again.
 - **Your night in songs:** after you press Stop (and again at 12:00 the next day), the app shows the songs you moved to most, with the DJ when we know the lineup. Tap 👍 or 👎 to tell us if we got it right, save them with **Add to Apple Music** or the **Spotify** button, and share the card to your Story.
@@ -94,7 +94,7 @@ Full policy: [docs/PRIVACY.md](docs/PRIVACY.md). To delete your data, send us yo
 
 **"I forgot to stop my session"** — No problem: a session stops by itself after about 20 minutes without music (10 if you're walking home), after 8 hours, or when the battery reaches 10%.
 
-**"I missed the rating notification"** — Another one comes in 5 minutes.
+**"I never get a rating notification"** — It is off by default now. Turn on **Buzz every 5 minutes** in privacy & data, or use the rate button on the Meter.
 
 **"Battery drain"** — Target is under 5% per hour. If it's more, tell us.
 

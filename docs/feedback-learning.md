@@ -8,7 +8,7 @@ The recap ranks songs from four signals with weights chosen from research (Marte
 | Signal | Starting weight |
 |---|---|
 | Intensity: movement compared with the person's own night | 0.35 |
-| Entrainment: movement locked to the beat, or matching its tempo | 0.30 |
+| Entrainment: movement locked to the beat, or matching its tempo or a multiple of it (half and double count 0.9, quarter and triple 0.6, four times 0.5; `HARMONIC_WEIGHTS` in `BeatSync.ts`) | 0.30 |
 | Persistence: share of the song spent moving more than usual | 0.20 |
 | Lift: movement during the song vs the 2 minutes before | 0.15 |
 

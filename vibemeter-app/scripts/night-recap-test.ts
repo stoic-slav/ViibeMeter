@@ -1,6 +1,7 @@
 // Checks the "Your night in songs" ranking (src/processing/NightRecap.ts) on synthetic nights.
 // Run from vibemeter-app/: npx tsx scripts/night-recap-test.ts
 import { buildNightRecap, RecapClip } from '../src/processing/NightRecap';
+import { computeWeightedTempoMatch } from '../src/processing/BeatSync';
 
 const T0 = new Date(2026, 9, 24, 23, 0).getTime();
 
@@ -84,7 +85,14 @@ const rc = buildNightRecap({ sessionId: 'C', venueName: null, startedAt: T0, end
 const inTime = rc.items.find(i => i.isrc === 'INTIME');
 const offTime = rc.items.find(i => i.isrc === 'OFFTIME');
 expect('moving in time (half tempo) scores higher than the same energy off tempo', (inTime?.score ?? 0) > (offTime?.score ?? 1));
-expect('entrainment is measured from tempo when there is no beat lock', (inTime?.parts.entrainment ?? 0) > 0.9);
+expect('entrainment is measured from tempo when there is no beat lock', (inTime?.parts.entrainment ?? 0) > 0.85);
+
+// 3b. Multiples of the beat count, the further from the beat the less: 1x > half/double > quarter
+const tm = (move: number) => computeWeightedTempoMatch(move, 120).tempoMatch;
+expect('full beat 1.0, half 0.9, double 0.9', tm(120) === 1 && Math.abs(tm(60) - 0.9) < 1e-9 && Math.abs(tm(240) - 0.9) < 1e-9);
+expect('triple (360) and quarter (30) score lower than half/double', tm(360) < tm(60) && tm(30) < tm(60) && tm(360) > 0);
+expect('four times the beat counts least', tm(480) < tm(360));
+expect('an unrelated tempo scores 0', tm(97) === 0);
 
 // 4. A known DJ edit at a night with no lineup: its DJ, title and link
 const unknownStart = recap.items.find(i => i.kind === 'unknown')!.startsAt;

@@ -5,6 +5,7 @@ import { captureRef } from 'react-native-view-shot';
 import { getOrBuildRecap, buildRecap, answerRecapItem, StoredRecap } from '../src/session/NightRecapService';
 import { createAppleMusicPlaylist, isMusicLibraryAvailable } from '../modules/music-library';
 import { canShareToInstagram, shareToInstagramStory } from '../modules/story-share';
+import { MomentsSection } from '../src/components/MomentsSection';
 import { LinearGradient } from 'expo-linear-gradient';
 import Constants from 'expo-constants';
 
@@ -274,6 +275,8 @@ export default function RecapScreen() {
           )}
         </>
       )}
+
+      {sessionId && <MomentsSection sessionId={sessionId} />}
     </ScrollView>
   );
 }
