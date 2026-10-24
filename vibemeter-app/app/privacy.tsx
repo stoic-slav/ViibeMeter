@@ -145,7 +145,7 @@ export default function PrivacyScreen() {
             <Text style={[st.label, { marginTop: 12 }]}>OPTIONAL EXTRAS</Text>
             <SensorRow
               title="Keep my best moments"
-              body={`Off. When on, ${MOMENTS.CLIP_SECONDS}-second clips of your strongest dancing stay on your phone for ${MOMENTS.RETAIN_DAYS} days, out of backups. Play them in your night's recap.`}
+              body={`When on, ${MOMENTS.CLIP_SECONDS}-second clips of your strongest dancing stay on your phone for ${MOMENTS.RETAIN_DAYS} days, out of backups. Play them in your night's recap.`}
               value={moments.keepAcceptedAt != null}
               onChange={toggleKeep}
             />
@@ -153,7 +153,7 @@ export default function PrivacyScreen() {
               title="Send them to us"
               body={moments.keepAcceptedAt == null
                 ? 'Needs "Keep my best moments". Sends the clips to our private storage to improve the audio cleaning.'
-                : `Off. When on, kept clips are copied to our private storage for ${MOMENTS.RETAIN_DAYS} days to improve the sound cleaning. Deleting a clip here deletes our copy.`}
+                : `When on, kept clips are copied to our private storage for ${MOMENTS.RETAIN_DAYS} days to improve the sound cleaning. Deleting a clip here deletes our copy.`}
               value={moments.shareAcceptedAt != null && moments.keepAcceptedAt != null}
               onChange={moments.keepAcceptedAt == null ? undefined : toggleShare}
             />
@@ -161,7 +161,7 @@ export default function PrivacyScreen() {
         )}
         <SensorRow
           title="Buzz every 5 minutes"
-          body="Off. When on, the phone vibrates every 5 minutes to ask how the vibe is. You can also rate any time on the Meter."
+          body="When on, the phone vibrates every 5 minutes to ask how the vibe is. You can also rate any time on the Meter."
           value={buzz}
           onChange={async v => { setBuzz(v); await setBuzzPrompts(v); }}
         />
