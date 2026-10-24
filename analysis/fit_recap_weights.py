@@ -1,8 +1,10 @@
 """
 Learn how to weigh the recap's signals from people's 👍/👎 (build 26+).
 
-Every 👍/👎 on "Your night in songs" is uploaded with the four signals that ranked the entry
-(intensity, entrainment, persistence, lift; see vibemeter-app/src/processing/NightRecap.ts).
+Every 👍/👎 on "Your night in songs" is uploaded with the signals that ranked the entry
+(intensity, entrainment, persistence, lift, and from build 29 groove and carry; see
+vibemeter-app/src/processing/NightRecap.ts). Answers from older builds have no groove/carry: they
+are treated as not measured.
 This script asks: which signals actually predict a 👍? It reports, per signal, how well it alone
 separates 👍 from 👎, then fits a logistic regression that suggests new weights, with honest
 uncertainty (cross-validation, per-person split). docs/feedback-learning.md explains what to do
@@ -19,8 +21,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-SIGNALS = ['intensity', 'entrainment', 'persistence', 'lift']
-CURRENT = {'intensity': 0.35, 'entrainment': 0.30, 'persistence': 0.20, 'lift': 0.15}
+SIGNALS = ['intensity', 'entrainment', 'persistence', 'lift', 'groove', 'carry']   # groove, carry: build 29+
+CURRENT = {'intensity': 0.30, 'entrainment': 0.27, 'persistence': 0.17, 'lift': 0.12, 'groove': 0.08, 'carry': 0.06}
 MIN_ANSWERS = 100      # below this, report only; don't change the app's weights
 MIN_PEOPLE = 10
 
@@ -102,6 +104,8 @@ def selftest():
     for person in range(30):
         for _ in range(8):
             parts = {s: rng.uniform(0, 1) for s in SIGNALS}
+            if person < 10:
+                parts['groove'] = parts['carry'] = None   # answers from builds before 29
             # Ground truth for the test: entrainment matters most, lift not at all
             logit = 4 * (parts['entrainment'] - 0.5) + 2 * (parts['intensity'] - 0.5) + 1 * (parts['persistence'] - 0.5)
             liked = rng.uniform() < 1 / (1 + np.exp(-logit))

@@ -276,6 +276,9 @@ async function initSchema(database: SQLite.SQLiteDatabase): Promise<void> {
     ['song_feedback', 'entrainment', 'REAL'],
     ['song_feedback', 'persistence', 'REAL'],
     ['song_feedback', 'lift', 'REAL'],
+    // build 29: song-level groove and carry-through-the-change, with each 👍/👎
+    ['song_feedback', 'groove', 'REAL'],
+    ['song_feedback', 'carry', 'REAL'],
   ];
   for (const [table, col, type] of migrations) {
     await database.runAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`).catch(() => {});
@@ -654,16 +657,16 @@ export async function getNightRecap<T>(sessionId: string): Promise<T | null> {
 export async function saveSongFeedback(f: {
   id: string; sessionId: string; deviceId: string; kind: 'song' | 'unknown'; isrc: string | null;
   startsAt: number; endsAt: number; rank: number; score: number; liked: boolean; djName: string | null;
-  parts: { intensity: number; entrainment: number | null; persistence: number; lift: number | null } | null;
+  parts: { intensity: number; entrainment: number | null; persistence: number; lift: number | null; groove: number | null; carry: number | null } | null;
 }): Promise<void> {
   const database = await getDb();
   await database.runAsync(
     `INSERT OR REPLACE INTO song_feedback
       (id, session_id, device_id, kind, isrc, starts_at, ends_at, rank, score, liked, dj_name, created_at,
-       intensity, entrainment, persistence, lift, synced)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+       intensity, entrainment, persistence, lift, groove, carry, synced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
     [f.id, f.sessionId, f.deviceId, f.kind, f.isrc, f.startsAt, f.endsAt, f.rank, f.score, f.liked ? 1 : 0, f.djName, Date.now(),
-     f.parts?.intensity ?? null, f.parts?.entrainment ?? null, f.parts?.persistence ?? null, f.parts?.lift ?? null]
+     f.parts?.intensity ?? null, f.parts?.entrainment ?? null, f.parts?.persistence ?? null, f.parts?.lift ?? null, f.parts?.groove ?? null, f.parts?.carry ?? null]
   );
 }
 

@@ -6,6 +6,7 @@ Status: built 24 Oct 2026; simulator-checked, not yet on a device or in TestFlig
 - **Card:** venue, timer, STOP, `♪ song` (live from the orchestrator). `RateVibeIntent` and the card's rating fields removed.
 - **Buzz:** off by default (`PromptSettings.ts`); toggle in privacy & data. The Meter's rate button stays.
 - **Recap entrainment:** tempo multiples weigh by distance from the beat (`HARMONIC_WEIGHTS`: ×1 1.0, ×½ and ×2 0.9, ×¼ and ×3 0.6, ×4 0.5).
+- **Two more recap signals, small on purpose (owner, 24 Oct):** *groove* (song-level sound features vs the night's music; 0.08) and *carry* (kept dancing through the song change; 0.06), stored with every 👍/👎 (`song_feedback.groove/carry`, migration `20261024090000`). Weights rescaled to 0.30 / 0.27 / 0.17 / 0.12 / 0.08 / 0.06. Recap only: the live composite vibe score is unchanged.
 - **Swipe a past session to delete it** (phone and server).
 - **Best moments:** see AGENTS.md "Best moments". Two opt-ins; 15 s clips, max 5 per night; 14 days; private bucket; `analysis/clip_enhance.py` compares layers.
 

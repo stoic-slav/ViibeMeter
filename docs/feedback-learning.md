@@ -7,12 +7,14 @@ The recap ranks songs from four signals with weights chosen from research (Marte
 
 | Signal | Starting weight |
 |---|---|
-| Intensity: movement compared with the person's own night | 0.35 |
-| Entrainment: movement locked to the beat, or matching its tempo or a multiple of it (half and double count 0.9, quarter and triple 0.6, four times 0.5; `HARMONIC_WEIGHTS` in `BeatSync.ts`) | 0.30 |
-| Persistence: share of the song spent moving more than usual | 0.20 |
-| Lift: movement during the song vs the 2 minutes before | 0.15 |
+| Intensity: movement compared with the person's own night | 0.30 |
+| Entrainment: movement locked to the beat, or matching its tempo or a multiple of it (half and double count 0.9, quarter and triple 0.6, four times 0.5; `HARMONIC_WEIGHTS` in `BeatSync.ts`) | 0.27 |
+| Persistence: share of the song spent moving more than usual | 0.17 |
+| Lift: movement during the song vs the 2 minutes before | 0.12 |
+| Groove (build 29, song-level): pulse clarity, sub-bass and spectral flux against the rest of the night's music, and tempo in 100-150 BPM | 0.08 |
+| Carry (build 29): moving before the song and kept moving through the change | 0.06 |
 
-No study has tested these on phones in pockets in clubs. So the weights are guesses until our own users say which songs they really loved. Every 👍/👎 is uploaded with the four values that produced the ranking (`song_feedback`: `intensity`, `entrainment`, `persistence`, `lift`, `score`, `rank`, `kind`, `dj_name`).
+No study has tested these on phones in pockets in clubs. So the weights are guesses until our own users say which songs they really loved. Every 👍/👎 is uploaded with the values that produced the ranking (`song_feedback`: `intensity`, `entrainment`, `persistence`, `lift`, `groove`, `carry`, `score`, `rank`, `kind`, `dj_name`).
 
 ## The loop
 1. **Collect.** Real nights; people answer 👍/👎 on their recap.

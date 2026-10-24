@@ -2,12 +2,14 @@
 // Run from vibemeter-app/: npx tsx scripts/night-recap-test.ts
 import { buildNightRecap, RecapClip } from '../src/processing/NightRecap';
 import { computeWeightedTempoMatch } from '../src/processing/BeatSync';
+import { tempoFit, RECAP } from '../src/processing/NightRecap';
 
 const T0 = new Date(2026, 9, 24, 23, 0).getTime();
 
 type Step = {
   isrc: string | null; min: number; energy: number; plv?: number | null; ctx?: string;
   moveBpm?: number | null; songBpm?: number | null; walking?: boolean;
+  pulse?: number; bass?: number; flux?: number;   // the song's sound features (0-1)
 };
 
 function night(plan: Step[]) {
@@ -20,6 +22,7 @@ function night(plan: Step[]) {
       clips.push({
         clipStart: t, movementEnergy: s.energy + (i % 3) * 0.1, beatPlv: s.plv ?? null,
         movementBpm: s.moveBpm ?? null, songBpm: s.songBpm ?? null, songIsrc: s.isrc,
+        pulseClarity: s.pulse ?? null, spectralFlux: s.flux ?? null, subBass: s.bass ?? null,
         phoneContext: s.ctx ?? 'on_body_moving', walking: s.walking ?? false,
       });
       musicMinutes.add(Math.floor(t / 60_000) * 60_000);
@@ -27,6 +30,12 @@ function night(plan: Step[]) {
     }
   }
   return { clips, musicMinutes, end: t };
+}
+
+// The parts of a song even when its score is too low to be listed (a song danced to for 0 min)
+function scoreOnly(n: ReturnType<typeof night>, ids: string[]) {
+  const loose = buildNightRecap({ sessionId: 'X', venueName: null, startedAt: T0, endedAt: n.end, clips: n.clips, musicMinutes: n.musicMinutes, songs: songs(ids), sets: [], minScore: 0 });
+  return loose.items.find(i => ids.includes(i.isrc ?? ''));
 }
 
 let failures = 0;
@@ -93,6 +102,43 @@ expect('full beat 1.0, half 0.9, double 0.9', tm(120) === 1 && Math.abs(tm(60) -
 expect('triple (360) and quarter (30) score lower than half/double', tm(360) < tm(60) && tm(30) < tm(60) && tm(360) > 0);
 expect('four times the beat counts least', tm(480) < tm(360));
 expect('an unrelated tempo scores 0', tm(97) === 0);
+
+// 3c. Groove: with the same movement, the song with a clear pulse, strong bass and lively mix at a
+// danceable tempo gets a higher groove value (and a slightly higher score) than a muddy, slow one
+const g = night([
+  { isrc: 'FILL1', min: 4, energy: 1.0, pulse: 0.5, bass: 0.5, flux: 0.5, songBpm: 120 },
+  { isrc: 'CLEAR', min: 4, energy: 4.0, pulse: 0.9, bass: 0.9, flux: 0.8, songBpm: 128 },
+  { isrc: 'FILL2', min: 4, energy: 1.0, pulse: 0.5, bass: 0.5, flux: 0.5, songBpm: 120 },
+  { isrc: 'MUDDY', min: 4, energy: 4.0, pulse: 0.15, bass: 0.2, flux: 0.2, songBpm: 85 },
+  { isrc: 'FILL3', min: 4, energy: 1.0 },
+  { isrc: 'NOFEAT', min: 4, energy: 4.0 },
+]);
+const rg = buildNightRecap({ sessionId: 'G', venueName: null, startedAt: T0, endedAt: g.end, clips: g.clips, musicMinutes: g.musicMinutes, songs: songs(['FILL1', 'CLEAR', 'FILL2', 'MUDDY', 'FILL3', 'NOFEAT']), sets: [] });
+const gClear = rg.items.find(i => i.isrc === 'CLEAR'), gMuddy = rg.items.find(i => i.isrc === 'MUDDY'), gNone = rg.items.find(i => i.isrc === 'NOFEAT');
+expect('groove is higher for the clear, bassy, danceable-tempo song', (gClear?.parts.groove ?? 0) > (gMuddy?.parts.groove ?? 1) + 0.3);
+expect('the clear song scores a little higher than the muddy one at equal movement and lift', (gClear?.score ?? 0) > (gMuddy?.score ?? 1));
+expect('the score gap from groove stays small (it is a prior)', (gClear?.score ?? 0) - (gMuddy?.score ?? 0) < 0.1);
+expect('groove and carry together weigh at most 15% and all weights sum to 1',
+  RECAP.WEIGHTS.groove + RECAP.WEIGHTS.carry <= 0.15 && Math.abs(Object.values(RECAP.WEIGHTS).reduce((a, b) => a + b, 0) - 1) < 1e-9);
+expect('a song with no sound features has no groove and still ranks', gNone?.parts.groove == null && gNone != null);
+expect('tempo fit: 128 full, 85 partial, 60 none, 200 none', tempoFit(128) === 1 && tempoFit(85) > 0 && tempoFit(85) < 1 && tempoFit(60) === 0 && tempoFit(200) === 0);
+
+// 3d. Carry: moving before a song and still moving through the change counts; stopping at the change
+// or standing before it does not
+const k = night([
+  { isrc: 'REST1', min: 4, energy: 1.0 },
+  { isrc: 'PRE1', min: 3, energy: 4.0 },
+  { isrc: 'KEEP', min: 3, energy: 4.0 },     // moved before, kept moving
+  { isrc: 'REST2', min: 3, energy: 1.0 },
+  { isrc: 'PRE2', min: 3, energy: 4.0 },
+  { isrc: 'DROP', min: 3, energy: 1.1 },     // moved before, stopped at the change
+]);
+const rk = buildNightRecap({ sessionId: 'K', venueName: null, startedAt: T0, endedAt: k.end, clips: k.clips, musicMinutes: k.musicMinutes, songs: songs(['REST1', 'PRE1', 'KEEP', 'REST2', 'PRE2', 'DROP']), sets: [] });
+const kKeep = rk.items.find(i => i.isrc === 'KEEP'), kPre = rk.items.find(i => i.isrc === 'PRE1');
+const allK = scoreOnly(k, ['DROP']);
+expect('kept moving through the change: carry is high', (kKeep?.parts.carry ?? 0) > 0.7);
+expect('standing before the song: no carry (it drops out)', kPre?.parts.carry == null);
+expect('stopping at the change: carry is low', (allK?.parts.carry ?? 1) < 0.4);
 
 // 4. A known DJ edit at a night with no lineup: its DJ, title and link
 const unknownStart = recap.items.find(i => i.kind === 'unknown')!.startsAt;

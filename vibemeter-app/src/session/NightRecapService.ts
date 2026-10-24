@@ -65,6 +65,7 @@ export async function buildRecap(sessionId: string): Promise<StoredRecap | null>
       return {
         clipStart: c.clip_start, movementEnergy: c.movement_energy, beatPlv: c.beat_plv,
         movementBpm: c.movement_bpm ?? null, songBpm: w?.song_bpm ?? null,
+        pulseClarity: w?.pulse_clarity ?? null, spectralFlux: w?.spectral_flux ?? null, subBass: w?.sub_bass_energy ?? null,
         songIsrc: c.song_isrc, phoneContext: c.phone_context, walking: w?.movement_classification === 'walking',
       };
     }),

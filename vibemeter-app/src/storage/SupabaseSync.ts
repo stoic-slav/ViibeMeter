@@ -275,6 +275,8 @@ export async function syncSongFeedback(): Promise<void> {
     entrainment: r.entrainment ?? null,
     persistence: r.persistence ?? null,
     lift: r.lift ?? null,
+    groove: r.groove ?? null,
+    carry: r.carry ?? null,
     app_version: APP_VERSION,
   }));
   await withRetry(async () => {

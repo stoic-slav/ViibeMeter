@@ -18,6 +18,12 @@ import { computeWeightedTempoMatch } from './BeatSync';
  *   a burst (dancing through the song; analysis/engagement.py).
  * - lift: whether movement rose when the song started compared with the 2 minutes before:
  *   people step up (or return to the floor) for songs they like.
+ * - groove (small, song-level): how groove-friendly the song's sound was compared with the rest of
+ *   the night's music: clear pulse, strong bass, lively spectral flux (Burger et al. 2013, Ellamil
+ *   et al. 2016) and a tempo in the 100-150 BPM range. A prior about the song, not about the
+ *   person, so it carries little weight until the 👍/👎 show whether it helps.
+ * - carry (small): the person was moving before the song and kept moving through the change
+ *   (analysis/engagement.py: through_song_change). Missing when they weren't moving before it.
  * Walking minutes are left out (walking is rhythmic too and would look like dancing). The weights
  * are priors: every 👍/👎 is uploaded with these components so the analysis can fit them.
  */
@@ -28,6 +34,9 @@ export interface RecapClip {
   beatPlv: number | null;
   movementBpm: number | null;
   songBpm: number | null;         // the recognised song's tempo for that minute, if known
+  pulseClarity: number | null;    // the minute's audio features (song-level groove)
+  spectralFlux: number | null;
+  subBass: number | null;
   songIsrc: string | null;
   phoneContext: string | null;
   walking: boolean;               // the minute was classified as walking
@@ -56,12 +65,14 @@ export interface HeardEdit {
   lastHeardMs: number;
 }
 
-/** The four signals behind a score (0–1; null when not measurable for that song). */
+/** The signals behind a score (0–1; null when not measurable for that song). */
 export interface ScoreParts {
   intensity: number;
   entrainment: number | null;
   persistence: number;
   lift: number | null;
+  groove: number | null;
+  carry: number | null;
 }
 
 export interface RecapItem {
@@ -97,12 +108,16 @@ export const RECAP = {
   MIN_CLIPS: 3,                   // ≥ 30 s on a body for a song to be ranked
   MIN_UNKNOWN_CLIPS: 12,          // ≥ 2 min for an unrecognised stretch
   MAX_GAP_MS: 30_000,             // an unrecognised stretch breaks at a longer gap
-  WEIGHTS: { intensity: 0.35, entrainment: 0.30, persistence: 0.20, lift: 0.15 },
+  // Priors from research and judgement (groove and carry small until the 👍/👎 fit them)
+  WEIGHTS: { intensity: 0.30, entrainment: 0.27, persistence: 0.17, lift: 0.12, groove: 0.08, carry: 0.06 },
   LOCKED_PLV: 0.4,                // a clip "on the beat"
   STRONG_PCT: 0.6,                // a clip of strong movement (top 40% of the night)
   ABOVE_USUAL_PCT: 0.5,           // persistence: moving more than the night's median
   LIFT_WINDOW_MS: 120_000,        // the 2 minutes before a song, for the lift
   MIN_LIFT_CLIPS: 3,
+  CARRY_CLIPS: 3,                 // clips either side of the song change that are compared
+  CARRY_MAX_GAP_MS: 30_000,       // the earlier clips must be right before the song
+  TEMPO_FULL: [100, 150] as const, // tempo range with full groove credit (falls to 0 at 70 and 180)
   CLIP_MS: 10_000,
 } as const;
 
@@ -134,8 +149,26 @@ function setAt(sets: DjSet[], ms: number): DjSet | null {
   return sets.find(s => ms >= s.startsAt && ms < s.endsAt) ?? null;
 }
 
-/** The four signals for a group of clips, and the weighted score over the measurable ones. */
-export function scoreParts(clips: RecapClip[], pct: (v: number) => number, before: RecapClip[]): { score: number; parts: ScoreParts } {
+/** The night's own spread of each song-level sound feature, to compare a song with its night. */
+export interface GrooveContext {
+  pulse: (v: number) => number;
+  flux: (v: number) => number;
+  bass: (v: number) => number;
+}
+
+/** 1 inside the tempo range people dance to most (100–150 BPM), falling to 0 at 70 and 180. */
+export function tempoFit(bpm: number): number {
+  const [lo, hi] = RECAP.TEMPO_FULL;
+  if (bpm >= lo && bpm <= hi) return 1;
+  return bpm < lo ? clamp01((bpm - 70) / (lo - 70)) : clamp01((180 - bpm) / (180 - hi));
+}
+
+const meanOf = (xs: number[]): number | null => (xs.length ? mean(xs) : null);
+
+/** The signals for a group of clips, and the weighted score over the measurable ones. */
+export function scoreParts(
+  clips: RecapClip[], pct: (v: number) => number, before: RecapClip[], groove?: GrooveContext,
+): { score: number; parts: ScoreParts } {
   const pcts = clips.map(c => pct(c.movementEnergy ?? 0));
   const intensity = mean(pcts);
 
@@ -152,7 +185,29 @@ export function scoreParts(clips: RecapClip[], pct: (v: number) => number, befor
     ? clamp01(0.5 + intensity - mean(before.map(c => pct(c.movementEnergy ?? 0))))
     : null;
 
-  const parts: ScoreParts = { intensity, entrainment, persistence, lift };
+  // Groove: song-level sound features against the rest of the night's music (at least two measured)
+  let grooveValue: number | null = null;
+  if (groove) {
+    const part = (get: (c: RecapClip) => number | null, rank: (v: number) => number) =>
+      meanOf(clips.map(get).filter((v): v is number => v != null).map(rank));
+    const bpms = clips.map(c => c.songBpm).filter((v): v is number => v != null);
+    const bits = [
+      part(c => c.pulseClarity, groove.pulse), part(c => c.subBass, groove.bass), part(c => c.spectralFlux, groove.flux),
+      bpms.length ? tempoFit(mean(bpms)) : null,
+    ].filter((v): v is number => v != null);
+    grooveValue = bits.length >= 2 ? mean(bits) : null;
+  }
+
+  // Carry: moving right before the song, and still moving through its first clips
+  let carry: number | null = null;
+  const recent = before.slice(-RECAP.CARRY_CLIPS);
+  const startsAt = clips[0].clipStart;
+  if (recent.length >= RECAP.CARRY_CLIPS && startsAt - recent[recent.length - 1].clipStart <= RECAP.CARRY_MAX_GAP_MS + RECAP.CLIP_MS
+      && mean(recent.map(c => pct(c.movementEnergy ?? 0))) > RECAP.ABOVE_USUAL_PCT) {
+    carry = clamp01(mean(pcts.slice(0, RECAP.CARRY_CLIPS)));
+  }
+
+  const parts: ScoreParts = { intensity, entrainment, persistence, lift, groove: grooveValue, carry };
   let sum = 0, weight = 0;
   for (const k of Object.keys(RECAP.WEIGHTS) as (keyof ScoreParts)[]) {
     const v = parts[k];
@@ -163,7 +218,10 @@ export function scoreParts(clips: RecapClip[], pct: (v: number) => number, befor
   const round = (x: number | null) => (x == null ? null : Math.round(x * 1000) / 1000);
   return {
     score: Math.round((sum / weight) * 1000) / 1000,
-    parts: { intensity: round(intensity)!, entrainment: round(entrainment), persistence: round(persistence)!, lift: round(lift) },
+    parts: {
+      intensity: round(intensity)!, entrainment: round(entrainment), persistence: round(persistence)!, lift: round(lift),
+      groove: round(grooveValue), carry: round(carry),
+    },
   };
 }
 
@@ -174,6 +232,7 @@ function reasonFor(clips: RecapClip[], pct: (v: number) => number, parts: ScoreP
   if (locked * RECAP.CLIP_MS >= 60_000) return `In sync with the beat for ${minutesText(locked)}`;
   if (parts.entrainment != null && parts.entrainment >= 0.6) return 'You moved in time with this one';
   if (parts.lift != null && parts.lift >= 0.75) return 'You stepped it up when this dropped';
+  if (parts.carry != null && parts.carry >= 0.8) return 'You kept dancing straight through the change';
   if (strong * RECAP.CLIP_MS >= 60_000) return `Danced hard for ${minutesText(strong)}`;
   if (parts.persistence >= 0.7) return 'You kept moving all the way through';
   return parts.intensity >= 0.6 ? 'You moved more than usual' : 'You moved to this one';
@@ -193,11 +252,19 @@ export function buildNightRecap(input: {
   musicMinutes: Set<number>;
   sets: DjSet[];
   edits?: HeardEdit[];
+  minScore?: number;              // below this an entry isn't listed (default RECAP.MIN_SCORE; tests lower it)
 }): NightRecap {
   // Clips that tell us about dancing: on a body, with a motion reading, not walking
   const onBody = input.clips.filter(c => c.movementEnergy != null && ON_BODY.has(c.phoneContext ?? '') && !c.walking);
   const pct = percentileRanks(onBody.map(c => c.movementEnergy!));
   const isMusic = (c: RecapClip) => input.musicMinutes.has(Math.floor(c.clipStart / 60_000) * 60_000);
+  // Song-level sound features of the night's music, to rank each song against the rest of its night
+  const musicOnBody = onBody.filter(isMusic);
+  const grooveCtx: GrooveContext = {
+    pulse: percentileRanks(musicOnBody.map(c => c.pulseClarity).filter((v): v is number => v != null)),
+    flux: percentileRanks(musicOnBody.map(c => c.spectralFlux).filter((v): v is number => v != null)),
+    bass: percentileRanks(musicOnBody.map(c => c.subBass).filter((v): v is number => v != null)),
+  };
   const beforeOf = (startsAt: number) =>
     onBody.filter(c => c.clipStart < startsAt && c.clipStart >= startsAt - RECAP.LIFT_WINDOW_MS);
 
@@ -209,7 +276,7 @@ export function buildNightRecap(input: {
   ) => {
     const startsAt = clips[0].clipStart;
     const endsAt = clips[clips.length - 1].clipStart + RECAP.CLIP_MS;
-    const { score, parts } = scoreParts(clips, pct, beforeOf(startsAt));
+    const { score, parts } = scoreParts(clips, pct, beforeOf(startsAt), grooveCtx);
     const set = setAt(input.sets, (startsAt + endsAt) / 2);
     items.push({
       ...base, startsAt, endsAt, score, parts, reason: reasonFor(clips, pct, parts),
@@ -250,7 +317,7 @@ export function buildNightRecap(input: {
   flush();
 
   items.sort((a, b) => b.score - a.score);
-  const listed = items.filter(i => i.score >= RECAP.MIN_SCORE);
+  const listed = items.filter(i => i.score >= (input.minScore ?? RECAP.MIN_SCORE));
 
   const musicClips = input.clips.filter(isMusic);
   return {
