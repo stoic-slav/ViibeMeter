@@ -72,6 +72,7 @@ Viibe Check can show which venues are lively right now. It is built only from **
 - Sensors run only while you have a session open. Stop the session and collection stops. A session also **stops by itself** after about 20 minutes without music (10 if you're walking, for example on your way home), after 8 hours, or when your battery drops to 10%.
 - You can refuse any permission in iOS or Android settings. The app then works with fewer signals.
 - **Change what the app may use** at any time under **privacy & data** on the home screen: switch motion, Bluetooth or location off and they are no longer used from the next measurement.
+- **Delete one session:** on Home, swipe a past session to the left and tap the red **Delete**. It removes that session with its measurements, ratings and song answers from the phone and from our database.
 - **Delete your data yourself:** **privacy & data → Delete my data** removes every session, rating and measurement uploaded from your phone, wipes the phone's copy and gives you a new anonymous ID. You can also contact us with the anonymous ID shown in the app.
 - Uninstalling the app deletes everything stored on the phone (data already uploaded stays until you delete it or it expires).
 

@@ -2,7 +2,8 @@ import { supabase } from '../config/supabase';
 import { sessionManager } from '../session/SessionManager';
 import { stopEverything } from '../session/SessionControl';
 import { getDeviceId, resetDeviceId } from './DeviceIdentity';
-import { wipeLocalData } from './LocalBuffer';
+import { wipeLocalData, deleteSessionLocal } from './LocalBuffer';
+import * as Notifications from 'expo-notifications';
 import { clearConsent } from './Consent';
 import { clearDanceAffinity } from './UserProfile';
 import { clearStandbySettings, getStandbySettings } from './StandbySettings';
@@ -18,6 +19,20 @@ import { clearEditCatalogCache } from '../session/EditCatalog';
  * phone's own copy and starts over with a new, unrelated ID. If the server can't be reached,
  * nothing is wiped locally, so the user can try again.
  */
+/**
+ * Swipe-to-delete on Home: one session, from the phone and from the database (its ratings, recap
+ * answers, readings and clips go with it). The server goes first, so that if the phone is offline
+ * nothing is deleted and the user can try again. A session that never uploaded is only local.
+ */
+export async function deleteSession(sessionId: string): Promise<void> {
+  const deviceId = await getDeviceId();
+  const { error } = await supabase.rpc('delete_my_session', { p_device_id: deviceId, p_session_id: sessionId });
+  if (error) throw new Error(error.message);
+  await deleteSessionLocal(sessionId);
+  // Its "Your night in songs" reminder is no longer needed
+  Notifications.cancelScheduledNotificationAsync(`night-recap-${sessionId}`).catch(() => {});
+}
+
 export async function deleteMyData(): Promise<number> {
   if (sessionManager.isSessionActive) await stopEverything('user');
   await standby.disarm('deleted');

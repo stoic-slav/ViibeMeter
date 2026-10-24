@@ -264,6 +264,10 @@ Plan: ~1.5 min still, on beat to ~5 min, 2 min off beat, 1 min still, ~2.5 min o
 - **Database lockdown, step 1 done (owner's choice):** the anon key can no longer DELETE or TRUNCATE `sessions`, `sensor_windows` or `subjective_ratings` (migration `20261004124542_block_anon_delete`). Verified with the anon key: upsert of a new and an existing session works, delete is refused (42501). `sensor_clips` is insert-only. **Step 2 (to do):** a probe table showed `upsert` fails under RLS without SELECT, even with `ignoreDuplicates`. So first switch `SupabaseSync` to `SECURITY DEFINER` RPC functions (for example `upsert_sessions(jsonb)`) in a build, wait until testers have updated, then drop the SELECT policies. Security advisors now only flag the remaining anon/authenticated SELECT.
 - Migration files renamed to the versions Supabase recorded.
 
+### Swipe to delete a session (24 Oct, after build 28; ships with build 29)
+- Home session list: swipe left on a past session for a red DELETE, confirm dialog, then the `delete_my_session` RPC (migration `20261024072334`, checks the device ID owns the session, removes ratings, song feedback and edit prints, cascades windows and clips) and the phone's copy (`deleteSessionLocal` in `LocalBuffer.ts`, plus the scheduled recap notification).
+- **Verified:** simulator (swipe, button, alert, row gone); RPC in a rolled-back transaction (other device refused, owner deleted, no rows left). **Not verified:** deleting a synced session from a device.
+
 ## Do next, in order
 1. **First real rated night (owner, highest value):** 2–3 friends on build 23 (or 22) via the public TestFlight link, one shared group code (GROUP → SHARE/SCAN), a city-centre venue (C12 or a student night), ratings every 5 minutes, Stop when leaving. Add 20–30 minutes in a quiet bar for contrast. Without rated nights nothing can be validated.
 2. ~~Stop the open session on the owner's iPhone 16~~: deleted on 18 Oct at the owner's request (session `697b622b`, device `d345a62e`, an 80-second test with one rating and no windows).

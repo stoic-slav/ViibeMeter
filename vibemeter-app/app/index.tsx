@@ -21,6 +21,8 @@ import {
 } from '../src/session/GroupCode';
 import { applyScan, notifySessionStarted } from '../src/session/SessionControl';
 import { standby, StandbyState } from '../src/session/Standby';
+import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
+import { deleteSession } from '../src/storage/DataDeletion';
 import { nightBounds } from '../src/storage/LiveAccess';
 import { venueLocator, confirmVenue, Venue } from '../src/session/VenueLocator';
 
@@ -87,26 +89,58 @@ function MiniGauge({ score, size = 50 }: { score: number; size?: number }) {
 }
 
 /* ── Sessions list screen ──────────────────────────────────── */
-function SessionsScreen({ onStart, pastSessions, loading }: {
+function SessionsScreen({ onStart, pastSessions, loading, onDeleted }: {
   onStart: () => void;
   pastSessions: any[];
   loading: boolean;
+  onDeleted: () => void;
 }) {
   const router = useRouter();
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [standbyState, setStandbyState] = useState<StandbyState>(standby.current);
   useEffect(() => { getDeviceId().then(setDeviceId).catch(() => {}); }, []);
   useEffect(() => standby.onChange(setStandbyState), []);
+
+  const confirmDelete = (session: any) => {
+    const name = session.venue_name ?? 'This session';
+    Alert.alert(
+      'Delete this session?',
+      `${name} is removed from your phone and from our database, with its ratings and song answers. This can't be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete', style: 'destructive', onPress: async () => {
+            try {
+              await deleteSession(session.id);
+              onDeleted();
+            } catch {
+              Alert.alert("Couldn't delete", 'Check your internet connection and try again. Nothing was deleted.');
+            }
+          },
+        },
+      ],
+    );
+  };
   return (
     <View style={s.container}>
       <View style={s.header}>
         <Text style={s.wordmark}>VIIBE CHECK</Text>
         <Text style={s.title}>Sessions</Text>
       </View>
+      <GestureHandlerRootView style={{ flex: 1 }}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12 }}>
         {pastSessions.map((session: any) => (
-          <TouchableOpacity
+          <Swipeable
             key={session.id}
+            overshootRight={false}
+            friction={2}
+            renderRightActions={() => (
+              <TouchableOpacity style={s.deleteAction} activeOpacity={0.85} onPress={() => confirmDelete(session)}>
+                <Text style={s.deleteActionText}>DELETE</Text>
+              </TouchableOpacity>
+            )}
+          >
+          <TouchableOpacity
             style={s.sessionRow}
             onPress={() => router.push({ pathname: '/summary', params: { sessionId: session.id } })}
           >
@@ -136,8 +170,10 @@ function SessionsScreen({ onStart, pastSessions, loading }: {
               )}
             </View>
           </TouchableOpacity>
+          </Swipeable>
         ))}
       </ScrollView>
+      </GestureHandlerRootView>
       <View style={{ padding: 20, paddingBottom: 28 }}>
         <TouchableOpacity
           style={[s.startBtn, loading && { opacity: 0.5 }]}
@@ -499,6 +535,7 @@ export default function HomeScreen() {
       pastSessions={pastSessions}
       loading={loading}
       onStart={handleNewSession}
+      onDeleted={loadPastSessions}
     />
   );
 }
@@ -561,5 +598,10 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: A + '55', backgroundColor: A + '10',
     alignItems: 'center', justifyContent: 'center',
   },
+  deleteAction: {
+    width: 96, marginBottom: 10, marginLeft: 8, borderRadius: 16,
+    backgroundColor: DNG, alignItems: 'center', justifyContent: 'center',
+  },
+  deleteActionText: { fontFamily: MONO, fontSize: 12, fontWeight: '700', color: '#ffffff', letterSpacing: 2 },
   goingOutText: { fontFamily: MONO, fontSize: 12, fontWeight: '700', color: A, letterSpacing: 2 },
 });

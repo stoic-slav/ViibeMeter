@@ -756,6 +756,17 @@ export async function markRatingsSynced(ids: string[]): Promise<void> {
 }
 
 /** "Delete my data": removes every session, window, clip and rating stored on this phone. */
+/** One session and everything the phone keeps for it (readings, ratings, recap, songs, prints). */
+export async function deleteSessionLocal(sessionId: string): Promise<boolean> {
+  const database = await getDb();
+  const row = await database.getFirstAsync<{ synced: number }>(`SELECT synced FROM sessions WHERE id = ?`, [sessionId]);
+  for (const table of ['sensor_clips', 'sensor_windows', 'subjective_ratings', 'night_songs', 'night_recaps', 'song_feedback', 'night_edits', 'edit_prints']) {
+    await database.runAsync(`DELETE FROM ${table} WHERE session_id = ?`, [sessionId]);
+  }
+  await database.runAsync(`DELETE FROM sessions WHERE id = ?`, [sessionId]);
+  return row != null;
+}
+
 export async function wipeLocalData(): Promise<void> {
   const database = await getDb();
   await database.execAsync(
