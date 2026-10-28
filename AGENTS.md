@@ -55,7 +55,7 @@ bash scripts/ship-testflight.sh                    # build locally AND ship to T
 LANG=en_US.UTF-8 eas build --platform ios --local --output ~/Downloads/ViibeCheck-buildN.ipa   # free local build (needs fastlane; the EAS free plan has a monthly iOS build quota)
 ```
 
-**Checks:** there are no test or lint scripts. `npx -p typescript@5.9 tsc --noEmit` (from `vibemeter-app/`) is the primary correctness check; the pinned TypeScript 5.3 cannot parse Expo's `module: preserve`. On this Mac, run `pod install` with `LANG=en_US.UTF-8`. For the analysis scripts, from `analysis/`: `python3 crowd_sync.py --selftest` (install deps with `pip install -r requirements.txt`, ideally in a virtualenv).
+**Checks:** there are no test or lint scripts. `npx -p typescript@5.9 tsc --noEmit` (from `vibemeter-app/`) is the primary correctness check; the pinned TypeScript 5.3 cannot parse Expo's `module: preserve`. On this Mac, run `pod install` with `LANG=en_US.UTF-8`. For the analysis scripts, from `analysis/`: `python3 crowd_sync.py --selftest` (install deps with `pip install -r requirements.txt`, ideally in a virtualenv). On the owner's Mac a ready virtualenv with all deps plus Demucs and soundfile is at `analysis/.venv` (gitignored): run e.g. `analysis/.venv/bin/python analysis/clip_enhance.py --selftest`.
 
 ## Environment setup
 Create `vibemeter-app/.env`:
