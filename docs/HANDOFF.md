@@ -281,7 +281,7 @@ Plan and decisions: `docs/plans/build-29-best-moments.md`. Details in AGENTS.md 
 ### Settings (28 Oct; shipped as build 30 to the Public group, build 29 expired)
 The old "privacy & data" link (small, bottom of Home) is now **Settings**: a ⚙ in the header of every screen (`SettingsButton` in `app/_layout.tsx`) opens `app/privacy.tsx` (title "Settings", sections: what the app may use, optional extras, Going out with a link to `app/going-out.tsx` for reminder days and time, your data). Home keeps a "⚙ settings & privacy" link. User-facing text and docs say Settings. Checked in a Release simulator build and shipped with build 30.
 
-### DJ set report (28 Oct; in-app screen, goes into build 31)
+### DJ set report (28 Oct; in-app screen, shipped as build 31 to the Public group, build 30 expired)
 Owner's brief: DJs register nothing beforehand; after the night they open a simple, interactive report in the app (zoom, scrub, see what was playing, useful insights), then approve, claim an edit or decline. Details in AGENTS.md ("DJ set report").
 - **Built:** `analysis/dj_report.py` (`--selftest` 11 checks; `--publish` draft, `--release CODE`), migration `dj_reports` (tables `dj_reports`, `dj_report_claims`, RPCs `get_dj_report`, `respond_dj_report`), `app/set.tsx` (hidden route, plus Settings → For DJs → Open a set report), PRIVACY.md and DPIA.md entries.
 - **Verified:** selftest on a synthetic night; the RPCs with the public key (released report readable by code, unknown code returns nothing, bad action refused, table not readable); the screen in the simulator (below). **Not verified:** real data (no night yet), Deezer title lookups on real ISRCs, DJs actually using it.
