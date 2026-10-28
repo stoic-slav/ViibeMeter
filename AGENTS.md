@@ -235,4 +235,5 @@ Python scripts in `analysis/` query Supabase and run statistical analysis:
 - `auto_groups.py`: automatic grouping of phones from shared song playbacks and bass envelopes; validation against group codes, per evidence source; `--selftest` runs synthetic venues and DJ sets.
 - `optimize_weights.py`: Ridge and Random Forest weight analysis.
 - `fit_recap_weights.py`: which recap signals predict a 👍, suggested weights (cross-validated by person); `--selftest`. The loop is described in `docs/feedback-learning.md`.
+- `dj_report.py`: a private, draft "Here is your set" page for a DJ from the phones' data at a venue and time (tracklist from ISRCs with Deezer titles, unidentified stretches that may be the DJ's edits, a crowd curve, highlight clips from opted-in phones via `clip_enhance.py`); only minutes with ≥3 phones are shown, no identifiers; `--selftest`. Nothing is sent to a DJ automatically.
 - `monitoring_queries.sql`: data quality checks.
