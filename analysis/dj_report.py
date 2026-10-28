@@ -1,56 +1,61 @@
 """
-ViibeMeter: "Here is your set" report for a DJ (draft, build 29+).
+ViibeMeter: "Here is your set" report for a DJ (build 31).
 
-A DJ doesn't register anything before the party. After the night, this script builds a private
-page from what the phones in the room measured:
+A DJ registers nothing before the party. After the night this script turns what the phones in the
+room measured into a small, aggregated report that the DJ opens INSIDE the app (screen
+`app/set.tsx`, link vibemeter://set?code=XXXXXXXX), where it is interactive: scrub a crowd curve,
+zoom, see what was playing, and read how each track and each transition worked.
 
-  - the tracklist: recognised songs (title and artist from Deezer's public ISRC lookup) and
-    unidentified stretches of music, which may be the DJ's own edits;
-  - a crowd curve: how many phones and what share of them were dancing, minute by minute;
-  - the moments people danced hardest to, with highlight clips when phones that opted in to
-    "send my best moments" captured them (merged by clip_enhance.py when it has run).
+What the report holds (all aggregated; minutes with fewer than MIN_PHONES phones are left out, and
+nothing identifies a phone or a person):
+  curve   per minute: phones measuring, share dancing, tempo (BPM), share locked on the beat
+  tracks  recognised songs (title/artist from Deezer's public ISRC lookup) and unidentified music
+          (possibly the DJ's own edit), each with: dancing share, on-the-beat share, tempo,
+          lift (did the floor rise or fall when it started?) and keep (of the people dancing just
+          before, how many kept dancing through the change)
+  peaks   the strongest minutes
+  jumps   the biggest surges of the floor within three minutes, with the track that caused them
 
-Privacy rules built in: only minutes with at least MIN_PHONES phones are shown (never an
-individual), the page carries no device, session or person identifiers, and it is a DRAFT for the
-owner to review: nothing is sent to a DJ automatically. The DJ approves, claims or declines
-afterwards (edit claims go through dj_edits, see AGENTS.md "DJ edits").
+Flow: build as a DRAFT (nothing is visible to anyone), review it, then release it:
+  python3 dj_report.py --venue <place id> --dj "DJ Name" [--night 2026-10-31] --publish
+  python3 dj_report.py --release CODE        # now the DJ can open it with the code or the link
+The DJ can then approve it, claim an unidentified stretch as their edit, or decline (which empties
+the report). Claims land in dj_report_claims; the owner turns them into approved dj_edits.
 
-Usage (from analysis/; SUPABASE_URL and SUPABASE_SERVICE_KEY in the environment):
-  python3 dj_report.py --venue ChIJpzxaoX_Ew0cRDSgjKYR0C4U --dj "DJ Name" [--night 2026-10-31]
-  python3 dj_report.py --venue <place id> --from 2026-10-31T22:00:00Z --to 2026-11-01T02:00:00Z
+Other usage (from analysis/; SUPABASE_URL and SUPABASE_SERVICE_KEY in the environment):
+  python3 dj_report.py --venue <place id> --from 2026-10-31T22:00:00Z --to 2026-11-01T02:00:00Z   # print JSON
   python3 dj_report.py --selftest
-
-Output: output/dj_reports/<name>/index.html (+ clip files), open it in a browser.
 """
 
 import argparse
-import html
 import json
 import os
-import shutil
+import secrets
 import sys
 import urllib.parse
 import urllib.request
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-HERE = Path(__file__).parent
-OUT = HERE / 'output' / 'dj_reports'
 MIN_PHONES = 3            # never show a minute measured by fewer phones
 MIN_RUN_MIN = 2           # a track or unidentified stretch needs this many minutes
 GAP_MIN = 1               # a run may be interrupted by this many minutes (a missed recognition)
 RHYTHMIC = 0.35           # same dancing rule as engagement.py
 LOCKED_PLV = 0.4
-HIGHLIGHTS = 3
-HIGHLIGHT_SPACING_MIN = 4
+PEAKS = 3
+JUMPS = 3
+JUMP_MIN_RISE = 0.15      # share of phones; smaller surges are noise
+JUMP_SPAN_MIN = 3
+SPACING_MIN = 5           # highlights and jumps at least this far apart
+LIFT_SPAN_MIN = 3         # minutes compared before and after a track starts
+CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
 
 # ── preparing the minute table ───────────────────────────────────────────────
 
 def prepare(windows: pd.DataFrame) -> pd.DataFrame:
-    """One row per phone-minute that counts: on a body, with a dancing flag and an energy rank."""
+    """One row per phone-minute that counts: on a body, with a dancing flag."""
     w = windows.copy()
     w['minute'] = pd.to_datetime(w['window_start'], utc=True, format='ISO8601').dt.floor('min')
     if 'phone_context' in w:
@@ -58,25 +63,28 @@ def prepare(windows: pd.DataFrame) -> pd.DataFrame:
     if 'on_body_share' in w:
         w = w[(w['on_body_share'].isna()) | (w['on_body_share'] >= 0.5)]
     cls = w['movement_classification'] if 'movement_classification' in w else pd.Series(index=w.index, dtype=object)
-    rhythm = pd.to_numeric(w.get('rhythmicity'), errors='coerce') if 'rhythmicity' in w else pd.Series(np.nan, index=w.index)
+    rhythm = pd.to_numeric(w['rhythmicity'], errors='coerce') if 'rhythmicity' in w else pd.Series(np.nan, index=w.index)
     w['dancing'] = cls.isin(['dancing', 'jumping']) | (rhythm >= RHYTHMIC)
-    energy = pd.to_numeric(w.get('movement_energy'), errors='coerce') if 'movement_energy' in w else pd.Series(np.nan, index=w.index)
-    # Each phone's energy against its own night (people move differently)
-    w['energy_rank'] = energy.groupby(w['session_id']).rank(pct=True)
     w['music'] = w['music_detected'].fillna(False).astype(bool) if 'music_detected' in w else False
+    w['plv'] = pd.to_numeric(w['beat_plv'], errors='coerce') if 'beat_plv' in w else np.nan
+    bpm = pd.to_numeric(w['song_bpm'], errors='coerce') if 'song_bpm' in w else pd.Series(np.nan, index=w.index)
+    if 'estimated_bpm' in w:
+        bpm = bpm.fillna(pd.to_numeric(w['estimated_bpm'], errors='coerce'))
+    w['bpm'] = bpm
     return w
 
 
 def crowd_curve(w: pd.DataFrame) -> pd.DataFrame:
-    """Per minute: phones, dancing share and mean energy rank. Minutes with too few phones are hidden."""
+    """Per minute: phones, dancing share, locked-on-the-beat share, tempo. Thin minutes are hidden."""
     g = w.groupby('minute')
     curve = pd.DataFrame({
         'phones': g['session_id'].nunique(),
         'dancing': g['dancing'].mean(),
-        'energy': g['energy_rank'].mean(),
+        'sync': g['plv'].apply(lambda s: float((s.dropna() >= LOCKED_PLV).mean()) if s.notna().any() else np.nan),
+        'bpm': g['bpm'].median(),
     })
     curve['shown'] = curve['phones'] >= MIN_PHONES
-    curve.loc[~curve['shown'], ['dancing', 'energy']] = np.nan
+    curve.loc[~curve['shown'], ['dancing', 'sync', 'bpm']] = np.nan
     full = pd.date_range(curve.index.min(), curve.index.max(), freq='min', tz='UTC')
     return curve.reindex(full)
 
@@ -85,7 +93,7 @@ def crowd_curve(w: pd.DataFrame) -> pd.DataFrame:
 
 def minute_labels(w: pd.DataFrame) -> pd.Series:
     """The song heard in each minute (the most common ISRC among phones), 'unknown' for music
-    without a recognised song, nothing for quiet minutes."""
+    without a recognised song, nothing for quiet or thin minutes."""
     labels = {}
     for minute, m in w.groupby('minute'):
         if m['session_id'].nunique() < MIN_PHONES:
@@ -115,20 +123,35 @@ def runs(labels: pd.Series) -> list[dict]:
     return [r for r in out if r['minutes'] >= MIN_RUN_MIN]
 
 
+def _mean(values) -> float | None:
+    v = pd.Series(values).dropna()
+    return float(v.mean()) if len(v) else None
+
+
 def describe_runs(rs: list[dict], w: pd.DataFrame, curve: pd.DataFrame, lookup) -> list[dict]:
+    """Per track: dancing, on-the-beat, tempo, lift and keep."""
     rows = []
+    step = pd.Timedelta(minutes=1)
     for r in rs:
-        span = w[(w['minute'] >= r['start']) & (w['minute'] <= r['end'])]
         c = curve.loc[r['start']:r['end']]
-        shown = c[c['shown'] == True]  # noqa: E712
-        plv = pd.to_numeric(span.get('beat_plv'), errors='coerce').dropna() if 'beat_plv' in span else pd.Series(dtype=float)
+        before = curve.loc[r['start'] - LIFT_SPAN_MIN * step: r['start'] - step]['dancing'].dropna()
+        after = c['dancing'].dropna().iloc[:LIFT_SPAN_MIN]
+        lift = float(after.mean() - before.mean()) if len(before) >= 2 and len(after) >= 2 else None
+
+        # Keep: of the phones dancing in the minute before, the share still dancing in the first minutes
+        prev = w[w['minute'] == r['start'] - step]
+        was = set(prev[prev['dancing']]['session_id'])
+        keep = None
+        if len(was) >= MIN_PHONES:
+            first = w[(w['minute'] >= r['start']) & (w['minute'] < r['start'] + 2 * step) & (w['session_id'].isin(was))]
+            if len(first):
+                keep = float(first.groupby('session_id')['dancing'].mean().mean())
+
         info = lookup(r['label']) if r['label'] != 'unknown' else None
         rows.append({
-            **r,
+            'start': r['start'], 'end': r['end'] + step, 'minutes': r['minutes'], 'unknown': r['label'] == 'unknown',
             'title': (info or {}).get('title'), 'artist': (info or {}).get('artist'),
-            'phones': int(span['session_id'].nunique()),
-            'dancing': float(shown['dancing'].mean()) if len(shown) else None,
-            'in_sync': float((plv >= LOCKED_PLV).mean()) if len(plv) else None,
+            'dancing': _mean(c['dancing']), 'sync': _mean(c['sync']), 'bpm': _mean(c['bpm']), 'lift': lift, 'keep': keep,
         })
     return rows
 
@@ -146,141 +169,103 @@ def deezer_lookup(isrc: str, _cache={}):
     return _cache[isrc]
 
 
-def highlights(curve: pd.DataFrame, k: int = HIGHLIGHTS) -> list[pd.Timestamp]:
-    """The k strongest minutes (dancing share × energy), at least HIGHLIGHT_SPACING_MIN apart."""
-    score = (curve['dancing'] * curve['energy']).dropna().sort_values(ascending=False)
-    picked: list[pd.Timestamp] = []
-    for minute in score.index:
-        if all(abs((minute - p).total_seconds()) / 60 >= HIGHLIGHT_SPACING_MIN for p in picked):
-            picked.append(minute)
-        if len(picked) == k:
-            break
-    return sorted(picked)
+def spaced(candidates: list, key_minutes: list) -> list:
+    """Candidates (best first) whose minutes are at least SPACING_MIN apart."""
+    picked, minutes = [], []
+    for item, minute in zip(candidates, key_minutes):
+        if all(abs((minute - p).total_seconds()) / 60 >= SPACING_MIN for p in minutes):
+            picked.append(item)
+            minutes.append(minute)
+    return picked
 
 
-# ── highlight clips from phones that opted in ────────────────────────────────
-
-def find_clips(minute: pd.Timestamp, window_s: int = 90) -> list[Path]:
-    """Cleaned or merged clip files (from clip_enhance.py) captured near this minute, best first."""
-    data, out = HERE / 'data' / 'moments', HERE / 'output' / 'moments'
-    found = []
-    for meta in data.glob('*/meta.json') if data.exists() else []:
-        m = json.loads(meta.read_text())
-        t0 = pd.Timestamp(m['started_at']).tz_convert('UTC') if pd.Timestamp(m['started_at']).tzinfo else pd.Timestamp(m['started_at'], tz='UTC')
-        if abs((t0 - minute).total_seconds()) > window_s:
-            continue
-        cid = m['id']
-        for cand in (out / f'group-{cid[:8]}' / '6_merged_median.wav', out / cid / '4_phone_separated.wav',
-                     out / cid / '2_phone.wav', out / cid / '1_raw.wav'):
-            if cand.exists():
-                found.append(cand)
-                break
-    return found
+def peaks(curve: pd.DataFrame) -> list[pd.Timestamp]:
+    """The strongest minutes (dancing share, then phones), at least SPACING_MIN apart."""
+    d = curve['dancing'].dropna()
+    order = (d + curve['phones'].reindex(d.index) * 1e-6).sort_values(ascending=False)
+    return sorted(spaced(list(order.index), list(order.index))[:PEAKS])
 
 
-# ── the page ─────────────────────────────────────────────────────────────────
-
-def clock(ts) -> str:
-    return pd.Timestamp(ts).strftime('%H:%M')
-
-
-def pct(x) -> str:
-    return '–' if x is None or (isinstance(x, float) and np.isnan(x)) else f'{round(x * 100)}%'
-
-
-def curve_svg(curve: pd.DataFrame, rows: list[dict]) -> str:
-    W, H, pad = 760, 180, 24
-    n = len(curve)
-    if n < 2:
-        return ''
-    xs = lambda i: pad + (W - 2 * pad) * i / (n - 1)
-    ys = lambda v: H - pad - (H - 2 * pad) * v
-    bands, labels = [], []
-    for r in rows:
-        i0 = max(0, curve.index.searchsorted(r['start'])); i1 = min(n - 1, curve.index.searchsorted(r['end']))
-        color = '#9898c0' if r['label'] == 'unknown' else '#00E8A0'
-        bands.append(f'<rect x="{xs(i0):.1f}" y="{pad}" width="{max(2, xs(i1) - xs(i0)):.1f}" height="{H - 2 * pad}" fill="{color}" opacity="0.10"/>')
-    # one polyline per continuous shown stretch
-    segs, cur = [], []
-    for i, v in enumerate(curve['dancing'].to_numpy()):
-        if np.isnan(v):
-            if cur:
-                segs.append(cur); cur = []
-        else:
-            cur.append(f'{xs(i):.1f},{ys(v):.1f}')
-    if cur:
-        segs.append(cur)
-    lines = ''.join(f'<polyline fill="none" stroke="#00E8A0" stroke-width="2.5" points="{" ".join(s)}"/>' for s in segs if len(s) > 1)
-    ticks = ''.join(
-        f'<text x="{xs(i):.1f}" y="{H - 6}" fill="#9898c0" font-size="11" text-anchor="middle">{clock(curve.index[i])}</text>'
-        for i in range(0, n, max(1, n // 8)))
-    grid = ''.join(f'<line x1="{pad}" x2="{W - pad}" y1="{ys(v):.1f}" y2="{ys(v):.1f}" stroke="#181824"/>'
-                   f'<text x="2" y="{ys(v) + 4:.1f}" fill="#9898c0" font-size="10">{int(v * 100)}%</text>' for v in (0, 0.5, 1))
-    return f'<svg viewBox="0 0 {W} {H}" width="100%" role="img" aria-label="Share of phones dancing, by minute">{grid}{"".join(bands)}{lines}{ticks}</svg>'
+def jumps(curve: pd.DataFrame) -> list[dict]:
+    """The biggest rises of the (two-minute smoothed) dancing share within JUMP_SPAN_MIN minutes,
+    biggest first. Smoothing keeps one lucky minute from looking like a surge."""
+    d = curve['dancing'].rolling(2, min_periods=1).mean().where(curve['dancing'].notna())
+    before = d.shift(JUMP_SPAN_MIN)
+    rise = (d - before).dropna()
+    rise = rise[rise >= JUMP_MIN_RISE].sort_values(ascending=False)
+    picked = spaced(list(rise.index), list(rise.index))[:JUMPS]
+    return [{'t': t, 'from': float(before.loc[t]), 'to': float(d.loc[t])} for t in picked]
 
 
-def build_html(venue: str, dj: str | None, span: tuple, curve: pd.DataFrame, rows: list[dict],
-               peaks: list[dict], phones: int) -> str:
-    e = html.escape
-    tl = ''
-    for r in rows:
-        if r['label'] == 'unknown':
-            name, sub = 'Unidentified music', 'Not in the catalogue yet: possibly your own edit or an unreleased track'
-        else:
-            name = e(r['title'] or r['label']); sub = e(r['artist'] or 'title not found for this recording code')
-        tl += (f'<tr><td class="t">{clock(r["start"])}</td><td><b>{name}</b><br><span class="m">{sub}</span></td>'
-               f'<td>{r["minutes"]} min</td><td>{pct(r["dancing"])}</td><td>{pct(r["in_sync"])}</td></tr>')
-    pk = ''
-    for p in peaks:
-        clips = ''.join(f'<audio controls preload="none" src="{e(c)}"></audio>' for c in p['clips'])
-        pk += (f'<div class="card"><b>{clock(p["minute"])}</b> · {pct(p["dancing"])} of {p["phones"]} phones dancing'
-               f'{"<br>" + clips if clips else "<br><span class=m>No clip captured for this moment.</span>"}</div>')
-    note = ''
-    if dj:
-        note = f'<p>Hi {e(dj)}, this is what the phones in the room measured during your set. Nothing here is public. Tell us what you want to do with it.</p>'
-    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Your set at {e(venue)}</title><style>
-:root{{--bg:#060608;--s:#0d0d12;--b:#181824;--tx:#f0f0f5;--m:#9898c0;--a:#00E8A0}}
-@media (prefers-color-scheme: light){{:root{{--bg:#f6f6fa;--s:#fff;--b:#e2e2ee;--tx:#14141c;--m:#5a5a78;--a:#00916a}}}}
-body{{margin:0;background:var(--bg);color:var(--tx);font:16px/1.5 -apple-system,system-ui,sans-serif}}
-main{{max-width:820px;margin:0 auto;padding:20px 16px 60px}}h1{{font-size:26px;margin:.2em 0}}h2{{font-size:13px;letter-spacing:.18em;color:var(--a);margin:32px 0 10px}}
-.k{{color:var(--a);letter-spacing:.2em;font-size:12px}}.m{{color:var(--m);font-size:13px}}table{{width:100%;border-collapse:collapse}}
-td,th{{padding:8px 6px;border-bottom:1px solid var(--b);text-align:left;vertical-align:top}}th{{color:var(--m);font-size:12px;font-weight:600}}.t{{color:var(--m);white-space:nowrap}}
-.card{{background:var(--s);border:1px solid var(--b);border-radius:14px;padding:12px 14px;margin:8px 0}}audio{{width:100%;margin-top:8px}}
-.draft{{border:1px dashed var(--m);border-radius:10px;padding:8px 12px;color:var(--m);font-size:13px}}svg{{background:var(--s);border:1px solid var(--b);border-radius:14px}}
-</style></head><body><main>
-<div class="k">VIIBE CHECK · YOUR SET</div><h1>{e(venue)} · {clock(span[0])}–{clock(span[1])}</h1>
-<p class="draft">Draft for review. Built from {phones} phones; minutes measured by fewer than {MIN_PHONES} phones are left out, and nothing here identifies a person.</p>
-{note}
-<h2>CROWD, MINUTE BY MINUTE</h2>{curve_svg(curve, rows)}
-<p class="m">Share of phones that were dancing. Green bands are tracks we recognised; grey bands are unidentified music.</p>
-<h2>TRACKLIST</h2><table><tr><th>From</th><th>Track</th><th>Length</th><th>Dancing</th><th>On the beat</th></tr>{tl}</table>
-<h2>THE MOMENTS PEOPLE DANCED HARDEST TO</h2>{pk or '<p class="m">Not enough phones for a highlight yet.</p>'}
-<h2>YOUR CALL</h2><p>You can <b>claim</b> an unidentified stretch as your edit (it then credits you whenever it plays), <b>approve</b> a highlight to share, or <b>decline</b> and we delete everything about your set.</p>
-</main></body></html>'''
+# ── the report ───────────────────────────────────────────────────────────────
+
+def ms(ts) -> int:
+    return int(pd.Timestamp(ts).value // 1_000_000)
+
+
+def num(x, digits=3):
+    return None if x is None or (isinstance(x, float) and np.isnan(x)) else round(float(x), digits)
+
+
+def build_report(w: pd.DataFrame, lookup=deezer_lookup) -> dict:
+    """The aggregated report for the phone-minute rows of one set (see the module docstring)."""
+    w = prepare(w)
+    curve = crowd_curve(w)
+    labels = minute_labels(w)
+    tracks = describe_runs(runs(labels), w, curve, lookup) if len(labels) else []
+
+    def track_at(minute):
+        for i, t in enumerate(tracks):
+            if t['start'] <= minute < t['end']:
+                return i
+        return None
+
+    return {
+        'v': 1,
+        'curve': [{'t': ms(t), 'p': int(r.phones), 'd': num(r.dancing), 's': num(r.sync), 'b': num(r.bpm, 1)}
+                  for t, r in curve.iterrows() if not np.isnan(r.phones)],
+        'tracks': [{'start': ms(t['start']), 'end': ms(t['end']), 'unknown': t['unknown'], 'title': t['title'], 'artist': t['artist'],
+                    'd': num(t['dancing']), 's': num(t['sync']), 'b': num(t['bpm'], 1), 'lift': num(t['lift']), 'keep': num(t['keep'])}
+                   for t in tracks],
+        'peaks': [{'t': ms(m), 'd': num(curve.loc[m, 'dancing']), 'track': track_at(m)} for m in peaks(curve)],
+        'jumps': [{'t': ms(j['t']), 'from': num(j['from']), 'to': num(j['to']), 'track': track_at(j['t'])} for j in jumps(curve)],
+    }
+
+
+def new_code() -> str:
+    return ''.join(secrets.choice(CODE_ALPHABET) for _ in range(8))
 
 
 # ── data ─────────────────────────────────────────────────────────────────────
 
-def rest(path: str) -> list[dict]:
+def rest(path: str, method='GET', body=None, prefer=None) -> list[dict]:
     base, key = os.environ['SUPABASE_URL'].rstrip('/'), os.environ['SUPABASE_SERVICE_KEY']
+    headers = {'Authorization': f'Bearer {key}', 'apikey': key, 'Content-Type': 'application/json'}
+    if prefer:
+        headers['Prefer'] = prefer
     rows, start = [], 0
     while True:
-        req = urllib.request.Request(f'{base}/rest/v1/{path}', headers={'Authorization': f'Bearer {key}', 'apikey': key, 'Range': f'{start}-{start + 999}'})
+        if method == 'GET':
+            headers['Range'] = f'{start}-{start + 999}'
+        req = urllib.request.Request(f'{base}/rest/v1/{path}', method=method, data=body, headers=headers)
         with urllib.request.urlopen(req) as r:
-            page = json.loads(r.read())
+            raw = r.read()
+        if method != 'GET' or not raw:
+            return json.loads(raw) if raw else []
+        page = json.loads(raw)
         rows += page
         if len(page) < 1000:
             return rows
         start += 1000
 
 
-COLS = 'session_id,window_start,venue_place_id,music_detected,movement_classification,movement_energy,rhythmicity,beat_plv,song_isrc,phone_context,on_body_share'
+COLS = 'session_id,window_start,venue_place_id,music_detected,movement_classification,rhythmicity,beat_plv,song_isrc,song_bpm,estimated_bpm,phone_context,on_body_share'
 
 
 def load_windows(place: str, t0: pd.Timestamp, t1: pd.Timestamp) -> pd.DataFrame:
-    q = f"sensor_windows?select={COLS}&venue_place_id=eq.{urllib.parse.quote(place)}&window_start=gte.{t0.isoformat()}&window_start=lt.{t1.isoformat()}&order=window_start"
-    return pd.DataFrame(rest(q.replace('+', '%2B')))
+    q = (f"sensor_windows?select={COLS}&venue_place_id=eq.{urllib.parse.quote(place)}"
+         f"&window_start=gte.{urllib.parse.quote(t0.isoformat())}&window_start=lt.{urllib.parse.quote(t1.isoformat())}&order=window_start")
+    return pd.DataFrame(rest(q))
 
 
 def find_set(place: str, dj: str, night: str | None) -> tuple[pd.Timestamp, pd.Timestamp, str]:
@@ -293,33 +278,13 @@ def find_set(place: str, dj: str, night: str | None) -> tuple[pd.Timestamp, pd.T
     return pd.Timestamp(r['starts_at']), pd.Timestamp(r['ends_at']), r['dj_name']
 
 
-def make_report(w: pd.DataFrame, venue: str, dj: str | None, outdir: Path, lookup=deezer_lookup, clip_finder=find_clips) -> Path:
-    w = prepare(w)
-    curve = crowd_curve(w)
-    labels = minute_labels(w)
-    rows = describe_runs(runs(labels), w, curve, lookup) if len(labels) else []
-    peaks = []
-    outdir.mkdir(parents=True, exist_ok=True)
-    for i, minute in enumerate(highlights(curve) if curve['dancing'].notna().any() else [], start=1):
-        files = []
-        for j, src in enumerate(clip_finder(minute), start=1):
-            name = f'highlight{i}_{j}.wav'
-            shutil.copy(src, outdir / name)
-            files.append(name)
-        peaks.append({'minute': minute, 'dancing': float(curve.loc[minute, 'dancing']), 'phones': int(curve.loc[minute, 'phones']), 'clips': files})
-    span = (curve.index.min(), curve.index.max())
-    page = outdir / 'index.html'
-    page.write_text(build_html(venue, dj, span, curve, rows, peaks, int(w['session_id'].nunique())), encoding='utf-8')
-    return page
-
-
 # ── self-test ────────────────────────────────────────────────────────────────
 
-def selftest():
+def synthetic_night() -> pd.DataFrame:
     rng = np.random.default_rng(5)
     t0 = pd.Timestamp('2026-10-31T22:00:00Z')
     recs = []
-    for p in range(5):
+    for p in range(8):
         for m in range(60):
             minute = t0 + pd.Timedelta(minutes=m)
             if m >= 50 and p >= 2:
@@ -327,23 +292,23 @@ def selftest():
             isrc = 'AAA' if m < 20 else (None if m < 30 else 'BBB')
             dancing_p = 0.2 if m < 20 else 0.35 if m < 30 else 0.9
             recs.append({'session_id': f's{p}', 'window_start': minute.isoformat(), 'venue_place_id': 'V', 'music_detected': True,
-                         'movement_classification': 'dancing' if rng.uniform() < dancing_p else 'stationary',
-                         'movement_energy': float(rng.uniform(1, 3) + (2 if dancing_p > 0.5 else 0)), 'rhythmicity': 0.1,
-                         'beat_plv': 0.6 if isrc == 'BBB' else 0.2, 'song_isrc': isrc, 'phone_context': 'on_body_moving', 'on_body_share': 1.0})
-    # a phone lying on a table must not count
-    for m in range(60):
+                         'movement_classification': 'dancing' if (rng.uniform() < dancing_p or m == 29) else 'stationary', 'rhythmicity': 0.1,
+                         'beat_plv': 0.6 if isrc == 'BBB' else 0.2, 'song_isrc': isrc, 'song_bpm': 124.0 if isrc == 'BBB' else (118.0 if isrc else None),
+                         'estimated_bpm': 120.0, 'phone_context': 'on_body_moving', 'on_body_share': 1.0})
+    for m in range(60):                                   # a phone lying on a table must not count
         recs.append({'session_id': 'table', 'window_start': (t0 + pd.Timedelta(minutes=m)).isoformat(), 'venue_place_id': 'V', 'music_detected': True,
-                     'movement_classification': 'stationary', 'movement_energy': 0.0, 'rhythmicity': 0.0, 'beat_plv': None, 'song_isrc': None,
-                     'phone_context': 'off_body', 'on_body_share': 0.0})
-    w = pd.DataFrame(recs)
+                     'movement_classification': 'stationary', 'rhythmicity': 0.0, 'beat_plv': None, 'song_isrc': None, 'song_bpm': None,
+                     'estimated_bpm': None, 'phone_context': 'off_body', 'on_body_share': 0.0})
+    return pd.DataFrame(recs)
 
-    names = {'AAA': {'title': 'Opener <b>', 'artist': 'Artist One'}, 'BBB': {'title': 'The Banger', 'artist': 'Artist Two'}}
-    tmp = Path(__file__).parent / 'output' / 'dj_reports' / '_selftest'
-    if tmp.exists():
-        shutil.rmtree(tmp)
-    page = make_report(w, 'Test Club', 'DJ Test', tmp, lookup=names.get, clip_finder=lambda minute: [])
-    text = page.read_text(encoding='utf-8')
 
+def selftest():
+    names = {'AAA': {'title': 'Opener', 'artist': 'Artist One'}, 'BBB': {'title': 'The Banger', 'artist': 'Artist Two'}}
+    w = synthetic_night()
+    rep = build_report(w, lookup=names.get)
+    text = json.dumps(rep)
+    t0 = ms('2026-10-31T22:00:00Z')
+    MIN = 60_000
     failed = 0
 
     def check(name, ok, detail=''):
@@ -351,41 +316,54 @@ def selftest():
         print(('ok   ' if ok else 'FAIL ') + name + (f' ({detail})' if detail else ''))
         failed += 0 if ok else 1
 
-    pw = prepare(w)
-    curve = crowd_curve(pw)
-    check('the phone on the table is left out', pw['session_id'].nunique() == 5)
-    check('minutes with fewer than 3 phones are hidden', curve.loc[t0 + pd.Timedelta(minutes=55), 'dancing'] != curve.loc[t0 + pd.Timedelta(minutes=55), 'dancing'])
-    check('minutes with enough phones are shown', bool(curve.loc[t0 + pd.Timedelta(minutes=40), 'shown']))
-    rs = describe_runs(runs(minute_labels(pw)), pw, curve, names.get)
-    check('tracklist: AAA, then unidentified music, then BBB', [r['label'] for r in rs] == ['AAA', 'unknown', 'BBB'], str([r['label'] for r in rs]))
-    check('the banger has the highest dancing share', rs[2]['dancing'] > rs[0]['dancing'] + 0.3)
-    check('the banger is on the beat', (rs[2]['in_sync'] or 0) > 0.8)
-    peaks = highlights(curve)
-    check('highlights fall inside the banger (22:30-22:49), at least 4 min apart',
-          len(peaks) == 3 and all(t0 + pd.Timedelta(minutes=30) <= p < t0 + pd.Timedelta(minutes=50) for p in peaks)
-          and all(abs((b - a).total_seconds()) >= 240 for a, b in zip(peaks, peaks[1:])))
-    check('titles are HTML-escaped', 'Opener &lt;b&gt;' in text and 'Opener <b>' not in text)
-    check('the page names the track and artist', 'The Banger' in text and 'Artist Two' in text)
-    check('no session or device identifiers in the page', all(f'"s{p}"' not in text for p in range(5)) and 'session_id' not in text and 'device_id' not in text and 'deviceId' not in text)
-    check('the page says it is a draft and states the minimum phones', 'Draft for review' in text and 'fewer than 3 phones' in text)
-    if not os.environ.get('KEEP'):
-        shutil.rmtree(tmp)
+    curve = {c['t']: c for c in rep['curve']}
+    check('the phone on the table is left out (8 phones)', max(c['p'] for c in rep['curve']) == 8)
+    check('minutes with fewer than 3 phones carry no values', all(curve[t0 + m * MIN]['d'] is None for m in (52, 55)))
+    check('minutes with enough phones are shown', curve[t0 + 40 * MIN]['d'] is not None)
+    tr = rep['tracks']
+    check('tracklist: Opener, unidentified music, The Banger', [(t['title'], t['unknown']) for t in tr] == [('Opener', False), (None, True), ('The Banger', False)],
+          str([(t['title'], t['unknown']) for t in tr]))
+    check('the banger has the highest dancing share', tr[2]['d'] > tr[0]['d'] + 0.3)
+    check('the banger is on the beat (and has a tempo)', (tr[2]['s'] or 0) > 0.8 and tr[2]['b'] is not None)
+    check('lift: the floor rises when the banger starts, not for the opener', (tr[2]['lift'] or 0) > 0.2 and tr[0]['lift'] is None)
+    check('keep: most of those dancing just before the banger kept dancing', (tr[2]['keep'] or 0) > 0.6, str(tr[2]['keep']))
+    check('peaks fall inside the banger, at least 5 min apart',
+          len(rep['peaks']) == 3 and all(t0 + 30 * MIN <= p['t'] < t0 + 50 * MIN for p in rep['peaks'])
+          and all(abs(b['t'] - a['t']) >= 5 * MIN for a, b in zip(rep['peaks'], rep['peaks'][1:])))
+    check('a jump is found at the change to the banger and points at that track',
+          len(rep['jumps']) >= 1 and rep['jumps'][0]['track'] == 2 and rep['jumps'][0]['to'] > rep['jumps'][0]['from'] + 0.15,
+          str(rep['jumps']))
+    check('no session or device identifiers in the report', all(f's{p}"' not in text for p in range(8)) and 'session' not in text and 'device' not in text)
+    check('report is small enough to store (under 100 kB for this hour)', len(text) < 100_000, f'{len(text)} bytes')
     if failed:
         print(f'\n{failed} check(s) failed')
         sys.exit(1)
     print('\nAll checks passed.')
 
 
+# ── command line ─────────────────────────────────────────────────────────────
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--venue'); ap.add_argument('--dj'); ap.add_argument('--night')
-    ap.add_argument('--from', dest='t0'); ap.add_argument('--to', dest='t1'); ap.add_argument('--selftest', action='store_true')
+    ap.add_argument('--from', dest='t0'); ap.add_argument('--to', dest='t1')
+    ap.add_argument('--publish', action='store_true', help='store the report as a DRAFT and print its code')
+    ap.add_argument('--release', metavar='CODE', help='let the DJ open the draft report with CODE')
+    ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
     if a.selftest:
         return selftest()
-    if not a.venue or not (os.environ.get('SUPABASE_URL') and os.environ.get('SUPABASE_SERVICE_KEY')):
+    if not (os.environ.get('SUPABASE_URL') and os.environ.get('SUPABASE_SERVICE_KEY')):
         ap.print_help()
-        sys.exit('\nNeed --venue and SUPABASE_URL / SUPABASE_SERVICE_KEY in the environment.')
+        sys.exit('\nSet SUPABASE_URL and SUPABASE_SERVICE_KEY in the environment.')
+    if a.release:
+        code = a.release.strip().upper()
+        done = rest(f'dj_reports?code=eq.{urllib.parse.quote(code)}&status=eq.draft', method='PATCH',
+                    body=json.dumps({'status': 'sent'}).encode(), prefer='return=representation')
+        sys.exit(f'Released {code}: the DJ can open vibemeter://set?code={code}' if done else f'No draft report with code {code}.')
+    if not a.venue:
+        ap.print_help()
+        sys.exit('\nNeed --venue.')
     dj = a.dj
     if a.t0 and a.t1:
         t0, t1 = pd.Timestamp(a.t0), pd.Timestamp(a.t1)
@@ -396,11 +374,19 @@ def main():
     w = load_windows(a.venue, t0, t1)
     if w.empty:
         sys.exit('No phone data at that venue in that time span.')
+    report = build_report(w)
+    phones = int(prepare(w)['session_id'].nunique())
+    if not a.publish:
+        print(json.dumps(report, indent=1))
+        return
     venues = rest(f"venues?select=name&place_id=eq.{urllib.parse.quote(a.venue)}")
-    name = venues[0]['name'] if venues else a.venue
-    slug = ''.join(ch if ch.isalnum() else '-' for ch in f'{name}-{dj or ""}-{t0.date()}').strip('-').lower()
-    page = make_report(w, name, dj, OUT / slug)
-    print(f'Draft report written: {page}')
+    code = new_code()
+    rest('dj_reports', method='POST', prefer='return=minimal', body=json.dumps({
+        'code': code, 'venue_name': venues[0]['name'] if venues else None, 'dj_name': dj,
+        'starts_at': t0.isoformat(), 'ends_at': t1.isoformat(), 'phones': phones, 'report': report, 'status': 'draft'}).encode())
+    print(f'Draft report stored. Code {code}  ({len(report["tracks"])} tracks, {phones} phones).')
+    print(f'When you are happy: python3 dj_report.py --release {code}')
+    print(f'Then the DJ opens it in the app with the code, or vibemeter://set?code={code}')
 
 
 if __name__ == '__main__':

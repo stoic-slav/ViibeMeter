@@ -130,6 +130,12 @@ All core services are singletons. Do not re-instantiate them:
 - **Playback:** `src/components/MomentsSection.tsx` on the recap (cleaned / as heard / delete).
 - **Not verified on a device:** real pocket audio, thresholds, battery effect, the first upload from a phone.
 
+**DJ set report (build 31; "Your set" in the app):**
+- **Why:** DJs register nothing beforehand; after a night they get a report of how the floor moved to their set, with approve / claim / decline afterwards (zero friction, DJ opt-in).
+- **Pipeline:** `analysis/dj_report.py --publish` → row in `dj_reports` (status `draft`, 8-character code; aggregated JSON, thresholded at 3 phones per minute, no identifiers) → owner reviews → `--release CODE` sets `sent` → the DJ opens `app/set.tsx` (RPC `get_dj_report(code)`, readable only when `sent` or `approved`, 30 days). The table has no public access; the two RPCs are `SECURITY DEFINER`.
+- **Screen:** interactive crowd curve (drag to scrub a minute, zoom ALL / 1 H / 30 MIN / 10 MIN, pan), what was playing, "what stood out" lines, biggest surges (tap to zoom), per-track cards (dancing, on the beat, BPM, lift, stayed) with **THIS IS MY EDIT** on unidentified stretches (`respond_dj_report(…, 'claim', start)` → `dj_report_claims`; the owner turns claims into approved `dj_edits`), **LOOKS GOOD** (approve) and **DELETE THIS REPORT** (decline: the report is emptied and claims removed). Built with plain views and `PanResponder` (no chart library).
+- **Not built (deliberately):** reconstructing the set's audio, and highlight clips in the report (clip merging stays in `clip_enhance.py` until the first real night shows the quality).
+
 **Going out standby (iOS, since build 24; plan `docs/plans/build-24-going-out-standby.md`):**
 - **Switching it on:** opt-in on `app/going-out.tsx` (Home button "Going out tonight?", or the weekend reminder). The opt-in is stored separately from sensor consent, in `src/storage/StandbySettings.ts` (with the reminder days and time). The app must be in the foreground to start: iOS opens the microphone and starts a Live Activity only then.
 - **Service and checks:** `src/session/Standby.ts` (singleton `standby`) runs `sensorOrchestrator.startStandby`: every 30 s, a light check with no Shazam, no clips, no windows (`AudioAnalyzer.analyze(…, { light: true })` + `MotionTracker.sample` + beat sync).
@@ -235,5 +241,5 @@ Python scripts in `analysis/` query Supabase and run statistical analysis:
 - `auto_groups.py`: automatic grouping of phones from shared song playbacks and bass envelopes; validation against group codes, per evidence source; `--selftest` runs synthetic venues and DJ sets.
 - `optimize_weights.py`: Ridge and Random Forest weight analysis.
 - `fit_recap_weights.py`: which recap signals predict a 👍, suggested weights (cross-validated by person); `--selftest`. The loop is described in `docs/feedback-learning.md`.
-- `dj_report.py`: a private, draft "Here is your set" page for a DJ from the phones' data at a venue and time (tracklist from ISRCs with Deezer titles, unidentified stretches that may be the DJ's edits, a crowd curve, highlight clips from opted-in phones via `clip_enhance.py`); only minutes with ≥3 phones are shown, no identifiers; `--selftest`. Nothing is sent to a DJ automatically.
+- `dj_report.py`: builds the aggregated "Your set" report for a DJ from the phones' data at a venue and time (per-minute crowd curve with tempo and on-the-beat share; tracklist from ISRCs with Deezer titles; unidentified stretches that may be the DJ's edits; per track lift and keep; peaks and surges), stores it as a DRAFT in `dj_reports` (`--publish`), and releases it to the DJ (`--release CODE`). Only minutes with ≥3 phones, no identifiers; `--selftest`. The DJ opens it in the app (`app/set.tsx`, `vibemeter://set?code=…` or the code typed under Settings → For DJs), where it is interactive; nothing reaches a DJ until released.
 - `monitoring_queries.sql`: data quality checks.

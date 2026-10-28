@@ -176,6 +176,15 @@ export default function PrivacyScreen() {
           <Text style={st.linkTitle}>›</Text>
         </TouchableOpacity>
 
+        <Text style={[st.label, { marginTop: 12 }]}>FOR DJS</Text>
+        <TouchableOpacity style={st.linkRow} onPress={() => router.push('/set')} activeOpacity={0.8}>
+          <View style={{ flex: 1, gap: 3 }}>
+            <Text style={st.linkTitle}>Open a set report</Text>
+            <Text style={st.hint}>Played a night with Viibe Check in the room? Enter the code we sent you.</Text>
+          </View>
+          <Text style={st.linkTitle}>›</Text>
+        </TouchableOpacity>
+
         <Text style={[st.label, { marginTop: 12 }]}>YOUR DATA</Text>
         <Text style={st.hint}>Your anonymous ID</Text>
         <Text selectable style={st.id}>{deviceId ?? '…'}</Text>
