@@ -12,7 +12,7 @@ Viibe Check measures the "vibe" of a venue using your phone's sensors:
 - **Movement** (are you dancing, walking or standing still, and are you moving on the beat?)
 - **Crowd density** (how many Bluetooth devices are nearby)
 
-The day after, it asks you to give each of your top songs a thumbs up or down. If you like, it can also buzz every ~5 minutes to ask "How's the vibe?" (off by default; turn it on in privacy & data).
+The day after, it asks you to give each of your top songs a thumbs up or down. If you like, it can also buzz every ~5 minutes to ask "How's the vibe?" (off by default; turn it on in Settings).
 
 The experiment tests whether the sensor measurements match your honest ratings, and whether people moving in sync with the music and with each other means a better vibe.
 
@@ -39,7 +39,7 @@ The first time you open it, allow **microphone, motion, Bluetooth and notificati
 
 **While you're out:**
 - **iPhone (iOS 16.2 or later):** while you measure, a quiet Viibe Check card sits on your lock screen with the venue, a timer, the song that is playing right now, and a **STOP** button (it asks you to unlock and confirm). The first time, your iPhone asks "Allow Live Activities from Viibe Check?": tap **Allow**.
-- **Rating the vibe:** the main answer is the next day's thumbs up or down on your recap. If you want to rate during the night, tap the rate button on the Meter screen (💀 Dead, 🙂 Decent, 🔥 Best), or turn on **Buzz every 5 minutes** in privacy & data and answer from the notification.
+- **Rating the vibe:** the main answer is the next day's thumbs up or down on your recap. If you want to rate during the night, tap the rate button on the Meter screen (💀 Dead, 🙂 Decent, 🔥 Best), or turn on **Buzz every 5 minutes** in Settings and answer from the notification.
 - Missed one? It stays there until the next one. You can also open the app and tap **Rate the vibe now** whenever you like.
 - If the card turns grey and says "Not measuring", the app was closed: open Viibe Check and start again.
 - **Your night in songs:** after you press Stop (and again at 12:00 the next day), the app shows the songs you moved to most, with the DJ when we know the lineup. Tap 👍 or 👎 to tell us if we got it right, save them with **Add to Apple Music** or the **Spotify** button, and share the card to your Story.
@@ -94,7 +94,7 @@ Full policy: [docs/PRIVACY.md](docs/PRIVACY.md). To delete your data, send us yo
 
 **"I forgot to stop my session"** — No problem: a session stops by itself after about 20 minutes without music (10 if you're walking home), after 8 hours, or when the battery reaches 10%.
 
-**"I never get a rating notification"** — It is off by default now. Turn on **Buzz every 5 minutes** in privacy & data, or use the rate button on the Meter.
+**"I never get a rating notification"** — It is off by default now. Turn on **Buzz every 5 minutes** in Settings, or use the rate button on the Meter.
 
 **"Battery drain"** — Target is under 5% per hour. If it's more, tell us.
 

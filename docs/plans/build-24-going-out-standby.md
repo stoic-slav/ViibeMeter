@@ -14,7 +14,7 @@ People forget to start a session when they arrive somewhere. Every forgotten nig
 ## What the user sees
 1. **Weekend-night reminder** (opt-in, asked once after a first session):
    - "Out tonight? 🎶 Turn on Going out mode and we'll ask when it sounds like a party."
-   - Times: Thursday, Friday and Saturday at 22:30 (Thursday is the big student night in Brussels). Days and time can be changed in Privacy & data → Reminders.
+   - Times: Thursday, Friday and Saturday at 22:30 (Thursday is the big student night in Brussels). Days and time can be changed in Settings → Reminders.
    - Tapping it opens the app on the Going out sheet.
 2. **Going out mode (standby)**, opt-in with its own explanation the first time:
    - **The promise:** "Viibe Check listens on your phone for loud music with a beat. Nothing is recorded, stored or uploaded until you say yes. The orange microphone dot stays on while it's on."
@@ -71,7 +71,7 @@ Owner's requirement (18 Oct): loud music alone is not enough; there must also be
 5. **Weekend reminder:** `expo-notifications` weekly triggers for the chosen days and time; settings in SecureStore; a category whose action opens the app on the Going out sheet.
 6. **Consent:**
    - Standby is its own opt-in, stored as `standbyAcceptedAt` in `Consent.ts`; no `CONSENT_VERSION` bump, so nobody re-consents for features they don't use.
-   - Privacy & data screen: toggles for reminders and Going out mode.
+   - Settings screen: toggles for reminders and Going out mode.
    - `docs/PRIVACY.md` and `docs/DPIA.md`: the listening-on-standby purpose, what is computed and discarded, the orange dot.
 7. **Android:** later. A microphone foreground service can only start while the app is visible, so the same "switch on once" pattern works with the existing `session-service`. Out of scope for build 24 (no Android device tested yet).
 
@@ -86,7 +86,7 @@ Owner's requirement (18 Oct): loud music alone is not enough; there must also be
 4. UI:
    - Home "Going out tonight" button;
    - Going out sheet (first-time explanation);
-   - Privacy & data toggles;
+   - Settings toggles;
    - reminder settings.
 5. Weekend reminder notifications.
 6. Database: migration for `standby_nights`, `upload_standby_nights` RPC, `sessions.start_source`, retention and deletion. Apply it and commit it.

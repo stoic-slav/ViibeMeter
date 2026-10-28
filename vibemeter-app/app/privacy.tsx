@@ -19,7 +19,7 @@ const TXD = '#9898c0';
 const MONO = Platform.select({ ios: 'Courier New', android: 'monospace' }) as string;
 
 /**
- * Privacy & data: change which sensors are allowed (takes effect from the next measurement),
+ * Settings: change which sensors are allowed (takes effect from the next measurement),
  * see the anonymous ID, read the policy, and delete everything (GDPR rights to withdraw consent
  * and to erasure).
  */
@@ -116,7 +116,8 @@ export default function PrivacyScreen() {
   return (
     <View style={st.container}>
       <ScrollView contentContainerStyle={{ padding: 20, gap: 12, paddingBottom: 120 }}>
-        <Text style={st.lead}>What Viibe Check may use. Changes apply from the next measurement.</Text>
+        <Text style={st.lead}>Everything Viibe Check may use or keep, in one place. Changes apply from the next measurement.</Text>
+        <Text style={[st.label, { marginTop: 4 }]}>WHAT THE APP MAY USE</Text>
         {consent ? (
           <>
             <SensorRow title="Microphone" body={SENSOR_TEXT.mic} value locked />
@@ -166,7 +167,17 @@ export default function PrivacyScreen() {
           onChange={async v => { setBuzz(v); await setBuzzPrompts(v); }}
         />
 
-        <Text style={[st.label, { marginTop: 12 }]}>YOUR ANONYMOUS ID</Text>
+        <Text style={[st.label, { marginTop: 12 }]}>GOING OUT</Text>
+        <TouchableOpacity style={st.linkRow} onPress={() => router.push('/going-out')} activeOpacity={0.8}>
+          <View style={{ flex: 1, gap: 3 }}>
+            <Text style={st.linkTitle}>Going out mode and reminders</Text>
+            <Text style={st.hint}>Standby listening, and the "Out tonight?" reminder days and time.</Text>
+          </View>
+          <Text style={st.linkTitle}>›</Text>
+        </TouchableOpacity>
+
+        <Text style={[st.label, { marginTop: 12 }]}>YOUR DATA</Text>
+        <Text style={st.hint}>Your anonymous ID</Text>
         <Text selectable style={st.id}>{deviceId ?? '…'}</Text>
         <Text style={st.hint}>Not linked to your name, Apple ID or phone number.</Text>
 
@@ -188,6 +199,8 @@ const st = StyleSheet.create({
   label: { fontFamily: MONO, fontSize: 11, color: A, letterSpacing: 2 },
   id: { fontFamily: MONO, fontSize: 12, color: TXM },
   hint: { fontFamily: MONO, fontSize: 11, color: TXD, lineHeight: 16 },
+  linkRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#0d0d12', borderWidth: 1, borderColor: '#181824', borderRadius: 16, padding: 14 },
+  linkTitle: { color: '#f0f0f5', fontSize: 16, fontWeight: '600' },
   deleteBtn: { height: 50, borderRadius: 14, borderWidth: 1, borderColor: DNG + '88', alignItems: 'center', justifyContent: 'center', marginTop: 16 },
   deleteText: { fontFamily: MONO, fontSize: 12, fontWeight: '700', color: DNG, letterSpacing: 2 },
 });

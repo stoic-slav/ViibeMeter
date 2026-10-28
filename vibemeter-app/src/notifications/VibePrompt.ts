@@ -32,7 +32,7 @@ export class VibePrompt {
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private sessionId: string | null = null;
   private sessionStartTime: number | null = null;
-  // The 5-minute buzz is opt-in since build 29 (privacy & data); the 👍/👎 on the next day's recap is the main answer
+  // The 5-minute buzz is opt-in since build 29 (Settings); the 👍/👎 on the next day's recap is the main answer
   private buzzEnabled = false;
   private lastPromptTime: number | null = null;
   // Set while a prompt is unanswered; cleared by an answer or replaced by the next prompt

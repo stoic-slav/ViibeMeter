@@ -1,6 +1,6 @@
 import { View, Text, Switch, StyleSheet, TouchableOpacity } from 'react-native';
 
-/** Shared by the first-start consent screen and the Privacy & data screen. */
+/** Shared by the first-start consent screen and the Settings screen. */
 export const PRIVACY_URL = 'https://github.com/stoic-slav/ViibeMeter/blob/master/docs/PRIVACY.md';
 
 const A = '#00E8A0';

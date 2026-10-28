@@ -43,7 +43,7 @@ To recognise songs on iPhone, the app uses Apple's ShazamKit. A clip is turned i
 
 ## Your best moments (iPhone, optional, off by default)
 
-Two separate switches under **privacy & data**, both off unless you turn them on, each with its own explanation.
+Two separate switches under **Settings**, both off unless you turn them on, each with its own explanation.
 
 **Keep my best moments.** While you dance, the app keeps about 15 seconds of the room's music from your strongest moments of the night (when you move more than usual to loud music), so you can play them back in your night's recap, either as heard or cleaned up. A clip is cut from the short in-memory buffer and saved in the app's own folder on your phone, kept out of iCloud and device backups, and **deleted automatically after 14 days**. Only clips where music clearly dominates are kept (louder, bass-led, not mostly voices or cloth noise), but a clip can still pick up nearby voices. You can delete any clip at any time.
 
@@ -57,7 +57,7 @@ After a session, the app shows the songs you moved to most, ranked on your phone
 
 ## Going out mode (iPhone, optional)
 
-If you turn on **Going out mode**, which is off unless you switch it on and asks for your agreement the first time, the app listens on your phone *before* a session, to notice when you're at a party. Every 30 seconds it analyses 5 seconds of sound (how loud it is, whether there is a beat and bass) and a few seconds of movement (whether you're dancing), on the phone. When both happen for a few minutes at night, it asks "Start measuring?" on your lock screen. Nothing it hears or feels on standby is recorded, stored or uploaded; no song recognition runs. We keep only counts per evening: when it was on and off, how often it asked and what you answered, how many minutes had music or movement, and your battery level at the start and end, so we can check that it doesn't ask at the wrong moments or drain your battery. The orange microphone dot stays on while it listens. It turns itself off at 06:00, after 6 hours or at 20% battery. You can turn it off on the lock screen, in the app, or withdraw it in **privacy & data**. Optional reminders ("Out tonight?") are local notifications on the days you choose.
+If you turn on **Going out mode**, which is off unless you switch it on and asks for your agreement the first time, the app listens on your phone *before* a session, to notice when you're at a party. Every 30 seconds it analyses 5 seconds of sound (how loud it is, whether there is a beat and bass) and a few seconds of movement (whether you're dancing), on the phone. When both happen for a few minutes at night, it asks "Start measuring?" on your lock screen. Nothing it hears or feels on standby is recorded, stored or uploaded; no song recognition runs. We keep only counts per evening: when it was on and off, how often it asked and what you answered, how many minutes had music or movement, and your battery level at the start and end, so we can check that it doesn't ask at the wrong moments or drain your battery. The orange microphone dot stays on while it listens. It turns itself off at 06:00, after 6 hours or at 20% battery. You can turn it off on the lock screen, in the app, or withdraw it in **Settings**. Optional reminders ("Out tonight?") are local notifications on the days you choose.
 
 ## Being grouped with other phones
 
@@ -79,10 +79,10 @@ Viibe Check can show which venues are lively right now. It is built only from **
 
 - Sensors run only while you have a session open. Stop the session and collection stops. A session also **stops by itself** after about 20 minutes without music (10 if you're walking, for example on your way home), after 8 hours, or when your battery drops to 10%.
 - You can refuse any permission in iOS or Android settings. The app then works with fewer signals.
-- **Change what the app may use** at any time under **privacy & data** on the home screen: switch motion, Bluetooth or location off and they are no longer used from the next measurement.
+- **Change what the app may use** at any time under **Settings** on the home screen: switch motion, Bluetooth or location off and they are no longer used from the next measurement.
 - **Delete one session:** on Home, swipe a past session to the left and tap the red **Delete**. It removes that session with its measurements, ratings and song answers from the phone and from our database.
 - **Delete a best moment:** in your night's recap, tap Delete on the clip. If it was sent to us, our copy goes too.
-- **Delete your data yourself:** **privacy & data → Delete my data** removes every session, rating and measurement uploaded from your phone, wipes the phone's copy and gives you a new anonymous ID. You can also contact us with the anonymous ID shown in the app.
+- **Delete your data yourself:** **Settings → Delete my data** removes every session, rating and measurement uploaded from your phone, wipes the phone's copy and gives you a new anonymous ID. You can also contact us with the anonymous ID shown in the app.
 - Uninstalling the app deletes everything stored on the phone (data already uploaded stays until you delete it or it expires).
 
 ## Contact

@@ -198,7 +198,7 @@ function SessionsScreen({ onStart, pastSessions, loading, onDeleted }: {
           </Text>
         )}
         <TouchableOpacity onPress={() => router.push('/privacy')} style={{ alignItems: 'center', paddingTop: 8 }}>
-          <Text style={[s.hint, { textDecorationLine: 'underline' }]}>privacy & data</Text>
+          <Text style={[s.hint, { textDecorationLine: 'underline' }]}>⚙ settings & privacy</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -231,7 +231,7 @@ function ConsentScreen({ onDone }: { onDone: () => void }) {
         <TouchableOpacity onPress={() => Linking.openURL(PRIVACY_URL)}>
           <Text style={[s.hint, { textDecorationLine: 'underline' }]}>Read the privacy policy</Text>
         </TouchableOpacity>
-        <Text style={s.hint}>You can change these choices, or delete all your data, at any time under "privacy & data" on the home screen.</Text>
+        <Text style={s.hint}>You can change these choices, or delete all your data, at any time in Settings (the ⚙ at the top of every screen).</Text>
       </ScrollView>
       <View style={{ padding: 20, paddingBottom: 28 }}>
         <TouchableOpacity

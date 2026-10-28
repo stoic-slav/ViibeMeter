@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
-import { Tabs } from 'expo-router';
+import { Tabs, useRouter } from 'expo-router';
 import * as TaskManager from 'expo-task-manager';
 import * as BackgroundFetch from 'expo-background-fetch';
-import { AppState, Platform } from 'react-native';
+import { AppState, Platform, Text, TouchableOpacity } from 'react-native';
 import { momentKeeper } from '../src/session/MomentKeeper';
 import { vibePrompt } from '../src/notifications/VibePrompt';
 import { sensorOrchestrator } from '../src/sensors/SensorOrchestrator';
@@ -27,6 +27,16 @@ TaskManager.defineTask(BACKGROUND_TASK, async () => {
     return BackgroundFetch.BackgroundFetchResult.Failed;
   }
 });
+
+/** The ⚙ at the right of every header: opens Settings (sensors, extras, Going out, your data). */
+function SettingsButton() {
+  const router = useRouter();
+  return (
+    <TouchableOpacity onPress={() => router.push('/privacy')} hitSlop={12} accessibilityRole="button" accessibilityLabel="Settings" style={{ paddingHorizontal: 16 }}>
+      <Text style={{ fontSize: 22, color: '#9898c0' }}>⚙</Text>
+    </TouchableOpacity>
+  );
+}
 
 export default function RootLayout() {
   useEffect(() => {
@@ -84,6 +94,8 @@ export default function RootLayout() {
         headerStyle: { backgroundColor: '#060608' },
         headerTintColor: '#f0f0f5',
         headerTitleStyle: { fontWeight: 'bold' },
+        // Settings, one tap away from every main screen
+        headerRight: () => <SettingsButton />,
       }}
     >
       <Tabs.Screen
@@ -114,8 +126,8 @@ export default function RootLayout() {
       <Tabs.Screen name="join" options={{ href: null, headerShown: false }} />
       {/* Make a venue's QR code (opened from the Group sheet); not a tab */}
       <Tabs.Screen name="venue-code" options={{ href: null, title: 'Venue code' }} />
-      {/* Consent choices, anonymous ID and data deletion (from the home screen); not a tab */}
-      <Tabs.Screen name="privacy" options={{ href: null, title: 'Privacy & data' }} />
+      {/* Settings: consent choices, extras, Going out, anonymous ID and data deletion (the ⚙ in every header); not a tab */}
+      <Tabs.Screen name="privacy" options={{ href: null, title: 'Settings', headerRight: () => null }} />
       {/* The lock-screen card's STOP button (vibemeter://stop): asks to confirm; not a tab */}
       <Tabs.Screen name="stop" options={{ href: null, headerShown: false }} />
       {/* Going out mode (standby) and the weekend-night reminder; not a tab */}

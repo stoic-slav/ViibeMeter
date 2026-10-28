@@ -2,7 +2,7 @@ import * as SecureStore from 'expo-secure-store';
 
 /**
  * The user's consent (GDPR): given once on the first start, per sensor, and changeable or
- * withdrawable at any time on the Privacy & data screen. The microphone is required (on iPhone
+ * withdrawable at any time on the Settings screen. The microphone is required (on iPhone
  * the open mic is what keeps a session measuring with the phone locked); motion, Bluetooth and
  * location are optional and each sensor is skipped when it is switched off.
  *

@@ -6,7 +6,7 @@ What the simulator could not check: motion, the dancing rule, buzzing in a pocke
 - [ ] Start a session, lock the phone. Is the card there? Does tapping 🔥 work without unlocking? Does the next prompt buzz in a pocket?
 - [ ] STOP on the card: does it need Face ID, and then ask "End this session?"?
 - [ ] Swipe the app away during a session. Does the card turn grey after 15 min? Does the session show as `interrupted` after reopening?
-- [ ] Privacy & data: toggles, Going out row. (Try a full "Delete my data" once, on a phone whose test data can go.)
+- [ ] Settings: toggles, Going out row. (Try a full "Delete my data" once, on a phone whose test data can go.)
 
 ## 2. Going out mode, the dancing rule (~45 min)
 Play music loud from a speaker (≥ 75 dB at the phone; check with the Apple Watch Noise app if available), phone in a trouser pocket, Going out mode on. Note the time of each step; Claude reads the outcome from `standby_nights` (prompts, music and moving minutes) afterwards.

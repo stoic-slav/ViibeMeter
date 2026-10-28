@@ -30,7 +30,7 @@ export async function deleteSession(sessionId: string): Promise<void> {
 }
 
 /**
- * "Delete my data" (GDPR right to erasure), from the Privacy & data screen. Stops a running
+ * "Delete my data" (GDPR right to erasure), from the Settings screen. Stops a running
  * session, deletes everything uploaded under this phone's anonymous ID (delete_my_data RPC:
  * sessions with their minute readings, clips and ratings, live-view logs and Going out standby
  * evenings), then wipes the

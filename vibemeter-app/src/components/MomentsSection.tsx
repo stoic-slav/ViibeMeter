@@ -113,7 +113,7 @@ export function MomentsSection({ sessionId }: { sessionId: string }) {
     return (
       <TouchableOpacity style={st.card} onPress={() => router.push('/privacy')} activeOpacity={0.8}>
         <Text style={st.kicker}>YOUR BEST MOMENTS</Text>
-        <Text style={st.hint}>Want to replay the moments you danced hardest? Turn on "Keep my best moments" in privacy & data. Off by default.</Text>
+        <Text style={st.hint}>Want to replay the moments you danced hardest? Turn on "Keep my best moments" in Settings. Off by default.</Text>
       </TouchableOpacity>
     );
   }
