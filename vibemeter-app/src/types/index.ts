@@ -152,10 +152,10 @@ export interface Session {
   endReason: EndReason | null;
   consentVersion: number | null;         // consent the user accepted for this session
   sensors: string | null;                // sensors allowed, e.g. 'mic,motion,ble,loc'
-  startSource: StartSource;              // by hand, or "Yes, start" on a Going out prompt
+  startSource: StartSource;              // by hand, "Yes, start" on a Going out prompt, or a nudge notification
 }
 
-export type StartSource = 'manual' | 'standby';
+export type StartSource = 'manual' | 'standby' | 'nudge';
 
 export type StandbyEndReason = 'user' | 'morning' | 'max_duration' | 'low_battery' | 'session_ended' | 'deleted' | 'interrupted';
 

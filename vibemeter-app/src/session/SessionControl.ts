@@ -8,6 +8,8 @@ import { confirmVenue } from './VenueLocator';
 import { ScanResult, setPendingGroupCode, setPendingVenue } from './GroupCode';
 import { onSessionFinished } from './NightRecapService';
 import { refreshEditCatalog } from './EditCatalog';
+import { Audio } from 'expo-av';
+import { getConsent } from '../storage/Consent';
 
 /**
  * The one way a session ends, from the Stop button or an auto-stop rule (no music for 20 min,
@@ -66,6 +68,32 @@ export async function startSessionFromStandby(): Promise<Session> {
   vibePrompt.startPromptSchedule(session.id, { startedAt: session.startedAt, venue: null });
   notifySessionStarted(session);
   return session;
+}
+
+/**
+ * The one tap from a nudge notification (build 32): starts a session at once with no screens. The
+ * club comes from an arrival notification (tapping Start confirms it) or is left empty to be filled
+ * in afterwards; the phone is assumed to be in a pocket. Says what is missing instead of starting
+ * when the first-time agreement or the microphone permission isn't there yet.
+ */
+export async function expressStart(venue: { placeId: string; name: string } | null): Promise<'started' | 'already' | 'needs_consent' | 'needs_mic' | 'error'> {
+  if (sessionManager.isSessionActive) return 'already';
+  if (!(await getConsent())) return 'needs_consent';
+  const mic = await Audio.requestPermissionsAsync().catch(() => null);
+  if (!mic?.granted) return 'needs_mic';
+  try {
+    const v = venue ? { placeId: venue.placeId, name: venue.name, distanceM: null } : null;
+    const session = await sessionManager.startSession(v?.name ?? null, null, {
+      venue: v, venueSource: 'auto', phonePlacement: 'pocket', startSource: 'nudge',
+    });
+    await sensorOrchestrator.startSession(session);
+    vibePrompt.startPromptSchedule(session.id, { startedAt: session.startedAt, venue: session.venueName });
+    notifySessionStarted(session);
+    return 'started';
+  } catch (err) {
+    console.warn('[SessionControl] Express start failed:', err);
+    return 'error';
+  }
 }
 
 /** An open screen hears about a session that ended without the Stop button. */

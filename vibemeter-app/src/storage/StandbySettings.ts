@@ -14,6 +14,7 @@ export interface NightReminderSettings {
   weekdays: number[];   // 1 = Sunday … 7 = Saturday
   hour: number;
   minute: number;
+  version?: number;     // NIGHT_REMINDER.VERSION when saved; older ones are reset to the new defaults
 }
 
 export interface StandbySettings {
@@ -23,11 +24,14 @@ export interface StandbySettings {
 
 const DEFAULTS: StandbySettings = {
   acceptedAt: null,
+  // On by default since build 32: the plan-ahead question is how a night gets measured without
+  // the person having to remember (they can switch it off, or pick other days and a time)
   reminders: {
-    enabled: false,
+    enabled: true,
     weekdays: [...NIGHT_REMINDER.DEFAULT_WEEKDAYS],
     hour: NIGHT_REMINDER.DEFAULT_HOUR,
     minute: NIGHT_REMINDER.DEFAULT_MINUTE,
+    version: NIGHT_REMINDER.VERSION,
   },
 };
 
@@ -38,7 +42,9 @@ export async function getStandbySettings(): Promise<StandbySettings> {
   try {
     const raw = await SecureStore.getItemAsync(KEY);
     const parsed = raw ? JSON.parse(raw) : {};
-    cached = { ...DEFAULTS, ...parsed, reminders: { ...DEFAULTS.reminders, ...(parsed.reminders ?? {}) } };
+    const outdated = (parsed.reminders?.version ?? 0) < NIGHT_REMINDER.VERSION;
+    cached = { ...DEFAULTS, ...parsed, reminders: outdated ? { ...DEFAULTS.reminders } : { ...DEFAULTS.reminders, ...(parsed.reminders ?? {}) } };
+    if (outdated) await SecureStore.setItemAsync(KEY, JSON.stringify(cached)).catch(() => {});
   } catch {
     cached = { ...DEFAULTS };
   }

@@ -61,7 +61,18 @@ After a session, the app shows the songs you moved to most, ranked on your phone
 
 ## Going out mode (iPhone, optional)
 
-If you turn on **Going out mode**, which is off unless you switch it on and asks for your agreement the first time, the app listens on your phone *before* a session, to notice when you're at a party. Every 30 seconds it analyses 5 seconds of sound (how loud it is, whether there is a beat and bass) and a few seconds of movement (whether you're dancing), on the phone. When both happen for a few minutes at night, it asks "Start measuring?" on your lock screen. Nothing it hears or feels on standby is recorded, stored or uploaded; no song recognition runs. We keep only counts per evening: when it was on and off, how often it asked and what you answered, how many minutes had music or movement, and your battery level at the start and end, so we can check that it doesn't ask at the wrong moments or drain your battery. The orange microphone dot stays on while it listens. It turns itself off at 06:00, after 6 hours or at 20% battery. You can turn it off on the lock screen, in the app, or withdraw it in **Settings**. Optional reminders ("Out tonight?") are local notifications on the days you choose.
+If you turn on **Going out mode**, which is off unless you switch it on and asks for your agreement the first time, the app listens on your phone *before* a session, to notice when you're at a party. Every 30 seconds it analyses 5 seconds of sound (how loud it is, whether there is a beat and bass) and a few seconds of movement (whether you're dancing), on the phone. When both happen for a few minutes at night, it asks "Start measuring?" on your lock screen. Nothing it hears or feels on standby is recorded, stored or uploaded; no song recognition runs. We keep only counts per evening: when it was on and off, how often it asked and what you answered, how many minutes had music or movement, and your battery level at the start and end, so we can check that it doesn't ask at the wrong moments or drain your battery. The orange microphone dot stays on while it listens. It turns itself off at 06:00, after 6 hours or at 20% battery. You can turn it off on the lock screen, in the app, or withdraw it in **Settings**. 
+
+### "Going out tonight?" and start nudges (iPhone)
+
+On Fridays and Saturdays at 19:00 (you can change the days and time, or switch it off, in **Settings → Going out**) the app asks "Going out tonight?" as a local notification. It is on by default, and nothing is measured until you tap a nudge.
+
+If you say **Yes**, the app arranges for a nudge to reach you at the right moment, because an iPhone only lets an app start the microphone after you tap:
+- **At a club:** if you have allowed location, the phone asks our server for the night clubs near it. It sends its position **rounded to about 1 kilometre** for this one question; the position is not stored or logged, and the clubs (public map data) are saved like any venue. Your iPhone itself then watches those few places and, when you walk into one, shows "At <club>? Start measuring". The app does not read your location for this and learns nothing unless you tap the notification. If you tap Start, the session is linked to that club, as when you confirm a club yourself.
+- **Later tonight:** if nothing has started, "Still out?" nudges follow at 23:30 and 01:00, and then no more.
+Tapping a nudge starts a session at once with no further questions (the phone has to be unlocked). If a session starts, or you say "Not tonight", the nudges are cancelled. Without location the arrival nudges are simply skipped. You can add the club afterwards in your night's recap.
+
+Optional reminders in earlier versions ("Out tonight?") are replaced by this question.
 
 ## Being grouped with other phones
 

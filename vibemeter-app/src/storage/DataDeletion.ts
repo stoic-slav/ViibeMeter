@@ -11,7 +11,8 @@ import { clearMomentSettings } from './MomentSettings';
 import { momentKeeper } from '../session/MomentKeeper';
 import { clearStandbySettings, getStandbySettings } from './StandbySettings';
 import { standby } from '../session/Standby';
-import { scheduleNightReminders } from '../notifications/NightReminder';
+import { scheduleNightReminders, cancelNightNudges } from '../notifications/NightReminder';
+import { clearNightPlan } from './NightPlan';
 import { clearEditCatalogCache } from '../session/EditCatalog';
 
 /**
@@ -50,6 +51,8 @@ export async function deleteMyData(): Promise<number> {
   await clearDanceAffinity();
   await clearPromptSettings();
   await clearMomentSettings();
+  await cancelNightNudges();
+  await clearNightPlan();
   await scheduleNightReminders({ ...(await getStandbySettings()).reminders, enabled: false });
   await clearStandbySettings();
   await clearEditCatalogCache();

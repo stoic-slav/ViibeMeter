@@ -371,7 +371,7 @@ export async function closeInterruptedSessions(activeId: string | null): Promise
 
 export async function updateSessionVenue(
   id: string, venueName: string | null, placeId: string | null, distanceM: number | null,
-  source: 'auto' | 'qr' = 'auto',
+  source: 'auto' | 'qr' | 'manual' = 'auto',
 ): Promise<void> {
   const database = await getDb();
   await database.runAsync(

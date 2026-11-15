@@ -144,10 +144,20 @@ export const STANDBY = {
 } as const;
 
 /** Weekend-night reminder ("Out tonight?"): default days (1 = Sunday … 7 = Saturday) and time. */
+/** The plan-ahead question ("Going out tonight?") and what follows a Yes (build 32). */
 export const NIGHT_REMINDER = {
-  DEFAULT_WEEKDAYS: [5, 6, 7],       // Thursday (student night in Brussels), Friday, Saturday
-  DEFAULT_HOUR: 22,
-  DEFAULT_MINUTE: 30,
+  DEFAULT_WEEKDAYS: [6, 7],          // Friday, Saturday (1 = Sunday … 7 = Saturday)
+  DEFAULT_HOUR: 19,
+  DEFAULT_MINUTE: 0,
+  VERSION: 2,                        // saved reminders from older builds reset to these defaults once
+} as const;
+
+export const NIGHT_NUDGE = {
+  // "Still out?" after a Yes when nothing has started yet; the second one is after midnight
+  LATE: [{ hour: 23, minute: 30 }, { hour: 1, minute: 0 }] as const,
+  ARRIVAL_RADIUS_M: 120,             // clubs are watched this closely (the system may widen it indoors)
+  ARRIVAL_MAX: 15,                   // the system limits how many places an app can watch
+  NIGHT_ENDS_HOUR: 6,
 } as const;
 
 /** Give-to-get: contributing at a venue unlocks the live view for the rest of the night. */

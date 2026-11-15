@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, Alert, Linking, Share, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, Alert, Linking, Share, ActivityIndicator, TextInput } from 'react-native';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { captureRef } from 'react-native-view-shot';
 import { getOrBuildRecap, buildRecap, answerRecapItem, StoredRecap } from '../src/session/NightRecapService';
 import { createAppleMusicPlaylist, isMusicLibraryAvailable } from '../modules/music-library';
 import { canShareToInstagram, shareToInstagramStory } from '../modules/story-share';
 import { MomentsSection } from '../src/components/MomentsSection';
+import { updateSessionVenue } from '../src/storage/LocalBuffer';
+import { syncSessions } from '../src/storage/SupabaseSync';
 import { LinearGradient } from 'expo-linear-gradient';
 import Constants from 'expo-constants';
 
@@ -99,6 +101,30 @@ function appleMusicUrl(i: Item): string {
  * no rating needed, with 👍/👎, Spotify and Apple Music links, an Apple Music playlist and a
  * share card. Opened from the session summary and from the 12:00 notification.
  */
+/** A session started from a nudge has no club yet: the person fills it in here, whenever they like. */
+function WhereCard({ sessionId, onSaved }: { sessionId: string; onSaved: () => void }) {
+  const [name, setName] = useState('');
+  const save = async () => {
+    if (!name.trim()) return;
+    await updateSessionVenue(sessionId, name.trim(), null, null, 'manual');
+    syncSessions().catch(() => {});
+    onSaved();
+  };
+  return (
+    <View style={st.card}>
+      <Text style={st.kicker}>WHERE WERE YOU?</Text>
+      <Text style={st.meta}>Add the club or party so your nights are easy to tell apart. You can skip this.</Text>
+      <TextInput
+        style={st.whereInput} value={name} onChangeText={setName} placeholder="e.g. C12" placeholderTextColor={TXD}
+        returnKeyType="done" onSubmitEditing={save} maxLength={80}
+      />
+      <TouchableOpacity style={[st.secondaryBtn, !name.trim() && { opacity: 0.4 }]} disabled={!name.trim()} onPress={save}>
+        <Text style={st.secondaryText}>SAVE</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 export default function RecapScreen() {
   const { sessionId } = useLocalSearchParams<{ sessionId?: string }>();
   const [recap, setRecap] = useState<StoredRecap | null>(null);
@@ -194,6 +220,10 @@ export default function RecapScreen() {
           {duration} · {recap.dancingMinutes} min dancing · {recap.recognisedSongs} song{recap.recognisedSongs === 1 ? '' : 's'} recognised
         </Text>
       </View>
+
+      {recap.venueName == null && sessionId && (
+        <WhereCard sessionId={sessionId} onSaved={() => buildRecap(sessionId).then(setRecap)} />
+      )}
 
       {recap.items.length === 0 ? (
         <View style={st.card}>
@@ -298,6 +328,7 @@ const st = StyleSheet.create({
   chipLabel: { fontFamily: MONO, fontSize: 10, fontWeight: '700', color: TXM, letterSpacing: 1 },
   primaryBtn: { height: 52, borderRadius: 14, backgroundColor: A, alignItems: 'center', justifyContent: 'center' },
   primaryText: { fontFamily: MONO, fontSize: 13, fontWeight: '700', color: '#030904', letterSpacing: 2 },
+  whereInput: { height: 46, borderRadius: 12, borderWidth: 1, borderColor: S2, backgroundColor: BG, color: TX, paddingHorizontal: 14, fontSize: 16 },
   secondaryBtn: { height: 48, borderRadius: 14, borderWidth: 1, borderColor: TXD + '66', alignItems: 'center', justifyContent: 'center' },
   secondaryText: { fontFamily: MONO, fontSize: 12, fontWeight: '700', color: TXM, letterSpacing: 2 },
   shareFrame: { aspectRatio: 9 / 16, borderRadius: 20, overflow: 'hidden' },

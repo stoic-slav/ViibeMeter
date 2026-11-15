@@ -3,8 +3,10 @@ import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, Alert, 
 import { useFocusEffect, useRouter } from 'expo-router';
 import { standby, StandbyState } from '../src/session/Standby';
 import { getStandbySettings, saveStandbySettings, StandbySettings } from '../src/storage/StandbySettings';
-import { scheduleNightReminders } from '../src/notifications/NightReminder';
-import { STANDBY } from '../src/config/constants';
+import { scheduleNightReminders, planTonight, skipTonight } from '../src/notifications/NightReminder';
+import { getNightPlan, NightPlan } from '../src/storage/NightPlan';
+import { nightKey } from '../src/notifications/NightNudgePlan';
+import { STANDBY, NIGHT_NUDGE } from '../src/config/constants';
 
 const A = '#00E8A0';
 const TX = '#f0f0f5';
@@ -19,7 +21,7 @@ const DAYS: { label: string; weekday: number }[] = [
   { label: 'Mon', weekday: 2 }, { label: 'Tue', weekday: 3 }, { label: 'Wed', weekday: 4 },
   { label: 'Thu', weekday: 5 }, { label: 'Fri', weekday: 6 }, { label: 'Sat', weekday: 7 }, { label: 'Sun', weekday: 1 },
 ];
-const TIMES: [number, number][] = [[21, 30], [22, 0], [22, 30], [23, 0], [23, 30]];
+const TIMES: [number, number][] = [[18, 0], [19, 0], [20, 0], [21, 0], [22, 0]];
 
 /**
  * Going out mode (iOS, build 24): the opt-in, switching standby on and off, answering its prompt,
@@ -31,11 +33,13 @@ export default function GoingOutScreen() {
   const [settings, setSettings] = useState<StandbySettings | null>(null);
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [plan, setPlan] = useState<NightPlan | null>(null);
 
   useEffect(() => standby.onChange(setState), []);
   useFocusEffect(useCallback(() => {
     setState(standby.current);
     getStandbySettings().then(setSettings);
+    getNightPlan().then(p => setPlan(p && p.night === nightKey(Date.now(), NIGHT_NUDGE.NIGHT_ENDS_HOUR) ? p : null));
   }, []));
 
   const turnOn = async () => {
@@ -55,6 +59,15 @@ export default function GoingOutScreen() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const goingOutTonight = async () => {
+    setBusy(true);
+    try { await planTonight(); setPlan(await getNightPlan()); } finally { setBusy(false); }
+  };
+  const notTonight = async () => {
+    await skipTonight();
+    setPlan(await getNightPlan());
   };
 
   const updateReminders = async (change: Partial<StandbySettings['reminders']>) => {
@@ -78,6 +91,46 @@ export default function GoingOutScreen() {
   return (
     <View style={st.container}>
       <ScrollView contentContainerStyle={{ padding: 20, gap: 14, paddingBottom: 120 }}>
+        {state !== 'session' && (
+          <View style={[st.card, plan?.answer === 'yes' && { borderColor: A + '88' }]}>
+            {plan?.answer === 'yes' ? (
+              <>
+                <Text style={[st.cardTitle, { color: A }]}>You're going out tonight ✓</Text>
+                <Text style={st.body}>
+                  {plan.clubs === 0 && plan.late === 0
+                    ? 'No nudges are waiting right now: measuring already started, or it is too late tonight for more. '
+                    : plan.clubs > 0
+                    ? `Your phone is watching ${plan.clubs} clubs near you and will ask "Start measuring?" when you walk into one. `
+                    : 'We\'ll nudge you later tonight. '}
+                  {plan.late > 0 ? `If nothing has started, we nudge you ${plan.late === 2 ? 'at 23:30 and 01:00' : 'once more later'}. ` : ''}
+                  {plan.clubs === 0 && plan.late === 0 ? '' : 'Tap a nudge and measuring starts at once. Nothing else to remember.'}
+                </Text>
+                <TouchableOpacity style={st.secondaryBtn} onPress={notTonight}>
+                  <Text style={st.secondaryText}>NOT TONIGHT AFTER ALL</Text>
+                </TouchableOpacity>
+              </>
+            ) : plan?.answer === 'no' ? (
+              <>
+                <Text style={st.cardTitle}>Not going out tonight</Text>
+                <TouchableOpacity style={st.secondaryBtn} onPress={goingOutTonight}>
+                  <Text style={st.secondaryText}>ACTUALLY, I'M GOING OUT</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={st.cardTitle}>Going out tonight?</Text>
+                <Text style={st.body}>
+                  Say yes and you don't have to remember anything: your phone shows "Start measuring?" when you arrive at a club,
+                  and again later tonight if you haven't started. One tap and your night in songs gets measured.
+                </Text>
+                <TouchableOpacity style={[st.primaryBtn, busy && { opacity: 0.4 }]} disabled={busy} onPress={goingOutTonight}>
+                  {busy ? <ActivityIndicator color="#030904" /> : <Text style={st.primaryText}>YES, I'M GOING OUT</Text>}
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        )}
+
         {state === 'prompt' && (
           <View style={[st.card, { borderColor: A }]}>
             <Text style={[st.cardTitle, { color: A }]}>Sounds like a party 🎶</Text>
@@ -118,9 +171,9 @@ export default function GoingOutScreen() {
 
         {state === 'off' && settings && (
           <View style={st.card}>
-            <Text style={st.cardTitle}>Going out tonight?</Text>
+            <Text style={st.cardTitle}>Going out mode</Text>
             <Text style={st.body}>
-              Turn this on before you go out. Viibe Check then listens on your phone for loud music with a beat and
+              Prefer it fully automatic? Turn this on before you go out. Viibe Check then listens on your phone for loud music with a beat and
               feels for dancing. When both happen for a few minutes, it asks "Start measuring?" on your lock screen.
             </Text>
             <Text style={st.body}>
@@ -149,14 +202,14 @@ export default function GoingOutScreen() {
         {settings && (
           <View style={st.card}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={[st.cardTitle, { flex: 1 }]}>Remind me on nights out</Text>
+              <Text style={[st.cardTitle, { flex: 1 }]}>Ask me on nights out</Text>
               <Switch
                 value={settings.reminders.enabled}
                 onValueChange={v => updateReminders({ enabled: v })}
                 trackColor={{ true: A, false: S2 }}
               />
             </View>
-            <Text style={st.body}>"Out tonight?" on the days you pick, so you remember to turn Going out mode on.</Text>
+            <Text style={st.body}>"Going out tonight?" on the days you pick, at 19:00 by default. One tap on Yes and the rest is taken care of.</Text>
             {settings.reminders.enabled && (
               <>
                 <View style={st.chipRow}>
