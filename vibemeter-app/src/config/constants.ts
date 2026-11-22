@@ -58,6 +58,11 @@ export const SENSOR_CONFIG = {
   AUDIO_DB_SILENT: 30,
   AUDIO_DB_TALKING: 55,
   AUDIO_DB_LOW_MUSIC: 65,
+  // At club volume (a pocket phone mostly hears bass) the steady beat gives little dB variance and a
+  // low beat clarity, so loud and bass-dominated sound counts as music (found on the 21 Nov night:
+  // 19 of 28 minutes above 100 dB were called "talking")
+  LOUD_MUSIC_DB: 90,
+  LOUD_MUSIC_SUB_BASS: 0.4,
   AUDIO_DB_HIGH_MUSIC: 78,
   AUDIO_DB_LOUD_MUSIC: 88,
   SHAZAM_MIN_DB: 40,                   // song recognition on iOS runs above this (quiet background music)

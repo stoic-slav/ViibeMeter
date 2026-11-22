@@ -2,7 +2,7 @@ import * as Crypto from 'expo-crypto';
 import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
 import { supabase } from '../config/supabase';
-import { buildNightRecap, DjSet, NightRecap, RecapItem } from '../processing/NightRecap';
+import { buildNightRecap, isWalkingMinute, DjSet, NightRecap, RecapItem } from '../processing/NightRecap';
 import {
   getSessions, getClipsForSession, getWindowsForSession, getNightSongs, getNightEdits,
   saveNightRecap, getNightRecap, saveSongFeedback,
@@ -66,7 +66,7 @@ export async function buildRecap(sessionId: string): Promise<StoredRecap | null>
         clipStart: c.clip_start, movementEnergy: c.movement_energy, beatPlv: c.beat_plv,
         movementBpm: c.movement_bpm ?? null, songBpm: w?.song_bpm ?? null,
         pulseClarity: w?.pulse_clarity ?? null, spectralFlux: w?.spectral_flux ?? null, subBass: w?.sub_bass_energy ?? null,
-        songIsrc: c.song_isrc, phoneContext: c.phone_context, walking: w?.movement_classification === 'walking',
+        songIsrc: c.song_isrc, phoneContext: c.phone_context, walking: isWalkingMinute(w?.movement_classification, w?.avg_db),
       };
     }),
     songs,

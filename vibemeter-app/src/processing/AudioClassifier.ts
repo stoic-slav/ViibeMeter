@@ -1,6 +1,11 @@
 import { AudioClassification } from '../types';
 import { SENSOR_CONFIG } from '../config/constants';
 
+/** Loud and bass-dominated sound: a club. Speech or shouting at the same level has little bass. */
+export function isLoudBassMusic(avgDb: number, subBassShare: number): boolean {
+  return avgDb >= SENSOR_CONFIG.LOUD_MUSIC_DB && subBassShare >= SENSOR_CONFIG.LOUD_MUSIC_SUB_BASS;
+}
+
 /**
  * Classify audio state from dB level + music detection flag.
  */

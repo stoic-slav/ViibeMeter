@@ -10,7 +10,7 @@ import {
   harmonicNoiseRatio as fftHNR, computeSpectralFlux, crestFactor as fftCrestFactor,
 } from '../processing/FFTProcessor';
 import { detectBPM, tempoFromAccumulated, TEMPO_CURVE_LENGTH } from '../processing/BPMDetector';
-import { classifyAudio, computeRMS, rmsToDb, dbFullScaleToAmbient } from '../processing/AudioClassifier';
+import { classifyAudio, isLoudBassMusic, computeRMS, rmsToDb, dbFullScaleToAmbient } from '../processing/AudioClassifier';
 import AudioRecord from 'react-native-audio-record';
 import { isAudioCaptureAvailable, startCapture, stopCapture, isCapturing, readRange, matchRecent, getBassEnvelope as getNativeBassEnvelope, takeRolledSignature, setRollingPrints } from '../../modules/audio-capture';
 import { addBassFrames, bassEnvelopeFromStore, pruneBassFrames, BassFrameStore } from '../processing/BassEnvelope';
@@ -290,7 +290,7 @@ export class AudioAnalyzer {
 
     // A song recognised in the last two minutes is music, however quiet the room
     const songPlaying = this.track != null && Date.now() - this.track.confirmedAt <= SONG_STALE_MS;
-    const musicDetected = songPlaying || detectMusicFromMetering(avgDb, dbVariance, bpmResult.confidence);
+    const musicDetected = songPlaying || detectMusicFromMetering(avgDb, dbVariance, bpmResult.confidence, subBassEnergy);
     const audioClassification = classifyAudio(avgDb, musicDetected);
     const audioEvent = classifyAudioEvent(dbSamples, clapCount, avgDb, dbVariance, musicDetected);
 
@@ -625,8 +625,9 @@ function estimateBassPresence(avgDb: number, dbVariance: number): number {
   return (normalizedDb * 0.6 + normalizedVar * 0.4);
 }
 
-function detectMusicFromMetering(avgDb: number, dbVariance: number, bpmConfidence: number): boolean {
+function detectMusicFromMetering(avgDb: number, dbVariance: number, bpmConfidence: number, subBassShare: number): boolean {
   if (avgDb < SENSOR_CONFIG.AUDIO_DB_TALKING) return false;
+  if (isLoudBassMusic(avgDb, subBassShare)) return true;
   if (bpmConfidence >= SENSOR_CONFIG.BPM_CONFIDENCE_THRESHOLD) return true;
   return avgDb > SENSOR_CONFIG.AUDIO_DB_LOW_MUSIC && dbVariance > 10;
 }

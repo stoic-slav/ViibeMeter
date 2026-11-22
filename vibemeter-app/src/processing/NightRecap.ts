@@ -119,7 +119,16 @@ export const RECAP = {
   CARRY_MAX_GAP_MS: 30_000,       // the earlier clips must be right before the song
   TEMPO_FULL: [100, 150] as const, // tempo range with full groove credit (falls to 0 at 70 and 180)
   CLIP_MS: 10_000,
+  // The stored "walking" label is unreliable on a dance floor (the 21 Nov night: 47 of 68 minutes were
+  // "walking" while the movement tempo matched the music's 130 BPM), so at this volume or louder a
+  // minute is not excluded as walking
+  LOUD_NOT_WALKING_DB: 85,
 } as const;
+
+/** Whether a minute is left out of the recap as walking (to the bar, outside), not dancing. */
+export function isWalkingMinute(movementClassification: string | null | undefined, avgDb: number | null | undefined): boolean {
+  return movementClassification === 'walking' && (avgDb ?? 0) < RECAP.LOUD_NOT_WALKING_DB;
+}
 
 const ON_BODY = new Set(['on_body_moving', 'on_body_still']);
 
