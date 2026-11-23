@@ -24,8 +24,8 @@ const DNG = '#e84560';
 const MONO = Platform.select({ ios: 'Courier New', android: 'monospace' }) as string;
 const MIN = 60_000;
 
-interface Point { t: number; p: number; d: number | null; s: number | null; b: number | null }
-interface Track { start: number; end: number; unknown: boolean; title: string | null; artist: string | null; d: number | null; s: number | null; b: number | null; lift: number | null; keep: number | null }
+interface Point { t: number; p: number; d: number | null; s: number | null; b: number | null; a?: number | null }
+interface Track { start: number; end: number; unknown: boolean; title: string | null; artist: string | null; d: number | null; s: number | null; b: number | null; a?: number | null; lift: number | null; keep: number | null }
 interface Moment { t: number; d?: number | null; from?: number | null; to?: number | null; track: number | null }
 interface Report {
   v: number; status: 'sent' | 'approved'; venue: string | null; dj: string | null; start: string; end: string; phones: number;
@@ -290,7 +290,7 @@ export default function SetScreen() {
             <View style={st.readout}>
               <Text style={st.readTime}>{clock(cursor)}</Text>
               {point && point.d != null ? (
-                <Text style={st.readMain}>{pct(point.d)} dancing · {point.p} phones{point.b ? ` · ${Math.round(point.b)} BPM` : ''}{point.s != null ? ` · ${pct(point.s)} on the beat` : ''}</Text>
+                <Text style={st.readMain}>{pct(point.d)} dancing · {point.p} phones{point.b ? ` · ${Math.round(point.b)} BPM` : ''}{point.s != null ? ` · ${pct(point.s)} on the beat` : ''}{point.a != null ? ` · ${pct(point.a)} at the same tempo` : ''}</Text>
               ) : (
                 <Text style={st.readMain}>Too few phones to show this minute</Text>
               )}
@@ -335,6 +335,7 @@ export default function SetScreen() {
             <View style={st.stats}>
               <Stat label="DANCING" value={pct(t.d)} />
               <Stat label="ON THE BEAT" value={pct(t.s)} />
+              {t.a != null && <Stat label="TOGETHER" value={pct(t.a)} />}
               {t.b != null && <Stat label="BPM" value={String(Math.round(t.b))} />}
               {t.lift != null && <Stat label="LIFT" value={pts(t.lift)} color={t.lift >= 0.05 ? A : t.lift <= -0.05 ? DNG : undefined} />}
               {t.keep != null && <Stat label="STAYED" value={pct(t.keep)} />}
@@ -347,7 +348,7 @@ export default function SetScreen() {
           </TouchableOpacity>
         ))}
         <Text style={st.hint}>
-          LIFT: dancing share in the first 3 minutes of the track against the 3 minutes before. STAYED: of the people dancing just before, how many kept dancing through the change.
+          TOGETHER: share of phones moving at the same tempo (needs no microphone reading). LIFT: dancing share in the first 3 minutes of the track against the 3 minutes before. STAYED: of the people dancing just before, how many kept dancing through the change.
           Built from phones in the room; minutes with fewer than 3 phones are left out and nothing identifies a person.
         </Text>
 

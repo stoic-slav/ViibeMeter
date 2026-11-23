@@ -473,6 +473,8 @@ export default function HomeScreen() {
   }, []);
 
   const handleNewSession = async () => {
+    // A session is already running (e.g. started from a nudge): go to it instead of ending it and starting another
+    if (sessionManager.isSessionActive) { router.push('/meter'); return; }
     if (!(await getConsent())) { setStep('consent'); return; }
     const affinity = await getDanceAffinity();
     setStep(affinity == null ? 'affinity' : 'venue');
@@ -481,6 +483,8 @@ export default function HomeScreen() {
   const handleStartSession = async (opts: StartOptions) => {
     const { venueName, eventCode, phonePlacement, venue } = opts;
     if (loading) return;
+    // A nudge may have started a session while this start screen was open: keep it
+    if (sessionManager.isSessionActive) { setStep('sessions'); router.push('/meter'); return; }
     // The microphone is required: on iPhone the open mic is what keeps a session measuring
     // with the phone locked. Without it the session would silently stop measuring.
     const mic = await Audio.requestPermissionsAsync().catch(() => null);

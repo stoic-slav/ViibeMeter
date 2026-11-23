@@ -19,7 +19,7 @@ import {
  * - the clips live in the app's own folder, out of iCloud backups, and are deleted after
  *   MOMENTS.RETAIN_DAYS days; the person can delete any of them;
  * - a clip must come from music (loud, not voices), from a moving person on a body who is not
- *   walking, and from the person's top fifth of their own night;
+ *   and from the person's top fifth of their own night;
  * - after the session, each clip is cleaned on the phone (`ClipCleaner`: rustle bursts down,
  *   levelled) and checked again for music dominance; a clip that turns out to be mostly rustle or
  *   not bass-led is deleted;
@@ -114,8 +114,9 @@ class MomentKeeper {
         lastKeptAt: existing.reduce((t, m) => Math.max(t, m.startedAt + m.durationMs), 0),
       };
     }
-    // Only a moving person on a body, not walking, tells us about dancing
-    if (!motion || motion.movementEnergy == null || !ON_BODY_MOVING.has(motion.phoneContext) || motion.movementClassification === 'walking') return;
+    // Only a moving person on a body tells us about dancing (the walking label is not trusted: it called
+    // most of a club night "walking"); the top fifth of the person's own night decides
+    if (!motion || motion.movementEnergy == null || !ON_BODY_MOVING.has(motion.phoneContext)) return;
     const energy = motion.movementEnergy;
     const before = history.energies;
     const rank = before.length > 0 ? before.filter(e => e < energy).length / before.length : 0;

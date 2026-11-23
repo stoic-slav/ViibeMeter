@@ -24,7 +24,8 @@ import { computeWeightedTempoMatch } from './BeatSync';
  *   person, so it carries little weight until the 👍/👎 show whether it helps.
  * - carry (small): the person was moving before the song and kept moving through the change
  *   (analysis/engagement.py: through_song_change). Missing when they weren't moving before it.
- * Walking minutes are left out (walking is rhythmic too and would look like dancing). The weights
+ * There is no walking filter (the movement label is not trusted yet; only relative movement and beat
+ * lock count). The weights
  * are priors: every 👍/👎 is uploaded with these components so the analysis can fit them.
  */
 
@@ -33,13 +34,12 @@ export interface RecapClip {
   movementEnergy: number | null;
   beatPlv: number | null;
   movementBpm: number | null;
-  songBpm: number | null;         // the recognised song's tempo for that minute, if known
+  songBpm: number | null;         // the music's tempo for that minute: the recognised song's, the beat the phone heard, or the nearest measured one (carryTempo)
   pulseClarity: number | null;    // the minute's audio features (song-level groove)
   spectralFlux: number | null;
   subBass: number | null;
   songIsrc: string | null;
   phoneContext: string | null;
-  walking: boolean;               // the minute was classified as walking
 }
 
 export interface RecapSong {
@@ -91,6 +91,19 @@ export interface RecapItem {
   editLink: string | null;
 }
 
+/** A stretch of the night the person's movement followed the music's beat. */
+export interface LockedStretch {
+  startsAt: number;
+  endsAt: number;
+  minutes: number;               // locked minutes inside it
+}
+
+export interface LockedSummary {
+  minutes: number;               // locked minutes in the whole night
+  stretches: LockedStretch[];    // at least LOCKED_MIN_MIN minutes each, in time order
+  longest: LockedStretch | null;
+}
+
 export interface NightRecap {
   sessionId: string;
   venueName: string | null;
@@ -100,6 +113,7 @@ export interface NightRecap {
   recognisedSongs: number;
   coverage: number | null;        // share of music clips that had a recognised song
   items: RecapItem[];             // best first, at most MAX_ITEMS
+  locked?: LockedSummary;         // from build 34; older stored recaps don't have it
 }
 
 export const RECAP = {
@@ -119,16 +133,19 @@ export const RECAP = {
   CARRY_MAX_GAP_MS: 30_000,       // the earlier clips must be right before the song
   TEMPO_FULL: [100, 150] as const, // tempo range with full groove credit (falls to 0 at 70 and 180)
   CLIP_MS: 10_000,
-  // The stored "walking" label is unreliable on a dance floor (the 21 Nov night: 47 of 68 minutes were
-  // "walking" while the movement tempo matched the music's 130 BPM), so at this volume or louder a
-  // minute is not excluded as walking
-  LOUD_NOT_WALKING_DB: 85,
+  // Locked to the beat (provisional, from the first real night): a clip is locked when its movement
+  // peaks follow the beat (PLV >= LOCKED_PLV) or its movement tempo matches the music's (graded match
+  // >= LOCKED_TEMPO_MATCH, half/double included); a minute is locked with at least LOCKED_CLIPS locked
+  // clips (20 s); a stretch may skip LOCKED_GAP_MIN minute and needs LOCKED_MIN_MIN minutes
+  LOCKED_TEMPO_MATCH: 0.5,
+  LOCKED_CLIPS: 2,
+  LOCKED_GAP_MIN: 1,
+  LOCKED_MIN_MIN: 2,
+  // A DJ set holds its tempo for tens of minutes, so a minute without a measured music tempo uses the
+  // nearest measured one, up to this far away (the phone can't always hear the beat at club volume)
+  TEMPO_CARRY_MS: 15 * 60_000,
 } as const;
 
-/** Whether a minute is left out of the recap as walking (to the bar, outside), not dancing. */
-export function isWalkingMinute(movementClassification: string | null | undefined, avgDb: number | null | undefined): boolean {
-  return movementClassification === 'walking' && (avgDb ?? 0) < RECAP.LOUD_NOT_WALKING_DB;
-}
 
 const ON_BODY = new Set(['on_body_moving', 'on_body_still']);
 
@@ -156,6 +173,57 @@ function minutesText(clips: number): string {
 
 function setAt(sets: DjSet[], ms: number): DjSet | null {
   return sets.find(s => ms >= s.startsAt && ms < s.endsAt) ?? null;
+}
+
+/** A minute's measured music tempo (the recognised song's, or the beat the phone heard); null = not measured. */
+export interface TempoMinute { ms: number; bpm: number | null }
+
+/**
+ * Fills the minutes without a measured music tempo with the nearest measured one within `maxMs` (either
+ * side). Keyed by the minute's start (ms). A minute with nothing measured nearby stays null.
+ */
+export function carryTempo(minutes: TempoMinute[], maxMs: number = RECAP.TEMPO_CARRY_MS): Map<number, number | null> {
+  const measured = minutes.filter(m => m.bpm != null).sort((a, b) => a.ms - b.ms);
+  const out = new Map<number, number | null>();
+  for (const m of minutes) {
+    if (m.bpm != null) { out.set(m.ms, m.bpm); continue; }
+    let best: TempoMinute | null = null;
+    for (const c of measured) {
+      const d = Math.abs(c.ms - m.ms);
+      if (d <= maxMs && (best == null || d < Math.abs(best.ms - m.ms))) best = c;
+    }
+    out.set(m.ms, best ? best.bpm : null);
+  }
+  return out;
+}
+
+/** Whether one clip's movement followed the beat: by phase locking, else by tempo (multiples count). */
+export function clipLocked(c: RecapClip): boolean {
+  if ((c.beatPlv ?? 0) >= RECAP.LOCKED_PLV) return true;
+  return computeWeightedTempoMatch(c.movementBpm, c.songBpm).tempoMatch >= RECAP.LOCKED_TEMPO_MATCH;
+}
+
+/** The stretches of the night spent locked to the beat, found from the on-body clips. */
+export function lockedToBeat(clips: RecapClip[]): LockedSummary {
+  const perMinute = new Map<number, number>();            // minute start -> locked clips
+  for (const c of clips) {
+    const minute = Math.floor(c.clipStart / 60_000) * 60_000;
+    perMinute.set(minute, (perMinute.get(minute) ?? 0) + (clipLocked(c) ? 1 : 0));
+  }
+  const lockedMinutes = [...perMinute.entries()].filter(([, n]) => n >= RECAP.LOCKED_CLIPS).map(([m]) => m).sort((a, b) => a - b);
+  const stretches: LockedStretch[] = [];
+  let cur: { start: number; end: number; minutes: number } | null = null;
+  for (const m of lockedMinutes) {
+    if (cur && (m - cur.end) / 60_000 <= RECAP.LOCKED_GAP_MIN + 1) { cur.end = m; cur.minutes++; }
+    else { if (cur) stretches.push({ startsAt: cur.start, endsAt: cur.end + 60_000, minutes: cur.minutes }); cur = { start: m, end: m, minutes: 1 }; }
+  }
+  if (cur) stretches.push({ startsAt: cur.start, endsAt: cur.end + 60_000, minutes: cur.minutes });
+  const kept = stretches.filter(s => s.minutes >= RECAP.LOCKED_MIN_MIN);
+  return {
+    minutes: kept.reduce((s, k) => s + k.minutes, 0),
+    stretches: kept,
+    longest: kept.reduce<LockedStretch | null>((best, k) => (best == null || k.minutes > best.minutes ? k : best), null),
+  };
 }
 
 /** The night's own spread of each song-level sound feature, to compare a song with its night. */
@@ -263,8 +331,10 @@ export function buildNightRecap(input: {
   edits?: HeardEdit[];
   minScore?: number;              // below this an entry isn't listed (default RECAP.MIN_SCORE; tests lower it)
 }): NightRecap {
-  // Clips that tell us about dancing: on a body, with a motion reading, not walking
-  const onBody = input.clips.filter(c => c.movementEnergy != null && ON_BODY.has(c.phoneContext ?? '') && !c.walking);
+  // Clips that tell us about dancing: on a body, with a motion reading. There is deliberately no
+  // "walking" filter: the stored label can't tell walking from dancing with the phone in a pocket (the
+  // 21 Nov night), and everything here is relative to the person's own night.
+  const onBody = input.clips.filter(c => c.movementEnergy != null && ON_BODY.has(c.phoneContext ?? ''));
   const pct = percentileRanks(onBody.map(c => c.movementEnergy!));
   const isMusic = (c: RecapClip) => input.musicMinutes.has(Math.floor(c.clipStart / 60_000) * 60_000);
   // Song-level sound features of the night's music, to rank each song against the rest of its night
@@ -338,5 +408,6 @@ export function buildNightRecap(input: {
     recognisedSongs: new Set(input.clips.map(c => c.songIsrc).filter(Boolean)).size,
     coverage: musicClips.length > 0 ? musicClips.filter(c => c.songIsrc).length / musicClips.length : null,
     items: listed.slice(0, RECAP.MAX_ITEMS),
+    locked: lockedToBeat(onBody),
   };
 }

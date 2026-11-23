@@ -8,7 +8,8 @@ zoom, see what was playing, and read how each track and each transition worked.
 
 What the report holds (all aggregated; minutes with fewer than MIN_PHONES phones are left out, and
 nothing identifies a phone or a person):
-  curve   per minute: phones measuring, share dancing, tempo (BPM), share locked on the beat
+  curve   per minute: phones measuring, share dancing, tempo (BPM), share locked on the beat, and how
+          many phones move at the same tempo (needs no microphone reading)
   tracks  recognised songs (title/artist from Deezer's public ISRC lookup) and unidentified music
           (possibly the DJ's own edit), each with: dancing share, on-the-beat share, tempo,
           lift (did the floor rise or fall when it started?) and keep (of the people dancing just
@@ -71,7 +72,33 @@ def prepare(windows: pd.DataFrame) -> pd.DataFrame:
     if 'estimated_bpm' in w:
         bpm = bpm.fillna(pd.to_numeric(w['estimated_bpm'], errors='coerce'))
     w['bpm'] = bpm
+    w['mbpm'] = pd.to_numeric(w['movement_bpm'], errors='coerce') if 'movement_bpm' in w else np.nan
     return w
+
+
+TEMPO_TOLERANCE = 0.05    # same as crowd_sync.py
+
+
+def fold_tempo(bpm: float) -> float:
+    """Fold a tempo into [80, 160) so half-time and double-time movers count as agreeing."""
+    if not np.isfinite(bpm) or bpm <= 0:
+        return np.nan
+    while bpm < 80:
+        bpm *= 2
+    while bpm >= 160:
+        bpm /= 2
+    return bpm
+
+
+def tempo_agreement(m: pd.DataFrame) -> float:
+    """Of the phones with a movement tempo this minute, the share within 5% of their median tempo.
+    Needs no microphone reading (the crowd_tempo_agreement idea of crowd_sync.py). NaN with fewer than
+    MIN_PHONES phones measured."""
+    per_phone = m.groupby('session_id')['mbpm'].median().map(fold_tempo).dropna()
+    if len(per_phone) < MIN_PHONES:
+        return np.nan
+    med = per_phone.median()
+    return float((abs(per_phone - med) / med <= TEMPO_TOLERANCE).mean())
 
 
 def crowd_curve(w: pd.DataFrame) -> pd.DataFrame:
@@ -82,9 +109,10 @@ def crowd_curve(w: pd.DataFrame) -> pd.DataFrame:
         'dancing': g['dancing'].mean(),
         'sync': g['plv'].apply(lambda s: float((s.dropna() >= LOCKED_PLV).mean()) if s.notna().any() else np.nan),
         'bpm': g['bpm'].median(),
+        'agree': g.apply(tempo_agreement),
     })
     curve['shown'] = curve['phones'] >= MIN_PHONES
-    curve.loc[~curve['shown'], ['dancing', 'sync', 'bpm']] = np.nan
+    curve.loc[~curve['shown'], ['dancing', 'sync', 'bpm', 'agree']] = np.nan
     full = pd.date_range(curve.index.min(), curve.index.max(), freq='min', tz='UTC')
     return curve.reindex(full)
 
@@ -151,7 +179,7 @@ def describe_runs(rs: list[dict], w: pd.DataFrame, curve: pd.DataFrame, lookup) 
         rows.append({
             'start': r['start'], 'end': r['end'] + step, 'minutes': r['minutes'], 'unknown': r['label'] == 'unknown',
             'title': (info or {}).get('title'), 'artist': (info or {}).get('artist'),
-            'dancing': _mean(c['dancing']), 'sync': _mean(c['sync']), 'bpm': _mean(c['bpm']), 'lift': lift, 'keep': keep,
+            'dancing': _mean(c['dancing']), 'sync': _mean(c['sync']), 'bpm': _mean(c['bpm']), 'agree': _mean(c['agree']), 'lift': lift, 'keep': keep,
         })
     return rows
 
@@ -222,10 +250,10 @@ def build_report(w: pd.DataFrame, lookup=deezer_lookup) -> dict:
 
     return {
         'v': 1,
-        'curve': [{'t': ms(t), 'p': int(r.phones), 'd': num(r.dancing), 's': num(r.sync), 'b': num(r.bpm, 1)}
+        'curve': [{'t': ms(t), 'p': int(r.phones), 'd': num(r.dancing), 's': num(r.sync), 'b': num(r.bpm, 1), 'a': num(r.agree)}
                   for t, r in curve.iterrows() if not np.isnan(r.phones)],
         'tracks': [{'start': ms(t['start']), 'end': ms(t['end']), 'unknown': t['unknown'], 'title': t['title'], 'artist': t['artist'],
-                    'd': num(t['dancing']), 's': num(t['sync']), 'b': num(t['bpm'], 1), 'lift': num(t['lift']), 'keep': num(t['keep'])}
+                    'd': num(t['dancing']), 's': num(t['sync']), 'b': num(t['bpm'], 1), 'a': num(t['agree']), 'lift': num(t['lift']), 'keep': num(t['keep'])}
                    for t in tracks],
         'peaks': [{'t': ms(m), 'd': num(curve.loc[m, 'dancing']), 'track': track_at(m)} for m in peaks(curve)],
         'jumps': [{'t': ms(j['t']), 'from': num(j['from']), 'to': num(j['to']), 'track': track_at(j['t'])} for j in jumps(curve)],
@@ -259,7 +287,7 @@ def rest(path: str, method='GET', body=None, prefer=None) -> list[dict]:
         start += 1000
 
 
-COLS = 'session_id,window_start,venue_place_id,music_detected,movement_classification,rhythmicity,beat_plv,song_isrc,song_bpm,estimated_bpm,phone_context,on_body_share'
+COLS = 'session_id,window_start,venue_place_id,music_detected,movement_classification,rhythmicity,beat_plv,song_isrc,song_bpm,estimated_bpm,movement_bpm,phone_context,on_body_share'
 
 
 def load_windows(place: str, t0: pd.Timestamp, t1: pd.Timestamp) -> pd.DataFrame:
@@ -294,11 +322,11 @@ def synthetic_night() -> pd.DataFrame:
             recs.append({'session_id': f's{p}', 'window_start': minute.isoformat(), 'venue_place_id': 'V', 'music_detected': True,
                          'movement_classification': 'dancing' if (rng.uniform() < dancing_p or m == 29) else 'stationary', 'rhythmicity': 0.1,
                          'beat_plv': 0.6 if isrc == 'BBB' else 0.2, 'song_isrc': isrc, 'song_bpm': 124.0 if isrc == 'BBB' else (118.0 if isrc else None),
-                         'estimated_bpm': 120.0, 'phone_context': 'on_body_moving', 'on_body_share': 1.0})
+                         'estimated_bpm': 120.0, 'movement_bpm': 124.0 if isrc == 'BBB' else float(rng.choice([70, 90, 105, 124, 150])), 'phone_context': 'on_body_moving', 'on_body_share': 1.0})
     for m in range(60):                                   # a phone lying on a table must not count
         recs.append({'session_id': 'table', 'window_start': (t0 + pd.Timedelta(minutes=m)).isoformat(), 'venue_place_id': 'V', 'music_detected': True,
                      'movement_classification': 'stationary', 'rhythmicity': 0.0, 'beat_plv': None, 'song_isrc': None, 'song_bpm': None,
-                     'estimated_bpm': None, 'phone_context': 'off_body', 'on_body_share': 0.0})
+                     'estimated_bpm': None, 'movement_bpm': None, 'phone_context': 'off_body', 'on_body_share': 0.0})
     return pd.DataFrame(recs)
 
 
@@ -324,6 +352,7 @@ def selftest():
     check('tracklist: Opener, unidentified music, The Banger', [(t['title'], t['unknown']) for t in tr] == [('Opener', False), (None, True), ('The Banger', False)],
           str([(t['title'], t['unknown']) for t in tr]))
     check('the banger has the highest dancing share', tr[2]['d'] > tr[0]['d'] + 0.3)
+    check('the floor moves at one tempo during the banger and not during the opener (no mic needed)', (tr[2]['a'] or 0) > 0.9 and (tr[0]['a'] or 1) < 0.7, f"opener {tr[0]['a']}, banger {tr[2]['a']}")
     check('the banger is on the beat (and has a tempo)', (tr[2]['s'] or 0) > 0.8 and tr[2]['b'] is not None)
     check('lift: the floor rises when the banger starts, not for the opener', (tr[2]['lift'] or 0) > 0.2 and tr[0]['lift'] is None)
     check('keep: most of those dancing just before the banger kept dancing', (tr[2]['keep'] or 0) > 0.6, str(tr[2]['keep']))

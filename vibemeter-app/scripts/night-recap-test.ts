@@ -2,13 +2,13 @@
 // Run from vibemeter-app/: npx tsx scripts/night-recap-test.ts
 import { buildNightRecap, RecapClip } from '../src/processing/NightRecap';
 import { computeWeightedTempoMatch } from '../src/processing/BeatSync';
-import { tempoFit, RECAP } from '../src/processing/NightRecap';
+import { tempoFit, RECAP, carryTempo, lockedToBeat, clipLocked } from '../src/processing/NightRecap';
 
 const T0 = new Date(2026, 9, 24, 23, 0).getTime();
 
 type Step = {
   isrc: string | null; min: number; energy: number; plv?: number | null; ctx?: string;
-  moveBpm?: number | null; songBpm?: number | null; walking?: boolean;
+  moveBpm?: number | null; songBpm?: number | null;
   pulse?: number; bass?: number; flux?: number;   // the song's sound features (0-1)
 };
 
@@ -23,7 +23,7 @@ function night(plan: Step[]) {
         clipStart: t, movementEnergy: s.energy + (i % 3) * 0.1, beatPlv: s.plv ?? null,
         movementBpm: s.moveBpm ?? null, songBpm: s.songBpm ?? null, songIsrc: s.isrc,
         pulseClarity: s.pulse ?? null, spectralFlux: s.flux ?? null, subBass: s.bass ?? null,
-        phoneContext: s.ctx ?? 'on_body_moving', walking: s.walking ?? false,
+        phoneContext: s.ctx ?? 'on_body_moving',
       });
       musicMinutes.add(Math.floor(t / 60_000) * 60_000);
       t += 10_000;
@@ -74,15 +74,17 @@ expect('the reason mentions the beat for the banger', /beat/i.test(recap.items[0
 expect('the banger has a strong lift (it came after standing)', (recap.items[0]?.parts.lift ?? 0) > 0.7);
 expect('6 songs recognised (incl. the bar trip)', recap.recognisedSongs === 6);
 
-// 2. Walking to the bar to a rhythmic song must not count as dancing
+// 2. No label decides: the person's own relative movement and how in time it was do. A song moved to
+// strongly and in time ranks first; a song with little movement is not listed
 const b = night([
   { isrc: 'DANCE', min: 4, energy: 3.5, plv: 0.5 },
-  { isrc: 'WALK', min: 4, energy: 5.5, moveBpm: 116, songBpm: 116, walking: true },
+  { isrc: 'STRONG', min: 4, energy: 5.5, moveBpm: 116, songBpm: 116 },
   { isrc: 'CHILL', min: 4, energy: 1.5 },
 ]);
-const rb = buildNightRecap({ sessionId: 'B', venueName: null, startedAt: T0, endedAt: b.end, clips: b.clips, musicMinutes: b.musicMinutes, songs: songs(['DANCE', 'WALK', 'CHILL']), sets: [] });
-expect('a song walked through is not ranked', !rb.items.some(i => i.isrc === 'WALK'));
-expect('the danced song is #1', rb.items[0]?.isrc === 'DANCE');
+const rb = buildNightRecap({ sessionId: 'B', venueName: null, startedAt: T0, endedAt: b.end, clips: b.clips, musicMinutes: b.musicMinutes, songs: songs(['DANCE', 'STRONG', 'CHILL']), sets: [] });
+expect('the strongest, in-time song is #1', rb.items[0]?.isrc === 'STRONG');
+expect('the other danced song is listed too', rb.items.some(i => i.isrc === 'DANCE'));
+expect('a song with little movement is not listed', !rb.items.some(i => i.isrc === 'CHILL'));
 
 // 3. Without a beat grid, movement tempo matching the song (or half/double) counts as in sync
 const c = night([
@@ -139,6 +141,36 @@ const allK = scoreOnly(k, ['DROP']);
 expect('kept moving through the change: carry is high', (kKeep?.parts.carry ?? 0) > 0.7);
 expect('standing before the song: no carry (it drops out)', kPre?.parts.carry == null);
 expect('stopping at the change: carry is low', (allK?.parts.carry ?? 1) < 0.4);
+
+// 3e. The music's tempo is carried to minutes where the phone could not hear it (a DJ set holds its tempo)
+const MIN_MS = 60_000;
+const ct = carryTempo([{ ms: 0, bpm: 132 }, { ms: MIN_MS, bpm: null }, { ms: 5 * MIN_MS, bpm: null }, { ms: 60 * MIN_MS, bpm: null }, { ms: 40 * MIN_MS, bpm: 124 }, { ms: 36 * MIN_MS, bpm: null }]);
+expect('a minute next to a measured tempo takes it', ct.get(MIN_MS) === 132 && ct.get(5 * MIN_MS) === 132);
+expect('a measured minute keeps its own tempo', ct.get(0) === 132 && ct.get(40 * MIN_MS) === 124);
+expect('the nearest measured tempo wins (either side)', ct.get(36 * MIN_MS) === 124);
+expect('nothing measured within 15 minutes stays unknown', ct.get(60 * MIN_MS) == null);
+
+// 3f. Locked to the beat: clips that follow the beat by phase or by tempo, grouped into stretches
+const lockClip = (min: number, k: number, over: Partial<RecapClip>): RecapClip => ({
+  clipStart: T0 + min * MIN_MS + k * 10_000, movementEnergy: 4, beatPlv: null, movementBpm: null, songBpm: 128, songIsrc: null,
+  phoneContext: 'on_body_moving', pulseClarity: null, spectralFlux: null, subBass: null, ...over,
+} as RecapClip);
+const lc: RecapClip[] = [];
+for (let m = 0; m < 12; m++) for (let k = 0; k < 6; k++) {
+  if (m >= 0 && m < 5) lc.push(lockClip(m, k, { beatPlv: 0.8 }));                       // minutes 0-4: phase locked
+  else if (m === 5) lc.push(lockClip(m, k, { beatPlv: 0.1, movementBpm: 90 }));        // minute 5: off the beat
+  else if (m >= 6 && m < 9) lc.push(lockClip(m, k, { movementBpm: 64 }));               // minutes 6-8: half-time tempo match, no PLV
+  else lc.push(lockClip(m, k, { beatPlv: 0.1, movementBpm: 97 }));                      // 9-11: not locked
+}
+const ls = lockedToBeat(lc);
+expect('a phase-locked clip is locked', clipLocked(lockClip(0, 0, { beatPlv: 0.8 })));
+expect('a tempo-matched clip (half time) is locked without PLV', clipLocked(lockClip(0, 0, { movementBpm: 64 })));
+expect('an off-tempo clip is not locked', !clipLocked(lockClip(0, 0, { beatPlv: 0.1, movementBpm: 97 })));
+expect('one off-beat minute inside does not split a stretch (0-8 is one stretch)', ls.stretches.length === 1 && ls.stretches[0].startsAt === T0 && ls.stretches[0].endsAt === T0 + 9 * MIN_MS);
+expect('locked minutes are counted (8 of the 9)', ls.minutes === 8 && ls.longest?.minutes === 8);
+expect('a night with nothing locked has no stretches', lockedToBeat(lc.filter(c => c.clipStart >= T0 + 9 * MIN_MS)).stretches.length === 0);
+const lockedRecap = buildNightRecap({ sessionId: 'L', venueName: null, startedAt: T0, endedAt: T0 + 12 * MIN_MS, clips: lc, musicMinutes: new Set(lc.map(c => Math.floor(c.clipStart / MIN_MS) * MIN_MS)), songs: [], sets: [] });
+expect('the recap carries the locked summary even when no song is recognised', (lockedRecap.locked?.minutes ?? 0) === 8);
 
 // 4. A known DJ edit at a night with no lineup: its DJ, title and link
 const unknownStart = recap.items.find(i => i.kind === 'unknown')!.startsAt;

@@ -101,6 +101,23 @@ function appleMusicUrl(i: Item): string {
  * no rating needed, with 👍/👎, Spotify and Apple Music links, an Apple Music playlist and a
  * share card. Opened from the session summary and from the 12:00 notification.
  */
+/** "Locked to the beat": when the person's movement followed the music, found without needing the songs named. */
+function LockedCard({ locked }: { locked: NonNullable<StoredRecap['locked']> }) {
+  const t = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return (
+    <View style={[st.card, { borderColor: A + '88' }]}>
+      <Text style={st.kicker}>LOCKED TO THE BEAT</Text>
+      <Text style={st.lockedBig}>{locked.minutes} min</Text>
+      <Text style={st.meta}>
+        Your movement followed the music's beat{locked.longest ? `. Longest stretch ${t(locked.longest.startsAt)}-${t(locked.longest.endsAt)} (${locked.longest.minutes} min)` : ''}.
+      </Text>
+      {locked.stretches.length > 1 && (
+        <Text style={st.meta}>{locked.stretches.map(s => `${t(s.startsAt)}-${t(s.endsAt)}`).join(' · ')}</Text>
+      )}
+    </View>
+  );
+}
+
 /** A session started from a nudge has no club yet: the person fills it in here, whenever they like. */
 function WhereCard({ sessionId, onSaved }: { sessionId: string; onSaved: () => void }) {
   const [name, setName] = useState('');
@@ -221,6 +238,8 @@ export default function RecapScreen() {
         </Text>
       </View>
 
+      {recap.locked && recap.locked.minutes >= 2 && <LockedCard locked={recap.locked} />}
+
       {recap.venueName == null && sessionId && (
         <WhereCard sessionId={sessionId} onSaved={() => buildRecap(sessionId).then(setRecap)} />
       )}
@@ -228,7 +247,9 @@ export default function RecapScreen() {
       {recap.items.length === 0 ? (
         <View style={st.card}>
           <Text style={st.body}>
-            Not enough to rank this time. Keep the phone in your pocket while you dance, and the songs you move to most will show up here.
+            {recap.locked && recap.locked.minutes >= 2
+              ? 'No song could be named and ranked this time, but your locked stretches are above.'
+              : 'Not enough to rank this time. Keep the phone in your pocket while you dance, and the songs you move to most will show up here.'}
           </Text>
           <TouchableOpacity style={st.secondaryBtn} onPress={() => sessionId && buildRecap(sessionId).then(setRecap)}>
             <Text style={st.secondaryText}>TRY AGAIN</Text>
@@ -328,6 +349,7 @@ const st = StyleSheet.create({
   chipLabel: { fontFamily: MONO, fontSize: 10, fontWeight: '700', color: TXM, letterSpacing: 1 },
   primaryBtn: { height: 52, borderRadius: 14, backgroundColor: A, alignItems: 'center', justifyContent: 'center' },
   primaryText: { fontFamily: MONO, fontSize: 13, fontWeight: '700', color: '#030904', letterSpacing: 2 },
+  lockedBig: { fontSize: 34, fontWeight: '800', color: A },
   whereInput: { height: 46, borderRadius: 12, borderWidth: 1, borderColor: S2, backgroundColor: BG, color: TX, paddingHorizontal: 14, fontSize: 16 },
   secondaryBtn: { height: 48, borderRadius: 14, borderWidth: 1, borderColor: TXD + '66', alignItems: 'center', justifyContent: 'center' },
   secondaryText: { fontFamily: MONO, fontSize: 12, fontWeight: '700', color: TXM, letterSpacing: 2 },

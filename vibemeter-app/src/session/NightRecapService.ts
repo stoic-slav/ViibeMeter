@@ -2,7 +2,7 @@ import * as Crypto from 'expo-crypto';
 import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
 import { supabase } from '../config/supabase';
-import { buildNightRecap, isWalkingMinute, DjSet, NightRecap, RecapItem } from '../processing/NightRecap';
+import { buildNightRecap, carryTempo, DjSet, NightRecap, RecapItem } from '../processing/NightRecap';
 import {
   getSessions, getClipsForSession, getWindowsForSession, getNightSongs, getNightEdits,
   saveNightRecap, getNightRecap, saveSongFeedback,
@@ -47,6 +47,8 @@ export async function buildRecap(sessionId: string): Promise<StoredRecap | null>
     getClipsForSession(sessionId), getWindowsForSession(sessionId), getNightSongs(sessionId), getNightEdits(sessionId),
   ]);
   const byMinute = new Map<number, any>(windows.map((w: any) => [w.window_start as number, w]));
+  // The music's tempo per minute: the recognised song's, else the beat the phone heard, else the nearest measured one
+  const tempoByMinute = carryTempo(windows.map((w: any) => ({ ms: w.window_start as number, bpm: w.song_bpm ?? w.estimated_bpm ?? null })));
   const startedAt = session.started_at as number;
   const endedAt = (session.ended_at as number | null) ?? Date.now();
   // The venue: the session's, else the one most of its minutes were at
@@ -60,13 +62,13 @@ export async function buildRecap(sessionId: string): Promise<StoredRecap | null>
     startedAt,
     endedAt,
     clips: clipRows.map(c => {
-      // Per-minute context from the window: the song's tempo, and whether the minute was walking
+      // Per-minute context from the window: the song's tempo and sound features
       const w = byMinute.get(Math.floor(c.clip_start / 60_000) * 60_000);
       return {
         clipStart: c.clip_start, movementEnergy: c.movement_energy, beatPlv: c.beat_plv,
-        movementBpm: c.movement_bpm ?? null, songBpm: w?.song_bpm ?? null,
+        movementBpm: c.movement_bpm ?? null, songBpm: tempoByMinute.get(Math.floor(c.clip_start / 60_000) * 60_000) ?? w?.song_bpm ?? null,
         pulseClarity: w?.pulse_clarity ?? null, spectralFlux: w?.spectral_flux ?? null, subBass: w?.sub_bass_energy ?? null,
-        songIsrc: c.song_isrc, phoneContext: c.phone_context, walking: isWalkingMinute(w?.movement_classification, w?.avg_db),
+        songIsrc: c.song_isrc, phoneContext: c.phone_context,
       };
     }),
     songs,
